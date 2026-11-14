@@ -32,9 +32,10 @@ How to do the everyday things in the web UI. To install, see
 - **Tasks** (bottom): the last actions with progress and result. Running tasks
   stay on top. Drag the top edge to resize, or collapse it with the arrow.
   **All tasks** opens the full log. A running task that can be stopped (backup,
-  replication copy, migration, disk move, image download, evacuation, rolling
-  update) has an **x** next to its progress: click it and confirm to stop the
-  task. It then ends with the error "cancelled".
+  restore, replication copy, migration, disk move, clone, import, backup export
+  or import, download, upload, evacuation, rolling update) has an **x** next to
+  its progress: click it and confirm to stop the task. It then ends with the
+  error "cancelled", and what it had made so far is removed.
 - **Status** is always a dot and a word: green Ok, yellow Warning, red Error.
 
 Long actions (snapshots, migration, backups, downloads) run in the background.

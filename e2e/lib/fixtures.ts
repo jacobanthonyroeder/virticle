@@ -71,4 +71,30 @@ export async function stateOf(api: Api, vm: { node: number; uuid: string }) {
   return (await api.vmDetail(vm.node, vm.uuid)).state as string;
 }
 
+/**
+ * Starts something that makes a task of the given kind (a call that may answer only when the task has ended),
+ * stops that task through POST /api/tasks/{id}/cancel after `afterMs` and returns the finished task, the seconds
+ * from the stop request to the end of the task, and what the call answered (or the error it ended with).
+ */
+export async function stopTask(api: Api, kind: string, start: () => Promise<unknown>, afterMs = 400) {
+  type T = { id: number; kind: string; status: string; error?: string; cancel?: string };
+  const tasks = async () => (await api.get("/tasks")) as T[];
+  const known = new Set((await tasks()).map((t) => t.id));
+  const call = start().then(
+    (answer) => ({ answer, error: undefined as unknown }),
+    (error) => ({ answer: undefined as unknown, error }),
+  );
+  const running = await api.waitFor(`a running ${kind} task`, async () => (await tasks()).find((t) => t.kind === kind && t.status === "running" && !known.has(t.id)), 60_000, 150);
+  expect(running.cancel, `the running ${kind} task offers a stop`).toBeTruthy();
+  await new Promise((r) => setTimeout(r, afterMs));
+  const t0 = Date.now();
+  await api.post(`/tasks/${running.id}/cancel`);
+  const task = await api.waitFor(`the ${kind} task to end`, async () => (await tasks()).find((t) => t.id === running.id && t.status !== "running"), 30_000, 100);
+  const seconds = (Date.now() - t0) / 1000;
+  console.log(`  ${kind}: stopped ${afterMs} ms after it started, ended ${seconds.toFixed(1)} s after the request: ${task.status} "${task.error}"`);
+  expect(task.status).toBe("failed");
+  expect(task.error).toContain("cancelled");
+  return { task, seconds, ...(await call) };
+}
+
 export { P };

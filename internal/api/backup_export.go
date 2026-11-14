@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"virticle/internal/hostconn"
 )
@@ -69,13 +70,16 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	// Explicit plain member names, so the archive can be vetted on import.
 	out := &streamOut{w: w, filename: m.VM + ".vmexport.tar", total: total}
-	err = s.task(r, "backup export", b.name, b.h.Name, func(progress func(float64)) error {
+	st := newStopper(r.Context())
+	defer st.done()
+	err = s.taskStop(r, "backup export", b.name, b.h.Name, taskStop{operator, st.stop}, func(progress func(float64)) (rerr error) {
+		defer func() { rerr = st.cancelled("backup export", rerr) }()
 		dir := b.dir
 		out.progress = progress
 		if chain != nil {
 			// An export is one self-contained file, so an incremental backup is put
 			// together with the ones it builds on first (a full backup in the export).
-			flat, fm, err := b.flatten(m, chain, func(f float64) { progress(f * 0.5) })
+			flat, fm, err := b.flatten(m, chain, st, func(f float64) { progress(f * 0.5) })
 			if err != nil {
 				return err
 			}
@@ -86,7 +90,7 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 			}
 			out.progress = func(f float64) { progress(0.5 + f*0.5) }
 		}
-		return b.h.TarPack(r.Context(), dir, names, out)
+		return b.h.TarPack(st.Ctx(), dir, names, out)
 	})
 	if err != nil {
 		if !out.started {
@@ -100,15 +104,21 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 // flatten puts the disks of an incremental backup together with the backups it
 // builds on, into a work directory in the same pool, with a manifest that
 // describes a full backup. The caller removes the directory.
-func (b *backupRef) flatten(m *backupManifest, chain []chainLink, progress func(float64)) (wd *bkWork, fm *backupManifest, err error) {
-	if wd, err = newWork(b.h, b.pd.Dir, "ex"); err != nil {
+func (b *backupRef) flatten(m *backupManifest, chain []chainLink, st *stopper, progress func(float64)) (wd *bkWork, fm *backupManifest, err error) {
+	// w, not wd: a failing return sets the named result wd to nil before the deferred functions run.
+	w, err := newWork(b.h, b.pd.Dir, "ex")
+	if err != nil {
 		return nil, nil, err
 	}
+	wd = w
 	defer func() {
 		if err != nil {
-			wd.remove()
+			w.remove()
 		}
 	}()
+	// A stop ends qemu-img and deletes the work directory.
+	w.stop = st.Stopped
+	defer st.onStop(func() { w.remove() })()
 	cp := *m
 	cp.Format, cp.Kind, cp.Parent, cp.Checkpoint, cp.Disks = backupFormat, kindFull, "", "", nil
 	cp.FullReason = fmt.Sprintf("Put together from %d backups when exported.", len(chain))
@@ -178,14 +188,27 @@ func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var res map[string]any
-	err = s.task(r, "backup import", r.URL.Query().Get("pool"), h.Name, func(progress func(float64)) (rerr error) {
+	// A stop ends the unpacking on the node (the session is hung up), cuts the read of the upload short and
+	// deletes the work directory; nothing reaches the pool before the archive is complete and checked.
+	st := newStopper(r.Context())
+	defer st.done()
+	rc := http.NewResponseController(w)
+	st.onStop(func() { rc.SetReadDeadline(time.Now()) })
+	err = s.taskStop(r, "backup import", r.URL.Query().Get("pool"), h.Name, taskStop{operator, st.stop}, func(progress func(float64)) (rerr error) {
+		defer func() { rerr = st.cancelled("backup import", rerr) }()
 		wd, err := newWork(h, pd.Dir, "imp")
 		if err != nil {
 			return err
 		}
 		defer func() {
 			if rerr != nil {
-				if cerr := wd.remove(); cerr != nil {
+				cerr := wd.remove()
+				if cerr != nil && st.Stopped() {
+					// The unpacking on the node may still write for a moment.
+					time.Sleep(time.Second)
+					cerr = wd.remove()
+				}
+				if cerr != nil {
 					rerr = withNote(rerr, "work directory left behind: "+wd.path)
 				}
 			}
@@ -201,7 +224,7 @@ func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
 			pw.CloseWithError(err)
 			vetCh <- vetResult{names, err}
 		}()
-		perr := h.TarUnpack(r.Context(), wd.path, pr)
+		perr := h.TarUnpack(st.Ctx(), wd.path, pr)
 		pr.CloseWithError(errors.New("extraction ended"))
 		v := <-vetCh
 		var br badRequest
@@ -214,6 +237,9 @@ func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
 			return v.err
 		}
 		progress(0.8)
+		if !st.commit() { // the checks and the move into place are short: a stop from here on changes nothing
+			return stoppedErr("backup import")
+		}
 		return finishImport(h, pd, wd, v.names, &res)
 	})
 	if err != nil {

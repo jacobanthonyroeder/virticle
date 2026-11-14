@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/digitalocean/go-libvirt"
 
@@ -425,7 +428,11 @@ type countingReader struct {
 	n     int64
 	total int64
 	tick  func(float64)
+	// stopped, when set, ends the reading with errUploadStopped once it says true.
+	stopped func() bool
 }
+
+var errUploadStopped = errors.New("upload stopped")
 
 // Read fills up to 1 MiB per call. Each Read becomes one libvirt stream
 // packet, and an HTTP body otherwise arrives in small pieces that make the
@@ -434,7 +441,13 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	if len(p) > 1<<20 {
 		p = p[:1<<20]
 	}
+	if c.stopped != nil && c.stopped() {
+		return 0, errUploadStopped
+	}
 	n, err := io.ReadFull(c.r, p)
+	if err != nil && c.stopped != nil && c.stopped() {
+		err = errUploadStopped // the read was cut short by the stop (see uploadVolume)
+	}
 	if err == io.ErrUnexpectedEOF {
 		err = nil // short final chunk; the next call reports EOF
 	}
@@ -465,15 +478,28 @@ func (s *Server) uploadVolume(w http.ResponseWriter, r *http.Request) {
 			format = "qcow2"
 		}
 	}
-	err = s.task(r, "upload", pool.Name+"/"+name, h.Name, func(progress func(float64)) error {
+	// A stop ends the stream: the read of the request body is cut short, libvirt gets an error instead of
+	// more data, and the new volume is deleted.
+	st := newStopper(context.Background())
+	defer st.done()
+	rc := http.NewResponseController(w)
+	st.onStop(func() { rc.SetReadDeadline(time.Now()) })
+	err = s.taskStop(r, "upload", pool.Name+"/"+name, h.Name, taskStop{operator, st.stop}, func(progress func(float64)) error {
 		vol, err := h.StorageVolCreateXML(pool, volumeXML(name, format, uint64(r.ContentLength)), 0)
 		if err != nil {
 			return err
 		}
-		body := &countingReader{r: r.Body, total: r.ContentLength, tick: progress}
+		body := &countingReader{r: r.Body, total: r.ContentLength, tick: progress, stopped: st.Stopped}
 		if err := h.StorageVolUpload(vol, body, 0, 0, 0); err != nil {
 			h.StorageVolDelete(vol, 0)
+			if st.Stopped() {
+				return stoppedErr("upload")
+			}
 			return err
+		}
+		if st.Stopped() {
+			h.StorageVolDelete(vol, 0)
+			return stoppedErr("upload")
 		}
 		if body.n != r.ContentLength {
 			h.StorageVolDelete(vol, 0)
@@ -513,6 +539,9 @@ func (s *Server) volumeAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var fn func() error
+	st := newStopper(context.Background())
+	defer st.done()
+	stop := taskStop{}
 	switch req.Action {
 	case "resize":
 		if req.Capacity == 0 {
@@ -525,6 +554,7 @@ func (s *Server) volumeAction(w http.ResponseWriter, r *http.Request) {
 			fail(w, badRequest("name is required"))
 			return
 		}
+		stop = taskStop{operator, st.stop}
 		fn = func() error {
 			raw, err := h.StorageVolGetXMLDesc(vol, 0)
 			if err != nil {
@@ -541,14 +571,26 @@ func (s *Server) volumeAction(w http.ResponseWriter, r *http.Request) {
 			if err := xml.Unmarshal([]byte(raw), &x); err != nil {
 				return err
 			}
-			_, err = h.StorageVolCreateXMLFrom(pool, volumeXML(req.Name, x.Target.Format.Type, x.Capacity), vol, 0)
-			return err
+			nv, err := copyVolume(h, pool, volumeXML(req.Name, x.Target.Format.Type, x.Capacity), req.Name, vol, st)
+			switch {
+			case errors.Is(err, errCopyStopped):
+				return copyStopped("clone", err)
+			case err != nil:
+				return err
+			case st.Stopped():
+				// The stop came too late to end the copy: the new volume is not kept.
+				if derr := h.StorageVolDelete(nv, 0); derr != nil {
+					return fmt.Errorf("clone cancelled; the new volume %s could not be removed: %v", req.Name, derr)
+				}
+				return stoppedErr("clone")
+			}
+			return nil
 		}
 	default:
 		fail(w, badRequest("unknown action "+req.Action))
 		return
 	}
-	if err := s.task(r, req.Action+" volume", pool.Name+"/"+vol.Name, h.Name, func(func(float64)) error { return fn() }); err != nil {
+	if err := s.taskStop(r, req.Action+" volume", pool.Name+"/"+vol.Name, h.Name, stop, func(func(float64)) error { return fn() }); err != nil {
 		fail(w, err)
 		return
 	}

@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
@@ -241,7 +243,13 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var uuid, nvramNote string
-	err = s.task(r, "clone", q.Name+" (from "+src.Name+")", h.Name, func(progress func(float64)) error {
+	st := newStopper(context.Background())
+	defer st.done()
+	stop := taskStop{}
+	if !q.Linked { // a linked clone takes no time, a full one copies the disks
+		stop = taskStop{operator, st.stop}
+	}
+	err = s.taskStop(r, "clone", q.Name+" (from "+src.Name+")", h.Name, stop, func(progress func(float64)) error {
 		var created []libvirt.StorageVol
 		var defined *libvirt.Domain
 		rollback := func(cause error) error {
@@ -267,6 +275,9 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 		var firstPool libvirt.StoragePool
 		var newDisks []string
 		for i, d := range plan {
+			if st.Stopped() {
+				return rollback(stoppedErr("clone"))
+			}
 			progress(float64(i) / float64(len(plan)+1))
 			srcVol, err := lookupVolByPath(h, d.srcPath)
 			if err != nil {
@@ -296,7 +307,10 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 			if q.Linked {
 				nv, err = h.StorageVolCreateXML(pool, linkedVolumeXML(d.newName, vx.Capacity, d.srcPath, vx.Format.Type), 0)
 			} else {
-				nv, err = h.StorageVolCreateXMLFrom(pool, volumeXML(d.newName, vx.Format.Type, vx.Capacity), srcVol, 0)
+				nv, err = copyVolume(h, pool, volumeXML(d.newName, vx.Format.Type, vx.Capacity), d.newName, srcVol, st)
+			}
+			if errors.Is(err, errCopyStopped) {
+				return rollback(copyStopped("clone", err))
 			}
 			if err != nil {
 				return rollback(fmt.Errorf("disk %s: %w", d.newName, err))
@@ -310,6 +324,9 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 			newDisks = append(newDisks, np)
 		}
 
+		if st.Stopped() {
+			return rollback(stoppedErr("clone"))
+		}
 		edit := cloneEdit{Name: q.Name, Disks: newPaths}
 		if oldSeed != "" {
 			edit.Disks[oldSeed] = ""
@@ -344,6 +361,11 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// The definition is the short last step: a stop that comes later changes nothing. virt-sysprep itself
+		// cannot be interrupted; a stop during it is seen here.
+		if !st.commit() {
+			return rollback(stoppedErr("clone"))
+		}
 		dom, err := h.DomainDefineXMLFlags(newXML, libvirt.DomainDefineValidate)
 		if err != nil {
 			return rollback(err)

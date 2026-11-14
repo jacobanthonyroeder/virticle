@@ -311,10 +311,27 @@ systems frozen" or "not frozen: REASON", and `manifest.frozen` is `true` or `fal
 and shut-off VMs). Tasks that ended well carry such a note as `note` in `GET /api/tasks`.
 
 `POST /api/tasks/{id}/cancel` asks a running task to stop. It works for backups, replication copies, migrations, disk
-moves, image downloads, evacuations and rolling updates, and does the same as the cancel call of that action. A running
-task that can be stopped carries `cancel` in `GET /api/tasks`: the role needed to stop it (`operator`; `admin` for an
-evacuation and a rolling update). The Tasks panel and the Tasks page show an **x** on such a task. An evacuation and a
-rolling update finish the step they are in first.
+moves, image downloads, evacuations, rolling updates, restores of a backup, full clones of a VM or a volume, imports of
+a disk or OVA, backup exports and imports, volume downloads from a URL and volume uploads. For the first seven it does
+the same as the cancel call of that action. A running task that can be stopped carries `cancel` in `GET /api/tasks`: the
+role needed to stop it (`operator`; `admin` for an evacuation and a rolling update). The Tasks panel and the Tasks page
+show an **x** on such a task. An evacuation and a rolling update finish the step they are in first.
+
+A task that was stopped ends as failed with a message that contains "cancelled". The work on the node ends within a few
+seconds, and nothing half-made stays: partial volumes, partial files, work directories and half-defined VMs are removed.
+The source (the backup, the template, the uploaded file) is never changed. Some steps cannot be interrupted, and the
+stop is then seen as soon as the step ends:
+
+| Task | Not interruptible | Point of no return (a later stop does nothing) |
+| --- | --- | --- |
+| Restore | none | Moving the disks into place and defining the VM (a restore that replaces a VM removes the old one only after this point) |
+| Clone | `virt-sysprep` | Defining the VM |
+| Disk or OVA import | none | OVA: registering the finished volumes |
+| Backup import | none | Checking the archive and moving it into place |
+
+A clone of a volume or VM copies through libvirt, which cannot be interrupted. The node command then ends the
+`qemu-img` that libvirt started (`copy-kill`). On a node whose node command is older, the copy runs to its end and the
+task is stopped afterwards (run `virticle node prepare` again). A linked clone takes no time and cannot be stopped.
 
 ### Incremental backups
 
