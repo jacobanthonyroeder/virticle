@@ -350,6 +350,12 @@ func (s *Server) publicSignIn() map[string]any {
 		}
 		out["oidc"] = name
 	}
+	// Only that a web access change waits and until when: no settings, no addresses.
+	if s.Web != nil {
+		if d, ok := s.Web.PendingDeadline(); ok {
+			out["webChangeUntil"] = d.UTC().Format(time.RFC3339)
+		}
+	}
 	return out
 }
 

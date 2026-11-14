@@ -172,7 +172,7 @@ test.describe.serial("visual pass", () => {
   });
 
   for (const m of modes) {
-    test(`every page and tab: ${m.name}`, async ({ browser }) => {
+    test(`every page and tab: ${m.name}`, async ({ browser }, testInfo) => {
       test.setTimeout(240_000);
       const ctx = await browser.newContext({ storageState: ".auth/admin.json", viewport: m.viewport });
       // The theme no longer follows the OS: pick it the way the toggle does (localStorage, read before first paint).
@@ -224,10 +224,19 @@ test.describe.serial("visual pass", () => {
       await shot("web-access", () => expect(page.getByRole("heading", { name: "Web access" })).toBeVisible());
       // Advanced holds the plain HTTP and reverse proxy choices
       await page.getByRole("button", { name: /^Advanced/ }).click();
-      await page.getByRole("radio", { name: "Behind a reverse proxy", exact: true }).check();
-      await shot("web-access-proxy", () => expect(page.getByRole("heading", { name: "HAProxy" })).toBeVisible());
-      await page.getByRole("radio", { name: "My domain, with a Let's Encrypt certificate", exact: true }).check();
-      await shot("web-access-acme", () => expect(page.getByLabel("Domain names")).toBeVisible());
+      // A controller started with -listen (or the older flags) shows the settings read-only: the mode radios are
+      // disabled, so the two mode-switch screenshots cannot be taken there. Everything else still runs.
+      const fromFlags = await page.getByText("The listener is set by command-line flags").isVisible();
+      if (fromFlags) {
+        await expect(page.getByRole("radio", { name: "Behind a reverse proxy", exact: true })).toBeDisabled();
+        await shot("web-access-from-flags", () => expect(page.getByRole("radio", { name: "Behind a reverse proxy", exact: true })).toBeVisible());
+        testInfo.annotations.push({ type: "skipped", description: `web-access-proxy and web-access-acme (${m.name}): the controller was started with listener flags, the form is read-only` });
+      } else {
+        await page.getByRole("radio", { name: "Behind a reverse proxy", exact: true }).check();
+        await shot("web-access-proxy", () => expect(page.getByRole("heading", { name: "HAProxy" })).toBeVisible());
+        await page.getByRole("radio", { name: "My domain, with a Let's Encrypt certificate", exact: true }).check();
+        await shot("web-access-acme", () => expect(page.getByLabel("Domain names")).toBeVisible());
+      }
 
       await page.goto(vmUrl);
       await shot("vm-overview", () => expect(page.locator("#utilization .st-val").first()).toContainText("%", { timeout: 75_000 }));
