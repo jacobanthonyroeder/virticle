@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"virticle/internal/retention"
 )
 
 const stampLayout = "20060102T150405Z"
@@ -84,9 +86,16 @@ func WriteFile(path string, src Source, pass string) (Manifest, int64, error) {
 	return m, fi.Size(), nil
 }
 
-// Prune keeps the newest keep backups made by WriteFile in dir (by the time in
-// their names) and removes the rest. Other files are left alone.
-func Prune(dir string, keep int) ([]string, error) {
+// File is a backup file WriteFile made, as found in a directory.
+type File struct {
+	Name string
+	Time time.Time // from the name
+	Size int64
+}
+
+// Files lists the backups made by WriteFile in dir: regular files named virticle-backup-HOST-STAMP.tar.gz or
+// .tar.gz.age. Other files are not listed. A missing directory has none.
+func Files(dir string) ([]File, error) {
 	ents, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -94,35 +103,73 @@ func Prune(dir string, keep int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	type bk struct{ name, stamp string }
-	var all []bk
+	var all []File
 	for _, e := range ents {
 		n := e.Name()
-		if !e.Type().IsRegular() || !strings.HasPrefix(n, "virticle-backup-") || !strings.HasSuffix(n, ".tar.gz") {
+		if !e.Type().IsRegular() || !strings.HasPrefix(n, "virticle-backup-") {
 			continue
 		}
-		stem := strings.TrimSuffix(n, ".tar.gz")
-		if len(stem) < len(stampLayout) {
+		stem, ok := strings.CutSuffix(n, ".tar.gz")
+		if !ok {
+			if stem, ok = strings.CutSuffix(n, ".tar.gz.age"); !ok {
+				continue
+			}
+		}
+		if len(stem) < len("virticle-backup-")+len(stampLayout) {
 			continue
 		}
-		stamp := stem[len(stem)-len(stampLayout):]
-		if _, err := time.Parse(stampLayout, stamp); err != nil {
+		t, err := time.Parse(stampLayout, stem[len(stem)-len(stampLayout):])
+		if err != nil {
 			continue
 		}
-		all = append(all, bk{n, stamp})
+		f := File{Name: n, Time: t}
+		if fi, err := e.Info(); err == nil {
+			f.Size = fi.Size()
+		}
+		all = append(all, f)
 	}
+	// Newest first; equal times by name, so that the order does not depend on the directory listing.
 	sort.Slice(all, func(i, j int) bool {
-		if all[i].stamp != all[j].stamp {
-			return all[i].stamp > all[j].stamp
+		if !all[i].Time.Equal(all[j].Time) {
+			return all[i].Time.After(all[j].Time)
 		}
-		return all[i].name > all[j].name
+		return all[i].Name > all[j].Name
 	})
+	return all, nil
+}
+
+// Prune keeps the newest keep backups made by WriteFile in dir (by the time in
+// their names) and removes the rest. Other files are left alone. keep 0 keeps all.
+func Prune(dir string, keep int) ([]string, error) {
+	return PrunePolicy(dir, retention.Policy{KeepLast: keep}, time.Local, "")
+}
+
+// PrunePolicy removes the backups made by WriteFile in dir that the policy does not keep, with hours, days, weeks
+// and months counted in loc. just (the file written a moment ago, "" for none) is never removed, even when the
+// clock was set back and older files carry later times. A policy that keeps everything removes nothing. Other
+// files are left alone. It returns the names it removed.
+func PrunePolicy(dir string, p retention.Policy, loc *time.Location, just string) ([]string, error) {
+	if p.KeepsAll() {
+		return nil, nil
+	}
+	all, err := Files(dir)
+	if err != nil {
+		return nil, err
+	}
+	times := make([]time.Time, len(all))
+	for i, f := range all {
+		times[i] = f.Time
+	}
+	keep, _ := retention.Plan(times, p, loc)
 	var gone []string
-	for i := keep; i < len(all); i++ {
-		if err := os.Remove(filepath.Join(dir, all[i].name)); err != nil {
+	for i, f := range all {
+		if keep[i] || f.Name == just {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, f.Name)); err != nil {
 			return gone, err
 		}
-		gone = append(gone, all[i].name)
+		gone = append(gone, f.Name)
 	}
 	return gone, nil
 }
@@ -136,9 +183,14 @@ const (
 // NextDaily is the first 03:30 local time after now, plus jitter (so that
 // several controllers do not all start at the same second).
 func NextDaily(now time.Time, jitter time.Duration) time.Time {
-	t := time.Date(now.Year(), now.Month(), now.Day(), DailyHour, DailyMinute, 0, 0, now.Location())
+	return NextAt(now, DailyHour, DailyMinute, jitter)
+}
+
+// NextAt is the first hour:minute in now's zone after now, plus jitter.
+func NextAt(now time.Time, hour, minute int, jitter time.Duration) time.Time {
+	t := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
 	if !t.After(now) {
-		t = time.Date(now.Year(), now.Month(), now.Day()+1, DailyHour, DailyMinute, 0, 0, now.Location())
+		t = time.Date(now.Year(), now.Month(), now.Day()+1, hour, minute, 0, 0, now.Location())
 	}
 	return t.Add(jitter)
 }

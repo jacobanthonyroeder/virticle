@@ -36,6 +36,7 @@ import (
 
 	"virticle/internal/cluster"
 	"virticle/internal/hostconn"
+	"virticle/internal/retention"
 )
 
 type backupReq struct {
@@ -48,6 +49,17 @@ type backupReq struct {
 	// Absent means automatic: freeze when the agent is connected and fall back
 	// to no freeze if that fails. true insists, false never freezes.
 	Quiesce *bool `json:"quiesce"`
+	// policy is the retention the run prunes with; nil means keep the newest KeepLast. A scheduled run, and a
+	// manual one into the target of the VM's schedule, use the schedule's policy.
+	policy *retention.Policy
+}
+
+// retention is the policy a run prunes the target with.
+func (r backupReq) retention() retention.Policy {
+	if r.policy != nil {
+		return *r.policy
+	}
+	return retention.Policy{KeepLast: r.KeepLast}
 }
 
 // bkDisk is a writable disk that goes into the backup.
@@ -65,33 +77,34 @@ type bkDisk struct {
 }
 
 type bkRun struct {
-	s        *Server
-	src, dst *hostconn.Host
-	dom      libvirt.Domain
-	req      backupReq
-	name     string // VM name
-	uuid     string
-	live     bool
-	domXML   string // inactive definition
-	md       migDomain
-	disks    []bkDisk
-	skip     []string // targets of disks left out of the job
-	srcDir   string   // pool directory the disks' work happens in on src
-	dstDir   string   // target pool directory
-	dstPool  string
-	ep       migEndpoint // how the source reaches the target node
-	remote   bool
-	plan     backupPlan    // full or incremental, and on what (see decideBackup)
-	target   string        // targetKey of the destination
-	ckName   string        // the checkpoint this run created ("" = none yet)
-	fz       freezeOutcome // what the last backup-begin did to the guest's file systems
-	thawErr  error         // set when a thaw failed on every try: the guest may be frozen
-	changed  uint64        // bytes libvirt expects an incremental backup to copy
-	progress func(float64)
-	ph       bkPhases        // where on the progress bar each phase ends
-	tpmNote  string          // why the TPM state of a VM with a TPM is not in the backup ("" when it is, or there is no TPM)
-	ctx      context.Context // cancelled by cancel(); ends a running node to node transfer
-	stopCtx  context.CancelFunc
+	s         *Server
+	src, dst  *hostconn.Host
+	dom       libvirt.Domain
+	req       backupReq
+	name      string // VM name
+	uuid      string
+	live      bool
+	domXML    string // inactive definition
+	md        migDomain
+	disks     []bkDisk
+	skip      []string // targets of disks left out of the job
+	srcDir    string   // pool directory the disks' work happens in on src
+	dstDir    string   // target pool directory
+	dstPool   string
+	ep        migEndpoint // how the source reaches the target node
+	remote    bool
+	plan      backupPlan    // full or incremental, and on what (see decideBackup)
+	target    string        // targetKey of the destination
+	ckName    string        // the checkpoint this run created ("" = none yet)
+	fz        freezeOutcome // what the last backup-begin did to the guest's file systems
+	thawErr   error         // set when a thaw failed on every try: the guest may be frozen
+	changed   uint64        // bytes libvirt expects an incremental backup to copy
+	progress  func(float64)
+	ph        bkPhases        // where on the progress bar each phase ends
+	tpmNote   string          // why the TPM state of a VM with a TPM is not in the backup ("" when it is, or there is no TPM)
+	pruneNote string          // how many older backups retention deleted ("" for none)
+	ctx       context.Context // cancelled by cancel(); ends a running node to node transfer
+	stopCtx   context.CancelFunc
 
 	mu        sync.Mutex
 	srcWork   *bkWork
@@ -313,6 +326,12 @@ func (s *Server) vmBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srcID, _, _ := s.host(r)
+	// A backup into the target of the VM's schedule is pruned by the schedule's policy, not by keepLast: one
+	// manual backup must not thin out the schedule's weeklies and monthlies, and the schedule's next run would
+	// apply its policy anyway.
+	if pol, ok := s.schedulePolicyFor(h, dom, srcID, req.TargetNode, req.Pool); ok {
+		req.policy = &pol
+	}
 	m, err := s.planBackup(srcID, h, dom, req)
 	if err != nil {
 		fail(w, err)
@@ -612,8 +631,16 @@ func (m *bkRun) run() (err error) {
 	srcWork, dstWork = nil, nil
 	m.cleanCheckpoints()
 	m.progress(m.ph.checkpointsAt)
-	if m.req.KeepLast > 0 {
-		if perr := m.s.pruneBackups(m.dst, m.dstPool, m.uuid, m.req.KeepLast, finalName); perr != nil {
+	if pol := m.req.retention(); !pol.KeepsAll() {
+		// Prune only once the new backup reads back complete: every file there with the size its manifest records.
+		if _, verr := loadBackup(m.dst, final); verr != nil {
+			return fmt.Errorf("backup %s was written, but it does not read back complete, so no older backup was deleted: %w", finalName, verr)
+		}
+		n, perr := m.s.pruneBackups(m.dst, m.dstPool, m.uuid, pol, finalName)
+		if n > 0 {
+			m.pruneNote = fmt.Sprintf("%d older %s deleted (keep %s)", n, plural(n, "backup", "backups"), pol)
+		}
+		if perr != nil {
 			return fmt.Errorf("backup %s was written, but pruning older backups failed: %w", finalName, perr)
 		}
 	}
@@ -898,16 +925,18 @@ func (m *bkRun) copyOver(from, to *bkWork, man *backupManifest, lo, hi float64) 
 // --- retention ---
 
 // pruneBackups deletes the backups of VM uuid in a pool beyond the newest
-// keep, except those a kept backup builds on (an incremental backup is useless
-// without its parent). The backup just written (just) is never deleted.
-func (s *Server) pruneBackups(h *hostconn.Host, pool, uuid string, keep int, just string) error {
+// the policy keeps, except those a kept backup builds on (an incremental backup
+// is useless without its parent). The backup just written (just) is never
+// deleted, nor one a restore or an export reads right now (and what it builds
+// on). It returns how many it deleted.
+func (s *Server) pruneBackups(h *hostconn.Host, pool, uuid string, pol retention.Policy, just string) (int, error) {
 	_, pd, err := destPool(h, pool)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	items, err := scanPool(h, pd)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var all []retained
 	for _, it := range items {
@@ -915,17 +944,15 @@ func (s *Server) pruneBackups(h *hostconn.Host, pool, uuid string, keep int, jus
 			all = append(all, it.retained())
 		}
 	}
-	var errs []string
-	// Newest first, so that a failure half way leaves no backup without its parent.
-	for _, key := range pruneChains(all, uuid, keep, just) {
+	n := 0
+	// Newest first, and stop at the first failure, so that no backup is ever left without its parent.
+	for _, key := range prunePolicy(all, uuid, pol, just, readingIn(h.Name, pd.Dir), time.Local) {
 		if err := removeBackupDir(h, pd.Dir, key); err != nil {
-			errs = append(errs, err.Error())
+			return n, err
 		}
+		n++
 	}
-	if len(errs) > 0 {
-		return errors.New(strings.Join(errs, "; "))
-	}
-	return nil
+	return n, nil
 }
 
 // removeBackupDir deletes one backup directory of a pool; only a directory
@@ -1303,6 +1330,13 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request) {
 		}
 		later = dependentsOf(all, b.name)
 	}
+	held := readingIn(b.h.Name, b.pd.Dir)
+	for _, n := range append([]string{b.name}, later...) {
+		if held[n] {
+			fail(w, badRequest("a restore or an export reads "+n+" right now. Delete it when that has finished."))
+			return
+		}
+	}
 	if len(later) > 0 && r.URL.Query().Get("withLater") != "1" {
 		fail(w, badRequest(fmt.Sprintf("%d later backup(s) build on this one and would be deleted with it: %s. Delete them as well, or keep this one.", len(later), strings.Join(later, ", "))))
 		return
@@ -1352,7 +1386,7 @@ func (m *bkRun) finishFreeze(err error) error {
 	}
 	if err == nil {
 		var notes []string
-		for _, n := range []string{m.fz.Text, m.tpmNote} {
+		for _, n := range []string{m.fz.Text, m.tpmNote, m.pruneNote} {
 			if n != "" {
 				notes = append(notes, n)
 			}

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"virticle/internal/retention"
 	"virticle/internal/store"
 )
 
@@ -675,6 +676,41 @@ func TestLocalRetentionWithFakeClock(t *testing.T) {
 	if strings.Count(got, "virticle-backup-ctl-") != 7 || !strings.Contains(got, "20260312T033000Z") || strings.Contains(got, "20260305T033000Z") ||
 		!strings.Contains(got, "notes.txt") || !strings.Contains(got, "virticle-backup-odd.tar.gz") {
 		t.Errorf("kept: %s", got)
+	}
+}
+
+func TestPrunePolicy(t *testing.T) {
+	dir := t.TempDir()
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	// Every 6 hours for 60 days; every fifth file encrypted.
+	for i := 0; i < 240; i++ {
+		os.WriteFile(filepath.Join(dir, FileName("ctl", start.Add(time.Duration(i)*6*time.Hour), i%5 == 0)), []byte("x"), 0o600)
+	}
+	os.WriteFile(filepath.Join(dir, "virticle-backup-odd.tar.gz"), nil, 0o600)
+	// The file just written carries an old time (the clock was set back): it stays all the same.
+	just := FileName("ctl", start.Add(-time.Hour), false)
+	os.WriteFile(filepath.Join(dir, just), []byte("x"), 0o600)
+	gone, err := PrunePolicy(dir, retention.Policy{KeepLast: 2, Hourly: 4, Daily: 7, Weekly: 4, Monthly: 3}, time.UTC, just)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := Files(dir)
+	// 4 hourly (the last day's four), 7 daily (6 more days), 4 weekly and 3 monthly (Jan, Feb, with overlap), the held one.
+	if len(files)+len(gone) != 241 || len(files) < 13 || len(files) > 18 {
+		t.Fatalf("kept %d, gone %d", len(files), len(gone))
+	}
+	names := map[string]bool{}
+	for _, f := range files {
+		names[f.Name] = true
+	}
+	if !names[just] || !names[FileName("ctl", start.Add(239*6*time.Hour), false)] {
+		t.Fatalf("lost the newest or the one just written: %v", files)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "virticle-backup-odd.tar.gz")); err != nil {
+		t.Fatal("a file that is not a backup was removed")
+	}
+	if g, _ := PrunePolicy(dir, retention.Policy{}, time.UTC, ""); g != nil {
+		t.Fatal("an empty policy removed files")
 	}
 }
 
