@@ -403,7 +403,7 @@ again by itself:
 | SSH keepalive to the node and to the jump host | every 15 s; no answer within 30 s ends the connection |
 | libvirt watchdog: a trivial call | every 30 s; no answer within 15 s ends the connection |
 
-After a lost connection the controller tries again after 1 s, then waits twice as long each time, up to 30 s.
+After a lost connection the controller tries again after 1 s, then waits twice as long each time, up to about 30 s.
 
 ## Versions and the node command
 
