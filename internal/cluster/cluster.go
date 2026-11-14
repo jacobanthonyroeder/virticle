@@ -248,6 +248,10 @@ func (m *Manager) session(ctx context.Context, n *node) error {
 		return err
 	}
 	defer h.Close()
+	// The calls below have no time limit of their own; a node that stops answering now would keep the node in
+	// its last state (offline) for good. Closing the connection ends them.
+	setup := time.AfterFunc(setupTimeout, h.Abort)
+	defer setup.Stop()
 	if name, err := h.ConnectGetHostname(); err == nil {
 		h.Name = name
 	}
@@ -303,6 +307,9 @@ func (m *Manager) session(ctx context.Context, n *node) error {
 	events, err := h.LifecycleEvents(evctx)
 	if err != nil {
 		return fmt.Errorf("subscribe to events: %w", err)
+	}
+	if !setup.Stop() {
+		return fmt.Errorf("the node did not answer within %s while the connection was set up", setupTimeout)
 	}
 	n.mu.Lock()
 	n.hostname = h.Name
@@ -371,6 +378,9 @@ func (n *node) set(h *hostconn.Host, state, err string) {
 	n.host, n.state, n.err = h, state, err
 	n.mu.Unlock()
 }
+
+// setupTimeout bounds what happens between the SSH and libvirt handshakes and the node being online.
+var setupTimeout = 60 * time.Second
 
 var ErrOffline = errors.New("node is offline")
 

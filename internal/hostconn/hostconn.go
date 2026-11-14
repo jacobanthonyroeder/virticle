@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"strings"
@@ -48,10 +49,26 @@ type Host struct {
 	jump *ssh.Client
 	priv Privilege // see privilege.go
 	gate storGate  // see storgate.go
+
+	stop     chan struct{} // closed by Close: ends the keepalives
+	stopOnce sync.Once
 }
 
+// SSH keepalives. A peer that vanishes without closing its TCP connection (a node that hangs, is frozen or loses
+// power, a jump host that does) leaves every call on the connection waiting for ever: TCP itself only gives up
+// after many minutes, or never when nothing is being sent. Every keepaliveInterval the controller asks each SSH
+// server of the connection (the node, and the jump host) for an answer; one that has not answered after
+// keepaliveTimeout ends the connection, which ends every call waiting on it (Disconnected() fires and the cluster
+// reconnects). The libvirt watchdog (internal/cluster/watchdog.go) is the same check one layer up.
+var (
+	keepaliveInterval = 15 * time.Second
+	keepaliveTimeout  = 30 * time.Second
+)
+
 // Dial opens the SSH connection and the libvirt session on top of it.
-// knownHosts is a known_hosts file used trust-on-first-use.
+// knownHosts is a known_hosts file used trust-on-first-use. Every step has a
+// time limit (see dialSSH; the libvirt handshake has twice the SSH timeout), so
+// Dial always returns, also when the host stops answering halfway.
 func Dial(t Target, knownHosts string) (*Host, error) {
 	var jump *ssh.Client
 	if t.Jump != nil {
@@ -68,17 +85,91 @@ func Dial(t Target, knownHosts string) (*Host, error) {
 		}
 		return nil, fmt.Errorf("ssh %s: %w", t.Addr, err)
 	}
-	h := &Host{Name: t.Addr, ssh: client, jump: jump}
+	h := &Host{Name: t.Addr, ssh: client, jump: jump, stop: make(chan struct{})}
 	h.Libvirt = libvirt.NewWithDialer(sockDialer{client})
-	if err := h.Libvirt.Connect(); err != nil {
+	// The libvirt handshake has no time limit of its own: closing the SSH connection ends it.
+	limit := 2 * dialTimeout(t)
+	expired := time.AfterFunc(limit, h.Abort)
+	err = h.Libvirt.Connect()
+	if !expired.Stop() {
+		if err == nil {
+			h.Close()
+		}
+		return nil, fmt.Errorf("libvirt on %s: no answer within %s", t.Addr, limit)
+	}
+	if err != nil {
 		h.Close()
 		return nil, fmt.Errorf("libvirt on %s: %w", t.Addr, err)
+	}
+	go keepalive(func() error { return sendKeepalive(client) }, h.stop, keepaliveInterval, keepaliveTimeout, func(err error) {
+		log.Printf("node %s: %v; closing the connection", t.Addr, err)
+		h.Abort()
+	})
+	if jump != nil {
+		go keepalive(func() error { return sendKeepalive(jump) }, h.stop, keepaliveInterval, keepaliveTimeout, func(err error) {
+			log.Printf("node %s: jump host %s: %v; closing the connection", t.Addr, t.Jump.Addr, err)
+			h.Abort()
+		})
 	}
 	return h, nil
 }
 
+func sendKeepalive(c *ssh.Client) error {
+	// OpenSSH answers an unknown global request with a failure, which is an answer.
+	_, _, err := c.SendRequest("keepalive@openssh.com", true, nil)
+	return err
+}
+
+// keepalive calls send every interval until stop is closed. send blocks until the peer answers; one that has
+// not returned after timeout, or that fails (the connection is closed), calls dead once and ends the loop.
+func keepalive(send func() error, stop <-chan struct{}, interval, timeout time.Duration, dead func(error)) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+		}
+		res := make(chan error, 1)
+		go func() { res <- send() }()
+		timer := time.NewTimer(timeout)
+		select {
+		case err := <-res:
+			timer.Stop()
+			if err != nil {
+				select {
+				case <-stop: // closed on purpose
+				default:
+					dead(fmt.Errorf("SSH connection lost: %w", err))
+				}
+				return
+			}
+		case <-timer.C:
+			dead(fmt.Errorf("no SSH keepalive answer within %s", timeout))
+			return
+		case <-stop:
+			timer.Stop()
+			return
+		}
+	}
+}
+
+// Abort closes the SSH connection(s) at once, without the polite libvirt
+// close that Close sends first. Every call waiting on the connection fails;
+// Close still has to be called.
+func (h *Host) Abort() {
+	h.ssh.Close()
+	if h.jump != nil {
+		h.jump.Close()
+	}
+}
+
 // Close tears down the libvirt session and the SSH connection(s).
 func (h *Host) Close() {
+	if h.stop != nil {
+		h.stopOnce.Do(func() { close(h.stop) })
+	}
 	if h.Libvirt != nil {
 		// Disconnect sends a close request first, which blocks for ever on a
 		// wedged connection (the case the cluster watchdog reconnects for),
@@ -281,19 +372,60 @@ func dialSSH(t Target, knownHosts string, via *ssh.Client) (*ssh.Client, error) 
 	// Ask the server for the key type we already have on record; otherwise it
 	// may present a different type and look like a changed key.
 	cfg.HostKeyAlgorithms = knownKeyTypes(knownHosts, addr)
-	if via == nil {
-		return ssh.Dial("tcp", addr, cfg)
-	}
-	conn, err := via.Dial("tcp", addr)
+	conn, err := dialVia(via, addr, cfg.Timeout)
 	if err != nil {
 		return nil, err
 	}
+	// ssh.Dial and NewClientConn have no time limit for the handshake: a host
+	// that accepts the TCP connection and then stops answering (it hangs, or it
+	// was reset in the middle) would keep it waiting for ever.
+	expired := time.AfterFunc(cfg.Timeout, func() { conn.Close() })
 	c, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+	if !expired.Stop() {
+		if err == nil {
+			c.Close()
+		}
+		conn.Close()
+		return nil, fmt.Errorf("no SSH handshake within %s", cfg.Timeout)
+	}
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
 	return ssh.NewClient(c, chans, reqs), nil
+}
+
+// dialVia opens the TCP connection to addr, directly or through the jump
+// host's SSH connection, within timeout. A jump host waits for its own TCP
+// connect to a host that does not answer for minutes; the open request is left
+// to finish in the background (the caller closes the jump connection on error,
+// which ends it) and a connection that arrives late is closed.
+func dialVia(via *ssh.Client, addr string, timeout time.Duration) (net.Conn, error) {
+	if via == nil {
+		return net.DialTimeout("tcp", addr, timeout)
+	}
+	type res struct {
+		c   net.Conn
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() {
+		c, err := via.Dial("tcp", addr)
+		ch <- res{c, err}
+	}()
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	select {
+	case r := <-ch:
+		return r.c, r.err
+	case <-t.C:
+		go func() {
+			if r := <-ch; r.c != nil {
+				r.c.Close()
+			}
+		}()
+		return nil, fmt.Errorf("the jump host could not reach %s within %s", addr, timeout)
+	}
 }
 
 // knownKeyTypes returns the host key algorithms recorded for addr, or nil

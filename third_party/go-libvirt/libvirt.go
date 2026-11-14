@@ -289,6 +289,12 @@ func (l *Libvirt) ConnectToURI(uri ConnectURI) error {
 		return err
 	}
 
+	// virticle: the channel is made before the goroutine that closes it starts
+	// (it used to be made at the end of this function). A connection lost
+	// during initLibvirtComms made that goroutine close the old, already closed
+	// channel, and the new one was never closed. See README-virticle.md.
+	l.disconnected = make(chan struct{})
+
 	// Start watching the underlying socket connection immediately.
 	// If we don't, and Libvirt goes away partway through initLibvirtComms,
 	// then the callbacks that initLibvirtComms has registered will never
@@ -301,8 +307,6 @@ func (l *Libvirt) ConnectToURI(uri ConnectURI) error {
 		l.socket.Disconnect()
 		return err
 	}
-
-	l.disconnected = make(chan struct{})
 
 	return nil
 }
