@@ -6,7 +6,7 @@
 | --- | --- |
 | `virticle [flags]` | Runs the controller. |
 | `virticle version` | Prints version, commit and build date. |
-| `virticle setup [--check] [--undo]` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). Opens the web port in firewalld or ufw, makes sure the service runs and prints the address to open. `--check` changes nothing; `--undo` removes the firewall rule it added. Takes `-data`. See [install.md](install.md#setup-open-the-firewall). |
+| `virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes]` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). On a terminal it asks which address and port the web interface uses (defaults: all addresses, 8463). `--address` (an IP address of this machine, or `all`) and `--port` answer those questions; they only apply while no administrator exists. It checks that the port is free, asks before it opens the port in firewalld or ufw (without a terminal it opens it, unless `--no-firewall`), makes sure the service runs and prints the address to open. `--yes` asks nothing and answers yes. `--check` changes nothing; `--undo` removes the firewall rule it added. Takes `-data`. See [install.md](install.md#setup-open-the-firewall). |
 | `virticle node prepare\|unprepare` | Prepares a host as a node, or undoes it. See [install-node.md](install-node.md). |
 | `virticle backup [-o FILE\|DIR] [--encrypt] [--passphrase-file FILE]` | Writes the controller's own data (database, SSH key, certificates) to one file, while the controller runs. Takes `-data`. |
 | `virticle restore FILE` | Puts such a file back; the controller must be stopped. Takes `-data` and `--passphrase-file`. See [controller-backup.md](controller-backup.md). |
@@ -24,8 +24,9 @@
 | `-alert-webhook` | empty | Deprecated. URL that receives a JSON POST when an alert is raised or cleared. Given, it is listed under **Settings > Alerts** as one more destination that cannot be edited. |
 
 Without `-listen` and without stored web settings, a data directory with no
-users serves HTTPS with a self-signed certificate on port 8443 of all
+users serves HTTPS with a self-signed certificate on port 8463 of all
 interfaces; one that already has users keeps plain HTTP on `127.0.0.1:8080`.
+Stored settings and the `-listen` flag keep the port they name.
 
 Deprecated, hidden from `-help`, and still working with a notice in the log:
 `-tls-cert`, `-tls-key`, `-insecure-http`, `-trusted-proxy` (use the **Web

@@ -57,8 +57,14 @@ func legacyNotice(addr string) string {
 //     image, whose 0.2.0 version listened on 0.0.0.0:8080 with a self-signed
 //     certificate): serve that address the same way;
 //   - no stored settings and no users (a new install): HTTPS with a
-//     self-signed certificate on all interfaces, port 8443. It is stored, so a
-//     restart after the administrator is created keeps it.
+//     self-signed certificate on all interfaces, port 8463 (webaccess.
+//     DefaultHTTPSPort; "virticle setup" can choose another address and port).
+//     It is stored, so a restart after the administrator is created keeps it.
+//
+// The default port only applies to a new install. Stored settings, the
+// -listen flag and VIRTICLE_LISTEN keep the port they name, and a machine that
+// has an administrator but never stored settings keeps its loopback HTTP
+// listener whatever the default port is.
 func chooseSettings(stored webaccess.Settings, hasStored, hasUsers bool, legacy string) choice {
 	switch {
 	case hasStored:
@@ -173,8 +179,8 @@ func usage() {
 	out := flag.CommandLine.Output()
 	fmt.Fprint(out, `usage: virticle [flags]                  run the controller
        virticle version
-       virticle setup [--check] [--undo] [-data DIR]
-                                         after installing: open the web port in the firewall (as root)
+       virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes] [-data DIR]
+                                         after installing (as root): choose the web address and port, open the port in the firewall
        virticle node prepare|unprepare [options] [user@]host
                                          prepare a host as a node, or undo it (virticle node -h)
        virticle backup [-o FILE|DIR] [--encrypt] [--passphrase-file FILE]

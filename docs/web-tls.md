@@ -4,7 +4,7 @@ The **Web access** page (administrators only: **Settings > Web access**) chooses
 
 ![Web access page](img/web-access.png)
 
-A new install serves a self-signed certificate on port 8443 of all interfaces, so the page is reachable from another computer at once. The page offers three choices, and the rest under **Advanced**:
+A new install serves a self-signed certificate on port 8463 of all interfaces, so the page is reachable from another computer at once. `sudo virticle setup` lets you choose another address and port before the first start (see [install.md](install.md#choose-the-address-and-port)). An install that already stored its settings keeps its port: version 0.3.0 used 8443, and a machine that started with it still does. The page offers three choices, and the rest under **Advanced**:
 
 | Choice | What it does |
 | --- | --- |
@@ -41,7 +41,7 @@ Good to know:
 - A change that is still open when the controller restarts is undone at the next start.
 - If the new and the old setting use the same address (for example Off to Reverse proxy on 127.0.0.1:8080), the address is taken over. Open connections finish, new ones get the new settings, and a revert binds the old settings again.
 - No restart is needed for any of this. Changes made with `virticle web set` or `virticle web reset` (below) are read at the next start.
-- Browsers share cookies between ports of the same host name, so a session started on `http://host:8080` is also sent to `https://host:8443`. A different host name (the public URL) needs a new sign-in.
+- Browsers share cookies between ports of the same host name, so a session started on `http://host:8080` is also sent to `https://host:8463`. A different host name (the public URL) needs a new sign-in.
 
 ## Self-signed
 
@@ -96,7 +96,7 @@ The complete generated text for all five is checked into `internal/webaccess/tes
 Without those flags the stored settings decide, and a headless install can write them:
 
     virticle web show  -data /var/lib/virticle   # -data is the only option of show and reset
-    virticle web set   -data /var/lib/virticle -mode selfsigned -https-listen :8443 -names virticle.lan,192.0.2.10
+    virticle web set   -data /var/lib/virticle -mode selfsigned -https-listen :8463 -names virticle.lan,192.0.2.10
     virticle web set   -data /var/lib/virticle -mode acme -https-listen :443 -http-redirect :80 \
                        -acme-domains virticle.example.org -acme-email ops@example.org -acme-accept-terms
     virticle web set   -data /var/lib/virticle -mode proxy -listen 127.0.0.1:8080 \

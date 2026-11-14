@@ -12,7 +12,7 @@ For the history in the web UI (7 days, charts), see [Performance](user-guide.md#
 
 1. Sign in, open **Account**, **API tokens**, create a token with the role *Viewer*.
 2. Copy the secret (it is shown once).
-3. Test it: `curl -k -H "Authorization: Bearer <token>" https://virticle.example:8443/metrics`
+3. Test it: `curl -k -H "Authorization: Bearer <token>" https://virticle.example:8463/metrics`
 
 ## Prometheus `scrape_config`
 
@@ -28,7 +28,7 @@ scrape_configs:
     tls_config:
       insecure_skip_verify: true     # self-signed certificate; with your own CA use ca_file instead
     static_configs:
-      - targets: ["virticle.example:8443"]
+      - targets: ["virticle.example:8463"]
 ```
 
 A scrape faster than 15 seconds only repeats the same numbers. The `node` label is the node's host name (or its address

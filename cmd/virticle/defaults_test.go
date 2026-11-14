@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -47,18 +48,37 @@ func TestChooseSettings(t *testing.T) {
 		t.Errorf("container upgrade: %+v", c)
 	}
 	c = chooseSettings(webaccess.Settings{}, false, false, "0.0.0.0:8080")
-	if c.settings.HTTPSListen != ":8443" || !c.persist {
+	if c.settings.HTTPSListen != webaccess.DefaultHTTPSListen || !c.persist {
 		t.Errorf("fresh container install ignores the upgrade address: %+v", c)
 	}
 	c = chooseSettings(webaccess.Settings{}, false, false, "")
-	if c.settings.Mode != webaccess.ModeSelfSigned || c.settings.HTTPSListen != ":8443" || c.notice != "" || !c.persist {
+	if c.settings.Mode != webaccess.ModeSelfSigned || c.settings.HTTPSListen != webaccess.DefaultHTTPSListen || c.notice != "" || !c.persist {
 		t.Errorf("fresh install: %+v", c)
+	}
+}
+
+// The port of a fresh install is one constant, and it is not the port that
+// many other products use.
+func TestDefaultPort(t *testing.T) {
+	if webaccess.DefaultHTTPSPort != 8463 || webaccess.DefaultHTTPSListen != ":"+strconv.Itoa(webaccess.DefaultHTTPSPort) {
+		t.Errorf("%d %s", webaccess.DefaultHTTPSPort, webaccess.DefaultHTTPSListen)
+	}
+	if webaccess.Defaults().HTTPSListen != webaccess.DefaultHTTPSListen || webaccess.FirstRunDefaults().HTTPSListen != webaccess.DefaultHTTPSListen {
+		t.Error("the defaults do not use the constant")
+	}
+	// An install that stored another port keeps it, with or without users.
+	for _, users := range []bool{false, true} {
+		stored := webaccess.FirstRunDefaults()
+		stored.HTTPSListen = ":8443"
+		if c := chooseSettings(stored, true, users, ""); c.settings.HTTPSListen != ":8443" || c.persist {
+			t.Errorf("stored settings moved (users %v): %+v", users, c)
+		}
 	}
 }
 
 func TestSetupHint(t *testing.T) {
 	ws := webaccess.FirstRunDefaults()
-	if got := setupHint(false, ws, []string{"10.0.0.5", "vm1"}); got != "open https://10.0.0.5:8443 to create the administrator" {
+	if got := setupHint(false, ws, []string{"10.0.0.5", "vm1"}); got != "open https://10.0.0.5:8463 to create the administrator" {
 		t.Errorf("%q", got)
 	}
 	if got := setupHint(true, ws, nil); got != "" {

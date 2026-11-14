@@ -19,18 +19,18 @@ func TestWebPorts(t *testing.T) {
 	lan := webaccess.Defaults()
 	lan.Listen = "192.0.2.10:8080"
 	same := https
-	same.HTTPRedirect = "0.0.0.0:8443"
+	same.HTTPRedirect = "0.0.0.0:8463"
 	for _, c := range []struct {
 		name string
 		ws   webaccess.Settings
 		want string
 	}{
-		{"first start", https, "8443"},
+		{"first start", https, "8463"},
 		{"loopback http", loop, ""},
-		{"https with redirect", redirect, "8443 8080"},
+		{"https with redirect", redirect, "8463 8080"},
 		{"moved", moved, "9443"},
 		{"http on an interface", lan, "8080"},
-		{"same port twice", same, "8443"},
+		{"same port twice", same, "8463"},
 	} {
 		if got := strings.Join(webPorts(c.ws), " "); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
@@ -45,6 +45,7 @@ type host struct {
 	fwApply  string // answer to the firewall apply script
 	unit     string
 	startOut string
+	mainPID  string // answer to "systemctl show -p MainPID"
 }
 
 func (h *host) sh(script string) (string, error) {
@@ -54,9 +55,11 @@ func (h *host) sh(script string) (string, error) {
 		return h.fwApply, nil
 	case strings.Contains(script, `echo "fw=$fwkind"`):
 		return h.fwFacts, nil
+	case strings.Contains(script, "MainPID"):
+		return h.mainPID, nil
 	case strings.Contains(script, "systemctl cat"):
 		return h.unit, nil
-	case strings.Contains(script, "enable --now"):
+	case strings.Contains(script, "enable --now"), strings.Contains(script, "systemctl restart"):
 		return h.startOut, nil
 	}
 	return "", nil
@@ -87,7 +90,7 @@ func rowText(rows []prepare.Row) string {
 func TestSetupNeedsRoot(t *testing.T) {
 	e := envFor(&host{}, webaccess.FirstRunDefaults(), "default", false)
 	e.euid = 1000
-	rows := runSetup(e, false, false)
+	rows := runSetup(e, setupOpts{})
 	if len(rows) != 1 || rows[0].Status != prepare.Error || !strings.Contains(rows[0].Detail, "needs root. Run: sudo virticle setup") {
 		t.Errorf("%+v", rows)
 	}
@@ -95,17 +98,17 @@ func TestSetupNeedsRoot(t *testing.T) {
 
 func TestSetupOpensTheWebPortAndSaysWhereToGo(t *testing.T) {
 	h := &host{fwApply: "@@kind firewalld\n@@changed\n", unit: "unit=yes\nactive=inactive\nenabled=no\n"}
-	rows := runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), false, false)
-	want := `info | Web access | HTTPS on TCP port 8443 (the default for a first start).
-ok | Firewall | Opened TCP port 8443 in firewalld (service virticle).
+	rows := runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), setupOpts{})
+	want := `info | Web access | HTTPS on TCP port 8463 (the default for a first start).
+ok | Firewall | Opened TCP port 8463 in firewalld (service virticle).
 ok | Service | Enabled and started virticle.service.
-info | Next | open https://192.0.2.10:8443 to create the administrator
+info | Next | open https://192.0.2.10:8463 to create the administrator
 info | Virtual machines | To run virtual machines on this machine too, choose 'Set up this machine as a node' on the start page.
 `
 	if got := rowText(rows); got != want {
 		t.Errorf("rows:\n%s\nwant:\n%s", got, want)
 	}
-	if !h.applied("8443") {
+	if !h.applied("8463") {
 		t.Error("the web port was not sent to the firewall script")
 	}
 }
@@ -116,7 +119,7 @@ func TestSetupAgainSaysAlreadyAndUsesStoredSettings(t *testing.T) {
 	h := &host{fwApply: "@@kind firewalld\n@@unchanged\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}
 	e := envFor(h, ws, "stored", true)
 	e.hasKVM = false
-	got := rowText(runSetup(e, false, false))
+	got := rowText(runSetup(e, setupOpts{}))
 	want := `info | Web access | HTTPS on TCP port 9443 (stored settings).
 ok | Firewall | TCP port 9443 is already open in firewalld (service virticle).
 ok | Service | virticle.service is already running and enabled.
@@ -134,8 +137,8 @@ info | Next | open https://192.0.2.10:9443 to sign in
 
 func TestSetupCheckChangesNothing(t *testing.T) {
 	h := &host{fwFacts: "fw=ufw\nfw_open=no\n", unit: "unit=yes\nactive=inactive\nenabled=no\n"}
-	got := rowText(runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), true, false))
-	for _, must := range []string{"info | Firewall | ufw is active. Setup will open TCP port 8443 for the web interface.", "info | Service | Setup will enable and start virticle.service."} {
+	got := rowText(runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), setupOpts{check: true}))
+	for _, must := range []string{"info | Firewall | ufw is active. Setup will open TCP port 8463 for the web interface.", "info | Service | Setup will enable and start virticle.service."} {
 		if !strings.Contains(got, must) {
 			t.Errorf("lacks %q:\n%s", must, got)
 		}
@@ -149,7 +152,7 @@ func TestSetupCheckChangesNothing(t *testing.T) {
 
 func TestSetupLoopbackNeedsNoPortAndClosesAnOldOne(t *testing.T) {
 	h := &host{fwApply: "@@kind firewalld\n@@changed\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}
-	got := rowText(runSetup(envFor(h, webaccess.Defaults(), "stored", true), false, false))
+	got := rowText(runSetup(envFor(h, webaccess.Defaults(), "stored", true), setupOpts{}))
 	for _, must := range []string{"HTTP on this computer only (127.0.0.1:8080), so no firewall port is needed", "Removed the firewalld service virticle.", "open http://127.0.0.1:8080 to sign in"} {
 		if !strings.Contains(got, must) {
 			t.Errorf("lacks %q:\n%s", must, got)
@@ -161,10 +164,10 @@ func TestSetupLoopbackNeedsNoPortAndClosesAnOldOne(t *testing.T) {
 }
 
 func TestSetupFirewallFailureIsAWarningAndSetupGoesOn(t *testing.T) {
-	h := &host{fwApply: "@@kind ufw\n@@failed ufw allow 8443/tcp comment 'virticle'\n@@detail boom\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}
-	rows := runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), false, false)
+	h := &host{fwApply: "@@kind ufw\n@@failed ufw allow 8463/tcp comment 'virticle'\n@@detail boom\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}
+	rows := runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), setupOpts{})
 	got := rowText(rows)
-	if !strings.Contains(got, "warning | Firewall | The firewall command `ufw allow 8443/tcp comment 'virticle'` failed (boom)") || !strings.Contains(got, "Run as root: ufw allow 8443/tcp comment 'virticle'") {
+	if !strings.Contains(got, "warning | Firewall | The firewall command `ufw allow 8463/tcp comment 'virticle'` failed (boom)") || !strings.Contains(got, "Run as root: ufw allow 8463/tcp comment 'virticle'") {
 		t.Errorf("%s", got)
 	}
 	if !strings.Contains(got, "info | Next |") || exitCode(rows) != 0 {
@@ -174,7 +177,7 @@ func TestSetupFirewallFailureIsAWarningAndSetupGoesOn(t *testing.T) {
 
 func TestSetupUndoOnlyRemovesTheFirewallRule(t *testing.T) {
 	h := &host{fwApply: "@@kind ufw\n@@changed\n"}
-	got := rowText(runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), false, true))
+	got := rowText(runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), setupOpts{undo: true}))
 	if !strings.Contains(got, "Removed the ufw rules marked virticle.") || strings.Contains(got, "Service") {
 		t.Errorf("%s", got)
 	}
@@ -187,7 +190,7 @@ func TestSetupUndoOnlyRemovesTheFirewallRule(t *testing.T) {
 
 func TestSetupWithoutDatabaseUsesTheFirstStartDefault(t *testing.T) {
 	ws, source, users, err := storedWebSettings(t.TempDir())()
-	if err != nil || source != "default" || users || ws.Mode != webaccess.ModeSelfSigned || ws.HTTPSListen != ":8443" {
+	if err != nil || source != "default" || users || ws.Mode != webaccess.ModeSelfSigned || ws.HTTPSListen != webaccess.DefaultHTTPSListen {
 		t.Errorf("%+v %s %v %v", ws, source, users, err)
 	}
 }
@@ -202,11 +205,11 @@ func TestSetupWhileAPortChangeWaitsOpensBothPorts(t *testing.T) {
 	h := &host{fwApply: "@@kind firewalld\n@@changed\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}
 	e := envFor(h, ws, "stored", true)
 	e.pendingPrev = func() *webaccess.Settings { return &prev }
-	got := rowText(runSetup(e, false, false))
+	got := rowText(runSetup(e, setupOpts{}))
 	if !strings.Contains(got, "waiting for confirmation") {
 		t.Errorf("no row about the waiting change:\n%s", got)
 	}
-	if !h.applied("9443 8443") {
+	if !h.applied("9443 8463") {
 		t.Errorf("both ports must go to the firewall script: %v", h.log)
 	}
 }
@@ -226,7 +229,7 @@ func TestAnyLocalAddr(t *testing.T) {
 	}
 	e := envFor(&host{fwApply: "@@kind firewalld\n@@unchanged\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}, webaccess.FirstRunDefaults(), "stored", true)
 	e.hasLocalNode = true
-	if strings.Contains(rowText(runSetup(e, false, false)), "Set up this machine as a node") {
+	if strings.Contains(rowText(runSetup(e, setupOpts{})), "Set up this machine as a node") {
 		t.Error("a machine that is already a node must not be told to become one")
 	}
 }

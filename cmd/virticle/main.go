@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -20,6 +21,7 @@ import (
 	"virticle/internal/cluster"
 	"virticle/internal/ctlbackup"
 	"virticle/internal/store"
+	"virticle/internal/webaccess"
 	"virticle/web"
 )
 
@@ -45,7 +47,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "web" {
 		os.Exit(webCommand(os.Args[2:]))
 	}
-	listen := flag.String("listen", envDefault("VIRTICLE_LISTEN", "127.0.0.1:8080"), "address to serve the web UI and API on. Given, it overrides the Web access settings. Without it they decide; a new install serves HTTPS on port 8443")
+	listen := flag.String("listen", envDefault("VIRTICLE_LISTEN", "127.0.0.1:8080"), "address to serve the web UI and API on. Given, it overrides the Web access settings. Without it they decide; a new install serves HTTPS on port "+strconv.Itoa(webaccess.DefaultHTTPSPort)+"")
 	data := flag.String("data", defaultDataDir(), "directory for the database and the controller's SSH key (/var/lib/virticle on an installed machine, else ./data)")
 	tlsCert := flag.String("tls-cert", envDefault("VIRTICLE_TLS_CERT", ""), "PEM certificate to serve HTTPS with (needs -tls-key)")
 	tlsKey := flag.String("tls-key", envDefault("VIRTICLE_TLS_KEY", ""), "PEM private key for -tls-cert")

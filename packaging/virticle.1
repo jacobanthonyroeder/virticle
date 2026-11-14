@@ -8,7 +8,7 @@ virticle \- web controller for KVM/libvirt hosts
 .B virticle version
 .br
 .B virticle setup
-[\fB\-\-check\fR] [\fB\-\-undo\fR] [\fB\-data\fR \fIdir\fR]
+[\fB\-\-address\fR \fIaddr\fR] [\fB\-\-port\fR \fIn\fR] [\fB\-\-check\fR] [\fB\-\-undo\fR] [\fB\-\-no\-firewall\fR] [\fB\-\-yes\fR] [\fB\-data\fR \fIdir\fR]
 .br
 .B virticle node prepare
 [\fIoptions\fR] [\fIuser\fR@]\fIhost\fR[:\fIport\fR]
@@ -39,11 +39,11 @@ The package runs it as the systemd service
 .B virticle.service
 as user
 .BR virticle ,
-serving HTTPS with a self-signed certificate on port 8443. The package does
+serving HTTPS with a self-signed certificate on port 8463. The package does
 not change the firewall: run
 .B sudo virticle setup
-once. It opens the web port and prints the address to open to create the
-administrator account.
+once. It asks which address and port to use, asks before it opens the web port
+and prints the address to open to create the administrator account.
 .SH COMMANDS
 .TP
 .B virticle
@@ -53,9 +53,25 @@ Run the controller.
 Print the version, commit and build date.
 .TP
 .B virticle setup
-Run once as root after installing. Opens the web port in firewalld or ufw,
-makes sure the service runs and prints the address to open. Running it again
-changes nothing; after a change of the web port it moves the rule.
+Run once as root after installing. On a terminal it asks which address and
+port the web interface listens on (Enter keeps all addresses and port 8463).
+It checks that the port is free, asks before it opens the port in firewalld or
+ufw, makes sure the service runs and prints the address to open. Running it
+again changes nothing; after a change of the web port it moves the rule.
+.B \-\-address
+.I addr
+(an IP address of this machine, or
+.BR all )
+and
+.B \-\-port
+.I n
+answer the two questions. They apply only while no administrator exists; later
+the Web access page changes the address.
+Without a terminal nothing is asked and the port is opened, unless
+.B \-\-no\-firewall
+is given.
+.B \-\-yes
+asks nothing and answers yes.
 .B \-\-check
 changes nothing.
 .B \-\-undo
@@ -120,7 +136,7 @@ for the full list. The main flags of the controller are:
 .BI \-listen " address"
 Address to serve the web UI and API on. Given, it overrides the settings of
 the Web access page. Without it, the stored settings decide; a new install
-serves HTTPS with a self-signed certificate on port 8443, an installation
+serves HTTPS with a self-signed certificate on port 8463, an installation
 with users and no stored settings keeps 127.0.0.1:8080.
 .TP
 .BI \-data " dir"
