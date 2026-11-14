@@ -9,7 +9,7 @@ import Select from "../Select";
 import { ErrorBox } from "../ui";
 import PerfChart, { Sel } from "./PerfChart";
 import {
-  Busy, GROUP_LABEL, Group, PerfOverview, PerfResult, RANGES, fmt, fromLocalInput, linesOf, panelsFor, stamp, stepWords, toLocalInput, unitFor, valueScale,
+  Busy, GROUP_LABEL, Group, PerfOverview, PerfResult, RANGES, fmt, fromLocalInput, panelsFor, stamp, stepWords, toLocalInput,
 } from "./perfApi";
 import "./perf.css";
 
@@ -65,6 +65,7 @@ export function PerformanceTab(props: { kind: "vm" | "node"; id: string; passthr
   const [diskDev, setDiskDev] = useState("");
   const [netDev, setNetDev] = useState("");
   const [cursor, setCursor] = useState<number | null>(null);
+  const [tipOn, setTipOn] = useState<string | null>(null); // the chart under the pointer, by title
   const [sel, setSel] = useState<Sel | null>(null);
   const [back, setBack] = useState<{ key: string; from?: number; to?: number }[]>([]);
   const [shown, setShown] = useState<Range>();
@@ -221,53 +222,19 @@ export function PerformanceTab(props: { kind: "vm" | "node"; id: string; passthr
             {shown && `${stamp(shown.from)} to ${stamp(shown.to)}. `}
             1 point = {stepWords(res.step)}
             {res.peak ? "; the band shows the peak." : "."} Gaps mean no data
-            {kind === "vm" ? ": the VM was not running, or the node or the controller could not be read." : ": the node or the controller could not be read."} Drag across a chart to zoom.
+            {kind === "vm" ? ": the VM was not running, or the node or the controller could not be read." : ": the node or the controller could not be read."} Move over a chart, or tap it, to read the values at that time; drag across it to zoom.
             {res.events.length > 0 && " Markers on the axis: triangle started, square stopped, diamond moved to another node."}
           </p>
-          <Readout res={res} panels={panels} cursor={cursor} />
           {!hasData && !busy && <div className="empty">No data in this range yet. The controller records every 15 seconds while it runs.</div>}
           {hasData &&
             panels.map((p) => (
-              <PerfChart key={p.title} panel={p} res={res} cursor={cursor} onCursor={setCursor} sel={sel} onSel={setSel} onZoom={zoom} />
+              <PerfChart key={p.title} panel={p} res={res} cursor={cursor} tip={tipOn === p.title}
+                onCursor={(i) => { setCursor(i); setTipOn(i == null ? null : p.title); }} sel={sel} onSel={setSel} onZoom={zoom} />
             ))}
         </>
       )}
       {!res && !error && <div className="empty">Loading</div>}
       {kind === "node" && <BusiestVMs node={Number(id)} />}
-    </div>
-  );
-}
-
-function Readout({ res, panels, cursor }: { res: PerfResult; panels: ReturnType<typeof panelsFor>; cursor: number | null }) {
-  if (cursor == null || cursor >= res.t.length) {
-    return <div className="preadout muted">Move over a chart, or tap it, to read the values at that time.</div>;
-  }
-  const t = res.t[cursor];
-  const ev = res.events.filter((e) => Math.abs(e.t - t) <= res.step);
-  return (
-    <div className="preadout" aria-live="off">
-      <b>{stamp(t, res.step < 60)}</b>
-      {ev.map((e, i) => (
-        <span key={i} className="pevtxt">{e.kind === "started" ? "Started" : e.kind === "stopped" ? "Stopped" : "Moved to another node"}</span>
-      ))}
-      <div className="prgrid">
-        {panels.map((p) => {
-          const unit = unitFor(p);
-          const lines = linesOf(p, res);
-          if (!lines.length) return null;
-          return (
-            <div key={p.title} className="prp">
-              <span className="muted">{p.title.replace(/ \(.*$/, "")}</span>
-              {lines.map((l) => (
-                <span key={l.id}>
-                  {l.label} <b>{fmt(unit, valueScale(p, l.avg[cursor]))}</b>
-                  {res.peak && l.max && l.max[cursor] != null && <span className="muted"> (peak {fmt(unit, valueScale(p, l.max[cursor]))})</span>}
-                </span>
-              ))}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

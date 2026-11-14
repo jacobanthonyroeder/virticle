@@ -26,20 +26,24 @@ a.pdl:hover { background: var(--hover); }
 main .pchips button.pchip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; color: var(--muted); }
 main .pchips button.pchip.on { color: var(--text); border-color: var(--accent); font-weight: 600; }
 .pnote { color: var(--muted); font-size: 13px; margin: 4px 0 8px; }
-.preadout {
-  position: sticky; top: 0; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 6px 10px; margin-bottom: 8px; font-size: 13px; height: 6.4em; overflow-y: auto; box-shadow: var(--shadow);
-}
-.preadout.muted { color: var(--muted); }
-.prgrid { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 3px; }
-.prp { display: flex; flex-wrap: wrap; gap: 0 10px; }
-.pevtxt { margin-left: 10px; color: var(--warn); }
 .pchart { margin: 0 0 14px; }
 .pchart figcaption { display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: baseline; margin-bottom: 2px; }
 .ptitle { font-weight: 600; }
 .plegend { display: flex; flex-wrap: wrap; gap: 0 12px; font-size: 13px; color: var(--muted); }
 .pkey { display: inline-flex; align-items: center; gap: 4px; }
-.pframe { width: 100%; }
+.pframe { width: 100%; position: relative; }
+.ptip {
+  position: absolute; left: 0; top: 0; z-index: 5; pointer-events: none; max-width: 100%; box-sizing: border-box;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 6px 10px; font-size: 12.5px; line-height: 1.35; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.ptip-t { font-weight: 600; margin-bottom: 2px; }
+.ptip-ev { color: var(--warn); }
+.ptip-g { display: grid; grid-template-columns: auto auto auto; gap: 1px 8px; align-items: center; }
+.ptip-g.peak { grid-template-columns: auto auto auto auto; }
+.ptip-r { display: contents; }
+.ptip-r b { text-align: right; padding-left: 6px; }
+.ptip-pk { color: var(--muted); text-align: right; }
 .psvg { display: block; touch-action: pan-y; user-select: none; cursor: crosshair; }
 .pgrid { stroke: var(--line); stroke-width: 1; opacity: 0.7; }
 .paxis { stroke: var(--muted); stroke-width: 1; }
@@ -55,7 +59,6 @@ main .pchips button.pchip.on { color: var(--text); border-color: var(--accent); 
 .pbgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 20px; }
 .pbcol td, .pbcol th { padding: 3px 6px; }
 @media (max-width: 700px) {
-  .preadout { height: 11em; }
   .pfield { flex: 1 1 140px; }
   .pfield input[type="datetime-local"] { width: 100%; }
 }

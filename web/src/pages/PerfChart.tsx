@@ -1,8 +1,10 @@
 // One performance chart as inline SVG: lines for the averages, a lighter band up to the peaks when a step
 // is longer than the finest, gaps where there is no data, markers for starts, stops and moves of a VM.
-// All charts of a page share one crosshair (cursor) and one drag selection (sel).
+// All charts of a page share one crosshair (cursor) and one drag selection (sel). The chart under the pointer
+// shows a box next to it with the time and each line's value. The box follows the pointer by writing its
+// position straight to the element, so a pointer move redraws nothing unless it reaches another data point.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Line, Panel, PerfEvent, clock, fmt, linesOf, niceTicks, unitFor, valueScale, PerfResult } from "./perfApi";
+import { Line, Panel, PerfEvent, clock, fmt, linesOf, niceTicks, stamp, unitFor, valueScale, PerfResult } from "./perfApi";
 
 export interface Sel {
   a: number; // seconds
@@ -46,11 +48,13 @@ export default function PerfChart(props: {
   res: PerfResult;
   cursor: number | null;
   onCursor: (i: number | null) => void;
+  /** This chart is the one under the pointer: it shows the value box. */
+  tip: boolean;
   sel: Sel | null;
   onSel: (s: Sel | null) => void;
   onZoom: (s: Sel) => void;
 }) {
-  const { panel, res, cursor, onCursor, sel, onSel, onZoom } = props;
+  const { panel, res, cursor, onCursor, tip, sel, onSel, onZoom } = props;
   const [wrap, W] = useWidth();
   const unit = unitFor(panel);
   const lines: Line[] = linesOf(panel, res).map((l) => ({
@@ -100,12 +104,38 @@ export default function PerfChart(props: {
     for (let i = 1; i < t.length; i++) if (Math.abs(t[i] - s) < Math.abs(t[best] - s)) best = i;
     return best;
   };
+  // The value box: beside the pointer, on the side that has room, never outside the chart's frame.
+  const tipRef = useRef<HTMLDivElement>(null);
+  const at = useRef({ x: 0, y: 0 });
+  const place = () => {
+    const el = tipRef.current;
+    if (!el) return;
+    const gap = 14;
+    const tw = el.offsetWidth;
+    const th = el.offsetHeight;
+    let left = at.current.x + gap;
+    if (left + tw > W) left = at.current.x - gap - tw;
+    left = Math.max(0, Math.min(left, W - tw));
+    const top = Math.max(0, Math.min(at.current.y + gap, H - th));
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(top)}px`;
+    el.style.visibility = "visible";
+  };
+  const track = (e: React.PointerEvent) => {
+    const r = svgRef.current!.getBoundingClientRect();
+    at.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+    place();
+  };
+  useLayoutEffect(place); // its size changes with the values
+
   const down = (e: React.PointerEvent) => {
     drag.current = { x: e.clientX, moved: false };
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    track(e);
     onCursor(nearest(toTime(e.clientX)));
   };
   const move = (e: React.PointerEvent) => {
+    track(e);
     const s = toTime(e.clientX);
     onCursor(nearest(s));
     const d = drag.current;
@@ -209,6 +239,30 @@ export default function PerfChart(props: {
           )}
           {lines.length === 0 && <text x={M.l + pw / 2} y={M.t + ph / 2} textAnchor="middle" className="ptick">No data in this range</text>}
         </svg>
+        {tip && cx != null && lines.length > 0 && !sel && (
+          <div ref={tipRef} className="ptip" style={{ visibility: "hidden" }}>
+            <div className="ptip-t">{stamp(t[cursor!], res.step < 60)}</div>
+            {res.events.filter((e) => Math.abs(e.t - t[cursor!]) <= res.step).map((e, i) => (
+              <div key={i} className="ptip-ev">{MARK[e.kind]}</div>
+            ))}
+            <div className={"ptip-g" + (showPeak ? " peak" : "")}>
+              {lines.map((l, k) => {
+                const v = l.avg[cursor!];
+                const pk = l.max?.[cursor!];
+                return (
+                  <div key={l.id} className="ptip-r">
+                    <svg width="22" height="10" aria-hidden="true">
+                      <line x1="1" x2="21" y1="5" y2="5" stroke={`var(--pf-${k + 1})`} strokeWidth="2" strokeDasharray={DASH[k % DASH.length]} />
+                    </svg>
+                    <span>{l.label}</span>
+                    <b>{v == null ? "no data" : fmt(unit, v)}</b>
+                    {showPeak && <span className="ptip-pk">{pk == null ? "" : `peak ${fmt(unit, pk)}`}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </figure>
   );

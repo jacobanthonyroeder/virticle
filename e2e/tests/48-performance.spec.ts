@@ -58,6 +58,33 @@ test.describe.serial("performance history", () => {
     await pick(page, "Time range", "Last hour");
     await expect(page.getByLabel("From", { exact: true })).toHaveCount(0);
 
+    // The values at a time are read from a box next to the pointer, in the chart under it only.
+    await expect(page.locator(".preadout")).toHaveCount(0);
+    const chart = page.locator(".pchart", { has: page.locator(".ptitle", { hasText: /^CPU/ }) });
+    const frame = chart.locator(".pframe");
+    const fb = (await frame.boundingBox())!;
+    await expect(page.locator(".ptip")).toHaveCount(0);
+    for (const fx of [0.3, 0.97]) {
+      await page.mouse.move(fb.x + fb.width * fx, fb.y + fb.height / 2);
+      const tip = page.locator(".ptip");
+      await expect(tip).toHaveCount(1);
+      await expect(chart.locator(".ptip")).toBeVisible();
+      await expect(tip.locator(".ptip-t")).toHaveText(/\d\d:\d\d:\d\d$/);
+      await expect(tip.locator(".ptip-r")).not.toHaveCount(0);
+      await expect(tip.locator(".ptip-r b").first()).toHaveText(/%$|no data/);
+      // beside the pointer, inside the chart's frame
+      const tb = (await tip.boundingBox())!;
+      const px = fb.x + fb.width * fx;
+      expect(tb.x >= px || tb.x + tb.width <= px, "the box does not cover the pointer").toBe(true);
+      expect(tb.x).toBeGreaterThanOrEqual(fb.x - 1);
+      expect(tb.x + tb.width).toBeLessThanOrEqual(fb.x + fb.width + 1);
+      expect(tb.y).toBeGreaterThanOrEqual(fb.y - 1);
+      expect(tb.y + tb.height).toBeLessThanOrEqual(fb.y + fb.height + 1);
+    }
+    await page.screenshot({ path: "test-results/visual/perf-tip.png" });
+    await page.mouse.move(5, 5);
+    await expect(page.locator(".ptip")).toHaveCount(0);
+
     // Chips hide and show their charts.
     const cpu = page.locator(".pchips").getByRole("button", { name: "CPU", exact: true });
     const titles = page.locator(".pchart .ptitle");
