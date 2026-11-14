@@ -68,7 +68,7 @@ test.describe.serial("storage", () => {
     await pick(page, page.getByRole("combobox").first(), env.node1);
     await row(page, POOL).click();
     await expect(page.getByRole("heading", { name: `Volumes in ${POOL}` })).toBeVisible();
-    await expect(page.getByText("This pool is empty.")).toBeVisible();
+    await expect(page.getByText("No volumes", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "New volume" }).click();
     const dlg = dialog(page, `New volume in ${POOL}`);
     await field(dlg, "Name").fill(`${P}vol1`);

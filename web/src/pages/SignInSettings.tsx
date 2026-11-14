@@ -7,7 +7,6 @@ import Select from "../Select";
 import { ErrorBox, Field, useAction } from "../ui";
 import { SectionFrame } from "./Disclosure";
 import DialogAdvanced from "./DialogAdvanced";
-import { APPS_LINE } from "./TwoStep";
 import "./signin.css";
 
 interface Oidc {
@@ -131,8 +130,8 @@ function TwoStepSection({ cfg, save }: { cfg: Config; save: (p: { require2fa: st
   };
   return (
     <form className="si-form" onSubmit={submit}>
-      <p className="muted">{APPS_LINE} Each user turns it on under My account. People who sign in through an identity provider use that provider's own second factor.</p>
-      <Field label="Require two-step sign-in for" hint="Someone who must have it and has not set it up is taken to the set-up page right after signing in.">
+      <p className="muted">Each user turns it on under My account. Identity provider users use the provider's own second factor.</p>
+      <Field label="Require two-step sign-in for" hint="Users without it are taken to set-up after signing in.">
         <Select
           label="Require two-step sign-in for"
           value={value}
@@ -178,7 +177,7 @@ function OidcSection({ cfg, save }: { cfg: Oidc; save: (o: object) => Promise<vo
   const test = () => testing.run(async () => setSteps((await post<{ steps: Step[] }>("/signin/oidc/test", { issuer: d.issuer, scopes: d.scopes, groupsClaim: d.groupsClaim })).steps));
   return (
     <form className="si-form" onSubmit={submit}>
-      <p className="muted">Lets people sign in with an account at your identity provider. The provider's own second factor applies.</p>
+      <p className="muted">The provider's own second factor applies.</p>
       <Check checked={d.enabled} onChange={(v) => edit({ enabled: v })}>
         Allow sign-in with an identity provider
       </Check>
@@ -192,7 +191,7 @@ function OidcSection({ cfg, save }: { cfg: Oidc; save: (o: object) => Promise<vo
         <Field label="Client ID">
           <input value={d.clientId} onChange={(e) => edit({ clientId: e.target.value })} autoComplete="off" />
         </Field>
-        <Field label="Client secret" hint={cfg.clientSecretSet ? "A secret is saved. Leave empty to keep it." : undefined}>
+        <Field label="Client secret" hint={cfg.clientSecretSet ? "Leave empty to keep it." : undefined}>
           <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={cfg.clientSecretSet ? "Saved" : ""} autoComplete="new-password" />
         </Field>
       </div>
@@ -264,7 +263,7 @@ function LdapSection({ cfg, save }: { cfg: Ldap; save: (o: object) => Promise<vo
     testing.run(async () => setSteps((await post<{ steps: Step[] }>("/signin/ldap/test", { ...d, bindPassword: pw, testUser, testPassword: testPw })).steps));
   return (
     <form className="si-form" onSubmit={submit}>
-      <p className="muted">People sign in on the normal form with their directory name and password. A local account of the same name always wins.</p>
+      <p className="muted">A local account of the same name always wins.</p>
       <Check checked={d.enabled} onChange={(v) => edit({ enabled: v })}>
         Allow sign-in with a directory account
       </Check>
@@ -272,14 +271,14 @@ function LdapSection({ cfg, save }: { cfg: Ldap; save: (o: object) => Promise<vo
         <input value={d.url} onChange={(e) => edit({ url: e.target.value })} placeholder="ldaps://dc.example.org" />
       </Field>
       <div className="grid2">
-        <Field label="Bind user" hint="A service account that may search the directory.">
+        <Field label="Bind user">
           <input value={d.bindDn} onChange={(e) => edit({ bindDn: e.target.value })} placeholder="cn=virticle,ou=service,dc=example,dc=org" autoComplete="off" />
         </Field>
-        <Field label="Bind password" hint={cfg.bindPasswordSet ? "A password is saved. Leave empty to keep it." : undefined}>
+        <Field label="Bind password" hint={cfg.bindPasswordSet ? "Leave empty to keep it." : undefined}>
           <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={cfg.bindPasswordSet ? "Saved" : ""} autoComplete="new-password" />
         </Field>
       </div>
-      <Field label="Base DN" hint="Where users and groups are searched.">
+      <Field label="Base DN">
         <input value={d.baseDn} onChange={(e) => edit({ baseDn: e.target.value })} placeholder="dc=example,dc=org" />
       </Field>
       <Field label="Group that gives the administrator role" hint="A group name or its full DN.">

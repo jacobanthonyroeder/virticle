@@ -61,7 +61,7 @@ function tuningSummary(t: Tuning): string {
   ].join(", ");
 }
 
-export default function AdvancedCard({ d, base, onChanged, bare }: { d: VMDetail; base: string; onChanged: () => void; bare?: boolean }) {
+export default function AdvancedCard({ d, base, onChanged, bare, flat }: { d: VMDetail; base: string; onChanged: () => void; bare?: boolean; flat?: boolean }) {
   const [t, setT] = useState<Tuning | undefined>();
   const [loadErr, setLoadErr] = useState<string | undefined>();
   const [msg, setMsg] = useState<string | undefined>();
@@ -81,19 +81,19 @@ export default function AdvancedCard({ d, base, onChanged, bare }: { d: VMDetail
   const title = "Advanced";
   if (loadErr)
     return (
-      <SectionFrame id="hw-advanced" title={title} summary="Could not be read" bare={bare}>
+      <SectionFrame id="hw-advanced" title={title} summary="Could not be read" bare={bare} flat={flat}>
         <ErrorBox error={loadErr} />
       </SectionFrame>
     );
   if (!t)
     return (
-      <SectionFrame id="hw-advanced" title={title} summary="Loading" bare={bare}>
+      <SectionFrame id="hw-advanced" title={title} summary="Loading" bare={bare} flat={flat}>
         <div className="muted">Loading</div>
       </SectionFrame>
     );
   const s = t.saved;
   return (
-    <SectionFrame id="hw-advanced" title={title} summary={tuningSummary(t)} bare={bare}>
+    <SectionFrame id="hw-advanced" title={title} summary={tuningSummary(t)} bare={bare} flat={flat}>
       <div className="advanced">
       <OneLine
         tone="note"
@@ -233,7 +233,7 @@ function Pinning({ t, busy, save }: P) {
   return (
     <div>
       <h4>vCPU pinning</h4>
-      <small>Host CPUs {hostList}. Empty: no pin. Syntax 0-3,6 or ^1.</small>
+      <small>Host CPUs {hostList}. Syntax 0-3,6 or ^1.</small>
       <table className="compact">
         <tbody>
           {pins.map((v, i) => (
@@ -256,7 +256,7 @@ function Pinning({ t, busy, save }: P) {
         <button disabled={busy} onClick={apply}>
           Save pinning
         </button>
-        <button disabled={busy || (s.pins.length === 0 && !s.emulatorPin)} onClick={async () => (await confirm.ask({ title: "Remove CPU pinning", message: "All CPU pinning of this VM is removed. Its vCPUs and emulator threads may then run on any host CPU.", confirm: "Remove pinning" })) && save("pinning", { clear: true })}>
+        <button disabled={busy || (s.pins.length === 0 && !s.emulatorPin)} onClick={async () => (await confirm.ask({ title: "Remove CPU pinning", message: "All CPU pinning of this VM is removed.", confirm: "Remove pinning" })) && save("pinning", { clear: true })}>
           Remove pinning
         </button>
       </footer>

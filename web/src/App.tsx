@@ -170,7 +170,7 @@ export default function App() {
           {session.role === "admin" && <Route path="/sign-in" element={<SignInSettings />} />}
           {session.role === "admin" && <Route path="/alerts-settings" element={<AlertSettings />} />}
           {session.role === "admin" && <Route path="/controller-backup" element={<ControllerBackup />} />}
-          <Route path="*" element={<div className="empty">There is nothing at this address, or your role does not allow it.</div>} />
+          <Route path="*" element={<div className="empty">Not found</div>} />
         </Routes>
       </main>
       </div>
@@ -225,7 +225,7 @@ function SignIn({ setup, oidc, webChangeUntil, signedOut, onDone }: { setup: boo
       <div className="signin">
         <form onSubmit={submitCode} className="card">
           <h1>Virticle</h1>
-          <p className="muted">Two-step sign-in. Enter the 6-digit code from your authenticator app, or a recovery code.</p>
+          <p className="muted">Two-step sign-in. Authenticator or recovery code.</p>
           <Field label="Code">
             <input value={code} onChange={(e) => setCode(e.target.value)} autoFocus autoComplete="one-time-code" required />
           </Field>
@@ -243,10 +243,10 @@ function SignIn({ setup, oidc, webChangeUntil, signedOut, onDone }: { setup: boo
     <div className="signin">
       <form onSubmit={submit} className="card">
         <h1>Virticle</h1>
-        <p className="muted">{setup ? "Create the administrator account to get started." : "Sign in to manage your virtual machines."}</p>
+        {setup && <p className="muted">Create the administrator account.</p>}
         {signedOut && (
           <p className="notice muted">
-            You are signed out of Virticle. <a href={signedOut.url}>{`Also sign out of ${signedOut.provider}`}</a>
+            Signed out. <a href={signedOut.url}>{`Also sign out of ${signedOut.provider}`}</a>
           </p>
         )}
         {webChangeUntil && !setup && (
@@ -260,7 +260,7 @@ function SignIn({ setup, oidc, webChangeUntil, signedOut, onDone }: { setup: boo
             <a className="primary provider-btn button" href="/api/oidc/start">
               {`Sign in with ${oidc}`}
             </a>
-            <p className="or muted">or with a local or directory account</p>
+            <p className="or muted">or</p>
           </>
         )}
         <Field label="Username">
@@ -285,7 +285,7 @@ function TwoStepRequired({ user, onDone, onSignOut }: { user: string; onDone: ()
       <div className="card">
         <h1>Virticle</h1>
         <p>
-          <strong>{user}</strong>, an administrator requires two-step sign-in for your account. Set it up now to continue.
+          <strong>{user}</strong>: two-step sign-in is required for your account.
         </p>
         <TwoStepSetup onDone={onDone} />
         <button className="link" onClick={onSignOut}>

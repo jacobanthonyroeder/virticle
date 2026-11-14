@@ -147,7 +147,7 @@ function AddShared({ nodes, onClose, onDone }: { nodes: NodeStatus[]; onClose: (
     <Modal title="Add shared storage" onClose={onClose}>
       <form onSubmit={submit}>
         <p className="muted">
-          Mounts an NFS share on {online.length > 1 ? "every node" : "the node"} under the same name and path, so VMs on it can move between nodes without copying their disks.
+          Mounts an NFS share on {online.length > 1 ? "every node" : "the node"} under the same name and path.
         </p>
         <Field label="Name" hint="Also the folder it is mounted in: /mnt/name.">
           <input value={f.name} onChange={set("name")} required autoFocus placeholder="shared" />
@@ -169,7 +169,6 @@ function AddShared({ nodes, onClose, onDone }: { nodes: NodeStatus[]; onClose: (
                 {nodeLabel(n)}
               </label>
             ))}
-            <small className="muted">A VM can only move between nodes that all have the storage.</small>
           </DialogAdvanced>
         )}
         <ErrorBox error={act.error} />

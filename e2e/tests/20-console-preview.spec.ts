@@ -79,7 +79,7 @@ test.describe.serial("console preview and extras", () => {
     let asked = 0;
     page.on("request", (r) => SHOT.test(r.url()) && asked++);
     await openVM(page, off);
-    await expect(page.locator(".cc-note")).toContainText("shut off");
+    await expect(page.locator(".cc-note")).toHaveText("Shutoff");
     await page.waitForTimeout(1500);
     expect(asked).toBe(0);
   });
@@ -164,7 +164,7 @@ test.describe.serial("console preview and extras", () => {
 
     await bar.getByRole("button", { name: "Paste text" }).click();
     const dlg = page.getByRole("dialog", { name: "Paste text into the guest" });
-    await expect(dlg).toContainText("US keyboard layout");
+    await expect(dlg).toContainText("US layout");
     await dlg.getByRole("textbox").fill("Ab1!é");
     await expect(dlg).toContainText("1 character cannot be typed");
     await expect(dlg.getByRole("button", { name: "Type 4 characters" })).toBeVisible();

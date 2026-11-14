@@ -45,14 +45,13 @@ export default function CloudProfiles() {
         </button>
       </div>
       <p className="muted">
-        Save user, password, SSH keys and packages once and pick them when you create or clone a VM. Passwords are stored as hashes only. Editing or deleting a profile does not change VMs
-        that were made from it.
+        Passwords are stored as hashes only. Editing or deleting a profile does not change existing VMs.
       </p>
       <ErrorBox error={error} />
       {profiles && profiles.length === 0 && (
         <div className="empty">
           <KeyRound size={20} aria-hidden />
-          <p>No profiles yet.</p>
+          <p>No profiles</p>
         </div>
       )}
       {profiles && profiles.length > 0 && (
@@ -101,7 +100,7 @@ function DeleteDialog({ profile, onClose, onDone }: { profile: CloudProfile; onC
   const act = useAction();
   return (
     <Modal title={`Delete ${profile.name}`} onClose={onClose}>
-      <p>VMs that were created or cloned from this profile keep their settings. Only the saved profile is removed.</p>
+      <p>VMs made from it keep their settings.</p>
       <ErrorBox error={act.error} />
       <footer>
         <button onClick={onClose}>Cancel</button>
@@ -167,7 +166,7 @@ function ProfileDialog({ profile, onClose, onDone }: { profile?: CloudProfile; o
           <Field label="Default user">
             <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="e.g. admin" pattern="[a-z_][a-z0-9_\-]*" disabled={rawSet} autoComplete="off" />
           </Field>
-          <Field label="Password" hint={profile?.hasPassword ? "A password is set. Type a new one to replace it." : "Stored as a SHA-512 hash; the plain text is not kept."}>
+          <Field label="Password" hint={profile?.hasPassword ? "Set. Type a new one to replace it." : "Stored as a SHA-512 hash; the plain text is not kept."}>
             <input
               type="password"
               value={password}
@@ -187,7 +186,7 @@ function ProfileDialog({ profile, onClose, onDone }: { profile?: CloudProfile; o
         <Field label="Packages" hint="Separated by spaces or commas.">
           <input value={packages} onChange={(e) => setPackages(e.target.value)} placeholder="e.g. htop curl" disabled={rawSet} />
         </Field>
-        <Field label="SSH public keys" hint="One per line. Added to the user above.">
+        <Field label="SSH public keys" hint="One per line.">
           <textarea rows={3} value={keys} onChange={(e) => setKeys(e.target.value)} placeholder="ssh-ed25519 AAAA me@host" disabled={rawSet} spellCheck={false} />
         </Field>
         <Field label="Advanced: raw user-data" hint="If set, used as is and the fields above are ignored. Start with #cloud-config or a #! script.">
@@ -195,7 +194,7 @@ function ProfileDialog({ profile, onClose, onDone }: { profile?: CloudProfile; o
         </Field>
         <label className="check">
           <input type="checkbox" checked={isDefault} onChange={(e) => setDefault(e.target.checked)} />
-          Default profile: preselected when creating or cloning a VM
+          Default profile
         </label>
         <ErrorBox error={act.error} />
         <footer>

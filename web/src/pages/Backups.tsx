@@ -55,7 +55,6 @@ const url = (b: BackupEntry) => `/nodes/${b.node}/backups/${encodeURIComponent(b
 
 const hasLaterOnes = (n?: number) => (n ?? 0) > 0;
 
-const notIncluded = "A backup holds the VM's current state without its snapshots. It holds the state of an emulated TPM 2.0 as well, so keep it as safe as the VM.";
 
 /** What a restore of this backup does with the TPM. */
 const tpmLine = (m: Manifest) =>
@@ -181,17 +180,17 @@ function BackupNow(props: { d: VMDetail; onClose: () => void; onDone: () => void
           <p className="muted">
             {finished
               ? kind === "incremental"
-                ? "Incremental backup: only what changed since the last backup was copied."
-                : `Full backup: the whole disks were copied.${why ? " " + why : ""}`
+                ? "Incremental backup"
+                : `Full backup.${why ? " " + why : ""}`
               : kind === "incremental"
-                ? "Planned as an incremental backup: only what changed since the last backup is copied. If that is not possible, a full backup is made instead."
-                : "Full backup: the whole disks are copied."}
+                ? "Planned as an incremental backup; a full backup if that is not possible."
+                : "Full backup"}
           </p>
           <TaskFollow id={task} onDone={done} onCancel={() => post(`${base}/backup/cancel`)} />
         </>
       ) : (
         <>
-          <p className="muted">Copies what changed since the last backup when that is possible, otherwise the whole disks. Snapshots are not included. The state of an emulated TPM 2.0 is, so keep backups as safe as the VM.</p>
+          <p className="muted">Incremental when possible, otherwise full. Snapshots are not included; the TPM 2.0 state is, so keep backups as safe as the VM.</p>
           <Target node={node} pool={pool} setNode={setNode} setPool={setPool} />
           <Field label="Keep the newest" hint="Older backups of this VM in this pool are deleted, except those a kept incremental backup builds on. 0 keeps all.">
             <input type="number" min={0} max={1000} value={keep} onChange={(e) => setKeep(Number(e.target.value))} />
@@ -259,7 +258,7 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
       ) : (
         <>
           <p className="muted">
-            Backup of {m.vm} from {when(m.created)}.{tpmLine(m)} Snapshots are not included.
+            {when(m.created)}.{tpmLine(m)} Snapshots are not included.
           </p>
           <Field label="Restore" hint={whyNot || undefined}>
             <Select
@@ -448,13 +447,13 @@ function SchedulePanel({ d }: { d: VMDetail }) {
               {cur.data?.last ? ` Last backup ${when(new Date(cur.data.last * 1000).toISOString())}.` : " No backup there yet."}
             </p>
           ) : (
-            <p className="muted">No schedule. A failed run raises an alert.</p>
+            <p className="muted">No schedule.</p>
           )}
           {sch && cur.data?.lastError && <StatusLine status="error">Cannot read the target: {cur.data.lastError}</StatusLine>}
           {sch && <NextRunLine nextRun={cur.data?.nextRun} runner={cur.data?.runner} enabled={sch.enabled} tick={cur.data?.tick} onElapsed={cur.reload} />}
           {canEdit && (
             <div className="actions">
-              <button onClick={edit}>{sch ? "Edit schedule" : "Set up schedule"}</button>
+              <button onClick={edit} title={sch ? undefined : "A failed run raises an alert"}>{sch ? "Edit schedule" : "Set up schedule"}</button>
               {sch && (
                 <button className="danger" disabled={act.busy} onClick={remove}>
                   Remove
@@ -513,10 +512,9 @@ export default function BackupsTab({ d }: { d: VMDetail; base: string }) {
                   </button>
                 </div>
               </div>
-              <p className="muted">Backups of this VM on all nodes. {notIncluded}</p>
               <ErrorBox error={list.error} />
-              {!list.data && !list.error && <div className="empty">Looking for backups on all nodes</div>}
-              {list.data && list.data.length === 0 && <div className="empty">No backups of this VM yet.</div>}
+              {!list.data && !list.error && <div className="empty">Loading</div>}
+              {list.data && list.data.length === 0 && <div className="empty">No backups</div>}
               {list.data && list.data.length > 0 && <BackupTable list={list.data} reload={list.reload} />}
             </>
           )
@@ -566,7 +564,7 @@ function ImportFile(props: { onClose: () => void; onDone: () => void }) {
   return (
     <Modal title="Import a VM export" onClose={props.onClose}>
       <p className="muted">
-        Upload a <code>.vmexport.tar</code> file. It is checked while it streams to the node and stored as a backup in the chosen pool; restore it from the list afterwards.
+        A <code>.vmexport.tar</code> file. It is checked while it uploads and stored as a backup in the chosen pool.
       </p>
       <Target node={node} pool={pool} setNode={setNode} setPool={setPool} />
       <Field label="File">
@@ -595,10 +593,9 @@ export function BackupsSection() {
           <button onClick={() => setImporting(true)}>Import from file</button>
         </div>
       </div>
-      <p className="muted">Every backup found in the directory pools of all nodes. {notIncluded}</p>
       <ErrorBox error={list.error} />
-      {!list.data && !list.error && <div className="empty">Looking for backups on all nodes</div>}
-      {list.data && list.data.length === 0 && <div className="empty">No backups yet. Use the Backups tab of a VM to make one.</div>}
+      {!list.data && !list.error && <div className="empty">Loading</div>}
+      {list.data && list.data.length === 0 && <div className="empty">No backups</div>}
       {list.data && list.data.length > 0 && <BackupTable list={list.data} global reload={list.reload} />}
       {importing && <ImportFile onClose={() => setImporting(false)} onDone={list.reload} />}
     </section>

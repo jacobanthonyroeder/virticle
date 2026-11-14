@@ -17,7 +17,7 @@ export default function Tasks() {
       </div>
       <ErrorBox error={tasks.error} />
       {tasks.data && tasks.data.length === 0 ? (
-        <div className="empty">Nothing has been done yet. Every action taken here is recorded with its result.</div>
+        <div className="empty">No tasks</div>
       ) : (
         <table>
           <thead>

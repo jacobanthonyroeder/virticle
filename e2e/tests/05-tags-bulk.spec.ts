@@ -41,7 +41,7 @@ test.describe.serial("tags and bulk actions", () => {
     await expect(row(page, B)).toBeVisible();
     await expect(row(page, A)).toHaveCount(0);
     await page.getByLabel("Search VMs").fill("zzz-no-such-vm");
-    await expect(page.getByText("No VM matches the search or tag filter.")).toBeVisible();
+    await expect(page.getByText("No match", { exact: true })).toBeVisible();
     await page.getByLabel("Search VMs").fill("");
 
     // clicking a chip in the list filters by it

@@ -339,7 +339,7 @@ const agentInstall: [string, string][] = [
   ["RHEL / Rocky / Fedora", "sudo dnf install -y qemu-guest-agent && sudo systemctl enable --now qemu-guest-agent"],
   ["openSUSE", "sudo zypper install -y qemu-guest-agent && sudo systemctl enable --now qemu-guest-agent"],
   ["Alpine", "apk add qemu-guest-agent && rc-update add qemu-guest-agent && rc-service qemu-guest-agent start"],
-  ["Windows", "Install virtio-win-guest-tools.exe from the virtio-win ISO (it includes the guest agent)."],
+  ["Windows", "virtio-win-guest-tools.exe from the virtio-win ISO"],
 ];
 
 /** Guest agent status, with the steps to get it working when it is not. */
@@ -363,7 +363,7 @@ function AgentCard({ d, base, onChanged }: { d: VMDetail; base: string; onChange
       </h3>
       {d.agent === "absent" && (
         <>
-          <p>No agent channel. Add it here, then install the agent in the guest.</p>
+          <p>No agent channel</p>
           <button className="primary" disabled={act.busy} onClick={addChannel}>
             Add agent channel
           </button>
@@ -373,7 +373,7 @@ function AgentCard({ d, base, onChanged }: { d: VMDetail; base: string; onChange
       {restart && <StatusLine status="warning">Saved; the channel appears after a restart.</StatusLine>}
       {d.agent === "disconnected" && (
         <>
-          <p>{d.state !== "running" ? "The VM is not running." : "Nothing answers in the guest."} Install and start the agent:</p>
+          <p>{d.state !== "running" ? "The VM is not running." : "Nothing answers in the guest."}</p>
           <div className="install">
             {agentInstall.filter(([os]) => !help?.os || (help.os === "windows") === (os === "Windows")).map(([os, cmd]) => (
               <div key={os}>

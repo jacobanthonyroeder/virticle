@@ -96,7 +96,7 @@ export default function WebPending({ page }: { page: string }) {
   if (ended)
     return (
       <Modal title="Web access change ended" onClose={dismissEnded}>
-        <p>The change was not kept, so the previous web access settings are back in use. If this page stops responding, open the previous address.</p>
+        <p>The change was not kept; the previous settings are back in use. If this page stops responding, use the previous address.</p>
         <div className="actions">
           <button className="primary" onClick={dismissEnded}>
             Close

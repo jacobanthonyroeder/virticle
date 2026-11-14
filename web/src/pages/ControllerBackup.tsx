@@ -98,20 +98,20 @@ export default function ControllerBackup() {
         <form className="card" onSubmit={download} aria-label="Download backup" autoComplete="off">
           <h2>Download backup</h2>
           <p>
-            The backup holds what makes this controller the controller: the users, the node list, the SSH key the nodes trust, the migration certificate authority and the web certificates. It does not hold VMs, storage or networks; those stay on the nodes.
+            Users, node list, node SSH key, migration CA and web certificates. It does not hold VMs, storage or networks.
           </p>
           <p>
             <strong>The file contains private keys.</strong> Keep it as safe as a root password, or give it a passphrase below.
           </p>
-          <Field label="Your password" hint="Asked again because the backup holds the keys.">
+          <Field label="Your password">
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
           </Field>
           {twoStep && (
-            <Field label="Two-step code" hint="A current code from your authenticator, or a recovery code.">
+            <Field label="Two-step code" hint="Authenticator or recovery code.">
               <input value={code} onChange={(e) => setCode(e.target.value)} required autoComplete="one-time-code" />
             </Field>
           )}
-          <Field label="Passphrase (optional)" hint="Encrypts the file. Without the passphrase nobody can open it, and it cannot be recovered.">
+          <Field label="Passphrase (optional)" hint="Encrypts the file. A lost passphrase cannot be recovered.">
             <input type="password" value={pass1} onChange={(e) => setPass1(e.target.value)} autoComplete="new-password" />
           </Field>
           <Field label="Passphrase again">
@@ -122,10 +122,10 @@ export default function ControllerBackup() {
             Download backup
           </button>
           <p className="muted" role="status">
-            {st?.last ? `Last backup: ${when(st.last.time)}, by ${VIA[st.last.via]}${st.last.size ? `, ${bytes(st.last.size)}` : ""}${st.last.encrypted ? ", encrypted" : ""}.` : "No backup has been taken yet."}
+            {st?.last ? `Last backup: ${when(st.last.time)}, by ${VIA[st.last.via]}${st.last.size ? `, ${bytes(st.last.size)}` : ""}${st.last.encrypted ? ", encrypted" : ""}.` : "No backup yet."}
           </p>
           <p className="muted">
-            Restore is done on the command line, with the controller stopped: <code>{st?.restoreCommand ?? "sudo systemctl stop virticle && sudo virticle restore FILE"}</code>
+            Restore, with the controller stopped: <code>{st?.restoreCommand ?? "sudo systemctl stop virticle && sudo virticle restore FILE"}</code>
           </p>
         </form>
 
@@ -138,7 +138,7 @@ export default function ControllerBackup() {
             Writes a backup to <code>{st?.dir ?? "the backups folder"}</code> at 03:30 server time and keeps the newest {st?.keep ?? 7}. The files are not encrypted; only the controller&apos;s account can read them.
           </p>
           <p>
-            They protect against a bad upgrade or a mistake, not against losing this machine. For a copy elsewhere, use the download above, or run <code>virticle backup -o DIR</code> from cron.
+            Not a copy off this machine: use the download above or <code>virticle backup -o DIR</code> from cron.
           </p>
           <ErrorBox error={daily.error} />
           {st?.daily && st.lastDaily && (

@@ -29,7 +29,6 @@ export default function Account() {
         {atLeast(role, "operator") && (
           <div className="card">
             <h2>Cloud-init profiles</h2>
-            <p className="muted">Saved user, password, SSH keys and packages for new and cloned VMs.</p>
             <Link to="/cloudinit-profiles">Manage profiles</Link>
           </div>
         )}
@@ -130,7 +129,7 @@ function Tokens({ role }: { role: Role }) {
     <div className="card">
       <h2>API tokens</h2>
       <p className="muted">
-        Send a token as <code>Authorization: Bearer TOKEN</code>. A token has your role or a lower one and works until it expires or you revoke it. It cannot manage tokens or your password.
+        <code>Authorization: Bearer TOKEN</code>. Role: yours or lower. Cannot manage tokens or your password.
       </p>
       {secret && (
         <div className="secretbox">

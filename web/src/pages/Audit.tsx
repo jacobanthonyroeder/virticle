@@ -44,7 +44,7 @@ export default function Audit() {
       <div className="head">
         <h1>Audit log</h1>
       </div>
-      <p className="muted">Who asked for what: every change, console opening and sign-in. Request contents are never recorded. The Tasks page shows what happened on the nodes.</p>
+      <p className="muted">Changes, console openings and sign-ins. Request contents are never recorded.</p>
       <form className="row" onSubmit={search}>
         <input placeholder="User" value={user} onChange={(e) => setUser(e.target.value)} aria-label="Filter by user" />
         <Select auto label="Filter by method" value={method} onChange={setMethod} options={[{ value: "", label: "Any method" }, ...["POST", "PUT", "DELETE", "GET"].map((m) => ({ value: m, label: m }))]} />

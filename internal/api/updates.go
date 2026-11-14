@@ -94,7 +94,7 @@ func collectUpdates(h *hostconn.Host, now time.Time) hostUpdates {
 				res.MetadataAt = ts
 			}
 		}
-		res.Note = "Reflects the package lists as of the node's last apt update; nothing is refreshed or installed from here."
+		res.Note = "Package lists as of the node's last apt update."
 		kernelCmd = cmdKernelDeb
 	case "dnf":
 		out, err := h.Run(cmdDnfCheck)
@@ -108,7 +108,7 @@ func collectUpdates(h *hostconn.Host, now time.Time) hostUpdates {
 			res.Error = perr.Error()
 			return res
 		}
-		res.Note = "Reflects the repository metadata dnf has cached on the node; nothing is installed from here."
+		res.Note = "As reported by dnf check-update."
 		kernelCmd = cmdKernelRPM
 	default:
 		res.Family = "unsupported"

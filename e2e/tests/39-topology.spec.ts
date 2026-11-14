@@ -42,7 +42,7 @@ test.describe.serial("network topology", () => {
     await page.getByLabel("Filter by VM or network name").fill("default");
     await expect(page.getByRole("button", { name: "default", exact: true }).first()).toBeVisible();
     await page.getByLabel("Filter by VM or network name").fill("no-such-name-anywhere");
-    await expect(page.getByText("Nothing matches this filter.")).toBeVisible();
+    await expect(page.getByText("No match", { exact: true })).toBeVisible();
   });
 
   test("no sideways scrolling at phone width, on either tab", async ({ page, n1 }) => {

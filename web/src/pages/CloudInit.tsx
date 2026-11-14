@@ -63,7 +63,7 @@ export default function CloudInitFields(props: { value: CloudInitValues; onChang
         Cloud-init{cloudInitUsed(v) ? " (configured)" : ""}
         {prof ? `: ${prof.name}` : ""}
       </summary>
-      <p className="hint">{usable ? "The image must have cloud-init installed. The guest agent is installed too." : "Sets the administrator account on the clone's first boot."}</p>
+      {usable && <p className="hint">Needs cloud-init in the image; installs the guest agent.</p>}
       {usable && profiles && profiles.length > 0 && (
         <Field label="Profile" hint="Fields you leave empty are taken from the profile.">
           <Select label="Profile" value={String(v.profile)} onChange={(x) => onChange({ ...v, profile: Number(x) })} options={[{ value: "0", label: "None" }, ...profiles.map((p) => ({ value: String(p.id), label: p.name + (p.default ? " (default)" : "") }))]} />
@@ -78,7 +78,7 @@ export default function CloudInitFields(props: { value: CloudInitValues; onChang
           <input type="password" value={v.password} onChange={set("password")} placeholder={prof?.hasPassword ? "(from the profile)" : ""} disabled={raw} autoComplete="new-password" />
         </Field>
       </div>
-      <Field label="SSH public keys" hint="One per line. Added to the user above.">
+      <Field label="SSH public keys" hint="One per line.">
         <textarea rows={3} value={v.sshKeys} onChange={set("sshKeys")} placeholder={keyHint} disabled={raw} spellCheck={false} />
       </Field>
       <details className="cloudinit">

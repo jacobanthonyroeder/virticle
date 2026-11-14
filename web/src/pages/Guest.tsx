@@ -100,10 +100,10 @@ export function VirtioWin({ d, base, help }: { d: VMDetail; base: string; help: 
   return (
     <div className="virtio">
       {confirm.dialog}
-      <p>{help.source === "libosinfo" ? "This VM is registered as a Windows guest." : "This VM looks like a Windows guest."} The guest agent comes with the virtio-win drivers.</p>
+      <p>{help.source === "libosinfo" ? "This VM is registered as a Windows guest." : "This VM looks like a Windows guest."}</p>
       {help.attached ? (
         <p>
-          The virtio-win ISO is attached as <code>{help.attached}</code>. Open it in the guest and run <code>virtio-win-guest-tools.exe</code>.
+          The virtio-win ISO is attached as <code>{help.attached}</code>. Run <code>virtio-win-guest-tools.exe</code> from it.
         </p>
       ) : iso ? (
         <div className="actions">
@@ -124,7 +124,7 @@ export function VirtioWin({ d, base, help }: { d: VMDetail; base: string; help: 
           </button>
         </div>
       ) : (
-        <p className="muted">No virtio-win ISO found, and no directory-backed pool to download it to. Upload virtio-win.iso on the Storage page.</p>
+        <p className="muted">No virtio-win ISO, and no directory pool to download it to.</p>
       )}
       <ErrorBox error={act.error} />
     </div>

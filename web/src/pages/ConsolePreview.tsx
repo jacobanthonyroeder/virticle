@@ -150,10 +150,10 @@ export function ConsoleCard({ d }: { d: VMDetail }) {
   };
 
   let note = "";
-  if (viewer) note = "The console is available to operators and administrators.";
-  else if (!alive) note = "The VM is shut off. Start it to see its console.";
-  else if (!kind) note = "This VM has no display and no serial console.";
-  else if (kind === "serial") note = "This VM has a serial console only. Click to open it.";
+  if (viewer) note = "Only operators and administrators.";
+  else if (!alive) note = "Shutoff";
+  else if (!kind) note = "No console";
+  else if (kind === "serial") note = "Serial console";
 
   if (inline && kind && !viewer) {
     const back = (
@@ -169,7 +169,7 @@ export function ConsoleCard({ d }: { d: VMDetail }) {
             <h3>Console</h3>
           </div>
           <div className="cc-box">
-            <div className="cc-note">The console is open below.</div>
+            <div className="cc-note" />
           </div>
           <div className="cc-foot">
             <span className="muted">&nbsp;</span>

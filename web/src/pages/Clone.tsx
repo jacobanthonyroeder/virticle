@@ -68,13 +68,13 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
       <Field label="Name of the clone">
         <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
       </Field>
-      {d.template && <p className="muted">{linked ? "The clone is fast and small, and the template cannot be deleted while it exists." : "The clone is an independent copy of the template's disks."}</p>}
+      {d.template && linked && <p className="muted">Linked clone: the template cannot be deleted while it exists.</p>}
       <label className="check">
         <input type="checkbox" checked={start} onChange={(e) => setStart(e.target.checked)} />
         Start the clone when it is ready
       </label>
       {d.template && info?.sysprepProblem && <p className="muted">{info.sysprepProblem}</p>}
-      {!info && !infoError && <p className="muted">Checking what the node supports</p>}
+      {!info && !infoError && <p className="muted">Checking</p>}
       {infoError && <p className="muted">{infoError}</p>}
       <CloudInitFields value={ci} onChange={setCi} profiles={!!info && !windows} />
       <DialogAdvanced>
@@ -117,7 +117,6 @@ export function ConvertDialog({ d, base, onClose, onDone }: { d: VMDetail; base:
   const blocked = d.state !== "shutoff" && !seal;
   return (
     <Modal title={`Convert ${d.name} to a template`} onClose={onClose}>
-      <p>A template can be cloned but not started.</p>
       {canReset && (
         <label className="check">
           <input type="checkbox" checked={reset} onChange={(e) => setReset(e.target.checked)} />
@@ -125,7 +124,7 @@ export function ConvertDialog({ d, base, onClose, onDone }: { d: VMDetail; base:
         </label>
       )}
       {seal && <StatusLine status="warning">This shuts the VM down and cannot be undone for this guest; reset a copy to keep it usable.</StatusLine>}
-      {blocked && <p className="muted">Shut the VM down first to convert it without resetting its identity.</p>}
+      {blocked && <p className="muted">Shut the VM down to skip the identity reset.</p>}
       <ErrorBox error={act.error} />
       <footer>
         <button onClick={onClose}>Cancel</button>

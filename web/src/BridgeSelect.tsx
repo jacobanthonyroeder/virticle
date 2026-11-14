@@ -62,7 +62,7 @@ export default function BridgeSelect(props: { node: number; value: string; onCha
       <div className="bs">
         <input aria-label="Bridge device" className="mono" value={props.value} placeholder="br0" onChange={(e) => props.onChange(e.target.value)} />
         <small className="muted">
-          {error ? `The node's interfaces could not be read (${error}). ` : "The server checks that the node has a bridge of this name. "}
+          {error ? `The node's interfaces could not be read (${error}). ` : ""}
           {!error && (
             <button type="button" className="link" onClick={() => setManual(false)}>
               Choose from the list
@@ -85,7 +85,7 @@ export default function BridgeSelect(props: { node: number; value: string; onCha
         groupHint={{ [LIBVIRT]: "Usually better: pick the libvirt network itself." }}
         empty={
           <>
-            <strong>No bridge interfaces on this node.</strong> Create one on the node (NetworkManager, systemd-networkd, /etc/network/interfaces).{" "}
+            <strong>No bridge interfaces on this node.</strong>{" "}
             <button type="button" className="link" onClick={() => setManual(true)}>
               Enter a name manually
             </button>

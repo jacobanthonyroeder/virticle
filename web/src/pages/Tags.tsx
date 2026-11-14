@@ -126,7 +126,6 @@ export function TagEditor({ tags, base, vmName, onChanged }: { tags: string[]; b
                   <span className="muted">{k.count}</span>
                 </li>
               ))}
-              {matches.length > SHOWN && <li className="more muted">Keep typing to narrow the list.</li>}
             </ul>
           )}
         </span>

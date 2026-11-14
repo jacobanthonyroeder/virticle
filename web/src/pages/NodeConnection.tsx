@@ -268,7 +268,7 @@ function EditConnection({ n, info, mig: migInfo, onClose, onSaved }: { n: NodeSt
             {migInfo && !migInfo.show && <LimitField value={limit} onChange={setLimit} />}
           </div>
           {migInfo?.show && <LimitField value={limit} onChange={setLimit} />}
-          <p className="muted">Add this key to ~/.ssh/authorized_keys of the SSH user on the node.</p>
+          <p className="muted">Add this key to ~/.ssh/authorized_keys on the node.</p>
           <div className="keybox">
             <code>{publicKey}</code>
             <button type="button" className="link" onClick={() => navigator.clipboard?.writeText(publicKey).then(() => setCopied(true))}>

@@ -69,10 +69,9 @@ function PlanView({ nodes, onStarted, onClose }: { nodes?: number[]; onStarted: 
   return (
     <>
       <p>
-        The nodes are updated one at a time. Each node is put in maintenance, its running virtual machines are moved to the others without stopping them, the updates are installed, the node is restarted if that is needed, and after it is checked
-        and healthy again the virtual machines move back. The next node starts only when the one before is done. Any failure stops the run.
+        The nodes are updated one at a time: maintenance, running VMs move to the others without stopping, updates installed, restart if needed, health check, VMs move back. Any failure stops the run.
       </p>
-      {load.busy && !plan && <p className="muted">Reading the nodes and their updates. This takes about half a minute.</p>}
+      {load.busy && !plan && <p className="muted">Reading the nodes. About half a minute.</p>}
       <ErrorBox error={load.error} />
       {plan && plan.refusals.length > 0 && (
         <div className="rollrefuse" role="alert">
@@ -195,7 +194,7 @@ function RunView({ run, lost, onChange, onClose }: { run: RollRun; lost: boolean
         {running && <span className="muted"> {done} of {counted.length} steps done</span>}
       </p>
       <Progress value={counted.length ? done / counted.length : 0} failed={run.status === "failed"} />
-      {lost && <p className="muted">The controller does not answer. It may be restarting. The update carries on by itself when it is back.</p>}
+      {lost && <p className="muted">The controller does not answer. The update carries on by itself when it is back.</p>}
       {(run.resumed ?? 0) > 0 && <p className="muted">The controller was restarted during this update and carried on by itself.</p>}
       {run.status === "ok" && <StatusLine status="ok">{run.summary || "All nodes are done."}</StatusLine>}
       {(run.status === "failed" || run.status === "cancelled") && (
@@ -254,8 +253,7 @@ function NodeBlock({ n, current, stopped }: { n: RollNode; current: boolean; sto
         <span className={"badge es-" + (n.status === "done" || n.status === "current" ? "ok" : n.status === "failed" ? "failed" : "pending")}>{n.status === "running" && stopped ? "Stopped" : nodeWord[n.status]}</span> {n.name}
       </h3>
       {n.action === "skip" && <p className="muted">{n.skipWhy}</p>}
-      {n.action === "current" && <p className="muted">There was nothing to update.</p>}
-      {n.action === "update" && !open && n.status === "done" && (
+            {n.action === "update" && !open && n.status === "done" && (
         <p className="muted">
           {n.installed ?? 0} package(s) installed{n.reboot ? ", restarted" : ""}, checked.
           {n.heldBack && n.heldBack.length > 0 ? ` ${n.heldBack.length} held back by the package tool.` : ""}

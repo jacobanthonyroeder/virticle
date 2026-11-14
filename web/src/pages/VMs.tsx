@@ -94,10 +94,10 @@ export default function VMs({ fixedNode }: { fixedNode?: number } = {}) {
       {selected.size > 0 && <BulkBar selected={picked} onClear={() => setSelected(new Set())} />}
       {fixedNode === undefined && nodes.data && nodes.data.nodes.length === 0 ? (
         <div className="empty">
-          No nodes yet. <Link to="/nodes">Add a node</Link> to see its virtual machines.
+          No nodes. <Link to="/nodes">Add a node</Link>
         </div>
       ) : vms.data && list.length === 0 ? (
-        <div className="empty">{all.length ? "No VM matches the search or tag filter." : "No virtual machines on the connected nodes."}</div>
+        <div className="empty">{all.length ? "No match" : "No virtual machines"}</div>
       ) : (
         <table className="vmlist">
           <thead>
@@ -373,7 +373,7 @@ function CreateVM({ nodes, preset, onClose }: { nodes: NodeStatus[]; preset?: { 
           </div>
         </Field>
         {source === "iso" && (
-          <Field label="ISO" hint={isos.length === 0 ? "No ISO images on this node. Upload one under Storage." : undefined}>
+          <Field label="ISO" hint={isos.length === 0 ? "No ISO images on this node." : undefined}>
             <Select label="ISO" value={media} onChange={setMedia} placeholder="Choose an ISO" options={isos.map((v) => ({ value: v.path, label: `${v.pool}/${v.name}` }))} />
           </Field>
         )}

@@ -52,9 +52,7 @@ export default function HostUpdates({ node, online }: { node: number; online: bo
       </div>
       {updating && <RollingUpdate nodes={[node]} title="Update this node" onClose={() => { setUpdating(false); load(true); }} />}
       {u.rebootRequired && u.rebootReason && <StatusLine status="warning">{u.rebootReason}</StatusLine>}
-      {n === 0 ? (
-        <div className="empty">No package updates are available for this node.</div>
-      ) : (
+      {n > 0 && (
         <table className="upd-table">
           <thead>
             <tr>

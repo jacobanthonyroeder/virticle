@@ -484,7 +484,7 @@ export default function Tree() {
         ) : (
           rows.map((r) => <TreeRow key={r.key} r={r} selected={r.key === selected.key} tabbable={r.key === tab} busy={busy.has(r.key)} h={handlers} canOp={canOp} />)
         )}
-        {nodes && nodes.length === 0 && <div className="tree-note">No nodes yet.</div>}
+        {nodes && nodes.length === 0 && <div className="tree-note">No nodes</div>}
         {needle && rows.length === 1 && <div className="tree-note">Nothing matches.</div>}
       </div>
       {menu && <MenuPopup x={menu.x} y={menu.y} up={menu.up} items={menu.items} onClose={() => { setMenu(null); focusKey(menu.key); }} />}

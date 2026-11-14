@@ -44,7 +44,7 @@ export default function Nodes() {
       )}
       <ErrorBox error={nodes.error} />
       {nodes.data && nodes.data.nodes.length === 0 ? (
-        <div className="empty">A node is a machine that runs your virtual machines. Add one to get started.</div>
+        <div className="empty">No nodes</div>
       ) : (
         <div className="table-scroll"><table>
           <thead>

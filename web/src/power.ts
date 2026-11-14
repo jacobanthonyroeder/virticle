@@ -17,20 +17,20 @@ const what: Partial<Record<PowerAction, { title: string; confirm: string; one: (
   shutdown: {
     title: "Shutdown (graceful)",
     confirm: "Shutdown",
-    one: (n) => `${n} is asked to shut down through ACPI, as if its power button were pressed. The guest closes its programs and powers off. A guest that ignores the request keeps running.`,
-    many: "These VMs are asked to shut down through ACPI. The guests close their programs and power off.",
+    one: (n) => `${n} is asked to shut down through ACPI. A guest that ignores the request keeps running.`,
+    many: "These VMs are asked to shut down through ACPI. A guest that ignores the request keeps running.",
   },
   reboot: {
     title: "Reboot (Graceful)",
     confirm: "Reboot",
-    one: (n) => `${n} is asked to restart through ACPI. The guest closes its programs, restarts and is unavailable for a short while.`,
-    many: "These VMs are asked to restart. The guests close their programs and are unavailable for a short while.",
+    one: (n) => `${n} is asked to restart through ACPI. It is unavailable while it restarts.`,
+    many: "These VMs are asked to restart through ACPI. They are unavailable while they restart.",
   },
   reset: {
     title: "Reset (Hard Reboot)",
     confirm: "Reset",
-    one: (n) => `${n} is reset like pressing the hardware reset button. The guest restarts at once without closing anything: unsaved data is lost.`,
-    many: "These VMs are reset like pressing the hardware reset button. The guests restart at once: unsaved data is lost.",
+    one: (n) => `${n} is reset at once, like the hardware reset button. Unsaved data is lost.`,
+    many: "These VMs are reset at once, like the hardware reset button. Unsaved data is lost.",
   },
   poweroff: {
     title: "Halt (Force Shutdown)",

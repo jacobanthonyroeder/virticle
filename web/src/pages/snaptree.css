@@ -36,7 +36,6 @@
 
 .stbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 8px; }
 .stbar .grow { flex: 1; }
-.stkey { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin: 8px 0 0; }
 
 /* Narrow: the metadata moves under the name; rows stay a fixed, taller height. */
 @container (max-width: 640px) {

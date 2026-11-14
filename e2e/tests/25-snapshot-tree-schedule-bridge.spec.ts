@@ -138,7 +138,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
     await expect(dlg.getByRole("checkbox", { name: "Select c" })).not.toBeChecked();
     await expect(dlg).toContainText("1 of 5 selected");
     // what happens to what is not selected is stated
-    await expect(dlg).toContainText("Snapshots you do not tick are kept");
+    await expect(dlg).toContainText("Children of a deleted snapshot are attached to its parent");
     await expect(dlg).toContainText("attached to its parent");
     await dlg.getByRole("button", { name: "Select b and everything below it" }).click();
     await expect(dlg.getByRole("checkbox", { name: "Select c" })).toBeChecked();

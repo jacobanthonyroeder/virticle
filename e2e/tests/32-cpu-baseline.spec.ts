@@ -102,8 +102,6 @@ test.describe.serial("cluster CPU baseline", () => {
 
   test("Advanced switches the VM to host-model and back to the baseline", async ({ page, api, n2 }) => {
     await openVM(page, { ...vm, node: n2 }, "hardware", "advanced");
-    const open = () => page.getByRole("button", { name: /^Advanced/ }).first().click();
-    await open();
     await expect(page.getByRole("combobox", { name: "CPU mode", exact: true })).toContainText(`Cluster baseline (${base.model})`);
     await pick(page, "CPU mode", "host-model");
     await page.getByRole("button", { name: "Save CPU" }).click();

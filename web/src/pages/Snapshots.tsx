@@ -97,7 +97,7 @@ export default function SnapshotsTab({ d, base }: { d: VMDetail; base: string })
               {blocked && <p className="muted">{blocked}</p>}
               {opts?.mixed && <StatusLine status="warning">{opts.mixed}</StatusLine>}
               <ErrorBox error={snaps.error} />
-              {list && list.length === 0 && <div className="empty">No snapshots yet.</div>}
+              {list && list.length === 0 && <div className="empty">No snapshots</div>}
               {list && list.length > 0 && (
                 <SnapTree list={list} vmState={d.state} mode="view" ariaLabel="Snapshots" onRevert={setReverting} onDelete={(x) => setDeleting({ initial: x.name })} />
               )}
@@ -134,7 +134,7 @@ export function TakeSnapshot(props: { d: VMDetail; base: string; onClose: () => 
   };
   return (
     <Modal title="Take snapshot" onClose={props.onClose}>
-      <Field label="Name" hint="Optional; default snap-<timestamp>.">
+      <Field label="Name" hint="Default snap-<timestamp>.">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="snap-1" autoFocus />
       </Field>
       <Field label="Description">
@@ -254,11 +254,11 @@ function DeleteSnapshots(props: { list: Snap[]; initial?: string; base: string; 
   return (
     <Modal title={title} onClose={() => !act.busy && props.onClose()} wide>
       <p>
-        Snapshots you do not tick are kept; children of a deleted snapshot are attached to its parent. The VM's current data is unchanged.
+        Children of a deleted snapshot are attached to its parent.
         {external ? " External snapshots are merged into the disk, which can take a while." : ""}
       </p>
       <div className="stbar">
-        <span aria-live="polite">
+        <span aria-live="polite" title="Space ticks a snapshot, B ticks it and everything below">
           <strong>{n}</strong> of {list.length} selected
         </span>
         <span className="grow" />
@@ -270,9 +270,6 @@ function DeleteSnapshots(props: { list: Snap[]; initial?: string; base: string; 
         </button>
       </div>
       <SnapTree list={list} vmState={props.vmState} mode="select" ariaLabel="Snapshots to delete" selected={sel} onToggle={toggle} onBranch={branch} blocked={blocked} />
-      <p className="stkey">
-        Space ticks a snapshot, B ticks it and everything below.
-      </p>
       {rows.length > 0 && problems.length > 0 && (
         <>
           <p className="checksum">libvirt will not delete this selection as it stands</p>

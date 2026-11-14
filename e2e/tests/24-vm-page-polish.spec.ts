@@ -205,7 +205,7 @@ test.describe.serial("VM page polish", () => {
     for (const [label, ids] of Object.entries(cards)) {
       await subPage(page, label);
       await expect(page.locator(`#${ids[0]}`)).toBeVisible();
-      const boxes = await page.locator(".hw .card").evaluateAll((els) => els.map((e) => ({ id: e.id, ...e.getBoundingClientRect().toJSON() })));
+      const boxes = await page.locator(".hw > [id]").evaluateAll((els) => els.map((e) => ({ id: e.id, ...e.getBoundingClientRect().toJSON() })));
       expect(boxes.map((b) => b.id).sort(), label).toEqual([...ids].sort());
       for (let i = 0; i < boxes.length; i++)
         for (let j = i + 1; j < boxes.length; j++) {
@@ -236,26 +236,31 @@ test.describe.serial("VM page polish", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 
-  test("collapsed sections show a summary, expand, and remember their state", async ({ page }) => {
+  test("Advanced and Passthrough are open at once on their own sub page, with no collapse header", async ({ page }) => {
     await openVM(page, vm, "hardware", "advanced");
     const adv = page.locator("#hw-advanced");
-    await expect(adv).toContainText("No pinning, ordinary pages");
-    await expect(page.locator("#hw-advanced-body")).toHaveCount(0);
-    await adv.getByRole("button").first().click();
-    await expect(page.locator("#hw-advanced-body")).toBeVisible();
-    await expect(page.locator("#hw-advanced-body")).toContainText("vCPU pinning");
+    await expect(adv).toContainText("vCPU pinning");
+    await expect(adv.locator(".disc-head")).toHaveCount(0);
     await page.reload();
-    await expect(page.locator("#hw-advanced-body")).toBeVisible();
-    // the other collapsed section keeps its own state, on its own sub page
+    await expect(adv).toContainText("vCPU pinning");
     await subPage(page, "Passthrough");
-    await expect(page.locator("#hw-passthrough")).toContainText("No host devices");
-    await expect(page.locator("#hw-passthrough-body")).toHaveCount(0);
-    await subPage(page, "Advanced");
-    await adv.getByRole("button").first().click();
-    await expect(page.locator("#hw-advanced-body")).toHaveCount(0);
-    await page.reload();
-    await expect(page.locator("#hw-advanced")).toBeVisible();
-    await expect(page.locator("#hw-advanced-body")).toHaveCount(0);
+    const pt = page.locator("#hw-passthrough");
+    await expect(pt).toContainText("No host devices");
+    await expect(pt.locator(".disc-head")).toHaveCount(0);
+  });
+
+  test("the outcome line of a change goes away when another sub page is chosen", async ({ page }) => {
+    await openVM(page, vm, "hardware", "cpu");
+    const c = card(page, "CPU and memory");
+    await c.getByRole("button", { name: "Edit" }).click();
+    await field(c, "Memory (MiB)").fill("192");
+    await c.getByRole("button", { name: "Apply" }).click();
+    const outcome = page.getByText(/^(Applied and saved|Saved)\./);
+    await expect(outcome).toBeVisible({ timeout: 30_000 });
+    await subPage(page, "Disks");
+    await expect(outcome).toHaveCount(0);
+    await subPage(page, "CPU and memory");
+    await expect(outcome).toHaveCount(0);
   });
 
   test("the Passthrough dialog shows its content without a collapsed header; Advanced is only a card on the tab", async ({ page }) => {
@@ -307,7 +312,6 @@ test.describe.serial("VM page polish", () => {
       await route.fulfill({ json: { devices: [dev("0000:0a:00.0", "gpu"), dev("0000:0b:00.0", "storage")], attached: [], iommu: true, factsKnown: true, vm: vm.uuid, warning: "" } });
     });
     await openVM(page, vm, "hardware", "passthrough");
-    await page.getByRole("button", { name: /^Passthrough devices/ }).click();
     await page.getByRole("button", { name: "Add host device" }).click();
     const dlg = dialog(page, "Host devices of this node");
     const gpu = dlg.locator("tr", { hasText: "0000:0a:00.0" });
@@ -316,6 +320,5 @@ test.describe.serial("VM page polish", () => {
     await expect(gpu.getByRole("button", { name: "Attach" })).toHaveAttribute("title", "Shut the VM down to attach a graphics card");
     await expect(dlg.locator("tr", { hasText: "0000:0b:00.0" }).getByRole("button", { name: "Attach" })).toBeEnabled();
     await page.keyboard.press("Escape");
-    await page.evaluate(() => localStorage.removeItem("virticle.hw.open.hw-passthrough"));
   });
 });

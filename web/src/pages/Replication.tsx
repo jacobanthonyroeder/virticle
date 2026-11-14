@@ -107,7 +107,7 @@ export function ReplicationDialog({ d, base, onChanged, onClose }: { d: VMDetail
           <ErrorBox error={st.error} />
         ) : !s.configured || !cfg ? (
           <>
-            <p>Keep a copy of this VM on another node that starts with one click if this node fails.</p>
+            <p>A standby copy on another node, started with one click.</p>
             {noNode && <p className="muted">No other node is online.</p>}
           </>
         ) : (
@@ -187,7 +187,7 @@ function SetupDialog(props: { d: VMDetail; base: string; nodes: NodeStatus[]; cu
   if (result) {
     return (
       <Modal title={`Replicate ${props.d.name}`} onClose={close}>
-        <p>{result.task ? "Replication is set up. The first copy is running: follow it in the task list." : result.note ? "Replication is set up." : "Saved."}</p>
+        <p>{result.task ? "Replication is set up. The first copy is running." : result.note ? "Replication is set up." : "Saved."}</p>
         {result.note && <StatusLine status="warning">{result.note}</StatusLine>}
         {result.warnings.map((w) => (
           <StatusLine key={w} status="warning">
@@ -210,7 +210,7 @@ function SetupDialog(props: { d: VMDetail; base: string; nodes: NodeStatus[]; cu
       <Field label="Every">
         <Select label="Every" value={every} onChange={setEvery} options={everyOptions} />
       </Field>
-      <p className="muted">The first copy sends the whole VM, later copies only what changed. The standby node keeps a copy that is ready to start. A VM with a disk on shared storage cannot be replicated: that disk is already on both nodes.</p>
+      <p className="muted">The first copy sends the whole VM, later copies only what changed. A VM with a disk on shared storage cannot be replicated.</p>
       <ErrorBox error={act.error} />
       <footer>
         <button onClick={props.onClose}>Cancel</button>

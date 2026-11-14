@@ -13,7 +13,6 @@ export interface TwoStepState {
   source: "local" | "oidc" | "ldap";
 }
 
-export const APPS_LINE = "Works with Google Authenticator, Microsoft Authenticator, Duo Mobile and other authenticator apps.";
 
 export function TwoStepCard({ st, reload }: { st: TwoStepState; reload: () => void }) {
   const [dialog, setDialog] = useState<"on" | "off" | "codes" | undefined>();
@@ -21,13 +20,12 @@ export function TwoStepCard({ st, reload }: { st: TwoStepState; reload: () => vo
     return (
       <div className="card">
         <h2>Two-step sign-in</h2>
-        <p className="muted">You sign in through your identity provider, and its second factor applies. Change it there.</p>
+        <p className="muted">Managed by your identity provider.</p>
       </div>
     );
   return (
     <div className="card" aria-label="Two-step sign-in">
       <h2>Two-step sign-in</h2>
-      <p className="muted">{APPS_LINE}</p>
       <p>
         <span className={"badge " + (st.enabled ? "s-running" : "s-shutoff")}>{st.enabled ? "On" : "Off"}</span>
         {st.enabled && <span className="muted">{`  ${st.recoveryLeft} recovery code${st.recoveryLeft === 1 ? "" : "s"} left`}</span>}
@@ -83,21 +81,20 @@ export function TwoStepSetup({ onDone }: { onDone: () => void }) {
   if (codes) return <RecoveryCodes codes={codes} onDone={onDone} />;
   return (
     <form onSubmit={submit} className="ts-setup">
-      <p className="muted">{APPS_LINE}</p>
       <ErrorBox error={start.error} />
       {begin && (
         <>
           <p>
-            <strong>1.</strong> Scan this code with your authenticator app.
+            Scan this code with your authenticator app.
           </p>
           <Qr qr={begin.qr} />
           <p className="muted">
-            Cannot scan it? Enter this key by hand (time based, 6 digits):
+            Key (time based, 6 digits):
           </p>
           <p>
             <code className="ts-secret">{begin.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
           </p>
-          <Field label="Code from the app" hint="2. Enter the 6 digits the app shows now.">
+          <Field label="Code from the app">
             <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={8} required autoFocus />
           </Field>
         </>
@@ -136,7 +133,7 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
   return (
     <div>
       <p>
-        <strong>Two-step sign-in is on.</strong> Keep these recovery codes somewhere safe. Each works once if you lose your phone. They are not shown again.
+        <strong>Two-step sign-in is on.</strong> Recovery codes: each works once. They are not shown again.
       </p>
       <ul className="ts-codes" aria-label="Recovery codes">
         {codes.map((c) => (
@@ -186,7 +183,7 @@ function ProveIt(props: { title: string; button: string; path: string; danger?: 
           <Field label="Password">
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="current-password" />
           </Field>
-          <Field label="Code from the app" hint="The 6 digits the app shows now, or a recovery code.">
+          <Field label="Code from the app" hint="App code or recovery code.">
             <input value={code} onChange={(e) => setCode(e.target.value)} required autoComplete="one-time-code" />
           </Field>
           <ErrorBox error={act.error} />
