@@ -5,7 +5,6 @@ import (
 	"log"
 	"time"
 
-	"virticle/internal/hostconn"
 	"virticle/internal/minver"
 )
 
@@ -30,20 +29,6 @@ func supportedNode(libVersion, hypervisorVersion func() (uint64, error)) error {
 		return nil
 	}
 	return minver.Check(lib, hv)
-}
-
-// checkVersions is called with every freshly opened connection. A node below
-// the minimum is not managed: the node shows as offline with the sentence as
-// its error (so no VM, pool or network action is offered for it), and the
-// session waits versionRecheck before it ends; the caller then reports the
-// error and connects again. A supported node returns nil at once.
-func (m *Manager) checkVersions(ctx context.Context, n *node, h *hostconn.Host) error {
-	err := supportedNode(h.ConnectGetLibVersion, h.ConnectGetVersion)
-	if err == nil {
-		return nil
-	}
-	m.holdUnsupported(ctx, n, err, h.Disconnected())
-	return err
 }
 
 // holdUnsupported shows the node as offline with err and waits for the next

@@ -248,7 +248,15 @@ func (m *Manager) session(ctx context.Context, n *node) error {
 		return err
 	}
 	defer h.Close()
-	if err := m.checkVersions(ctx, n, h); err != nil { // minversion.go: below libvirt 11.0 / QEMU 10.0 is not managed
+	// The calls below have no time limit of their own; a node that stops answering now would keep the node in
+	// its last state (offline) for good. Closing the connection ends them.
+	setup := time.AfterFunc(setupTimeout, h.Abort)
+	defer setup.Stop()
+	// minversion.go: a node below libvirt 11.0 / QEMU 10.0 is not managed. It is held as offline until the next
+	// look, without the setup limit, which would cut the hold short.
+	if err := supportedNode(h.ConnectGetLibVersion, h.ConnectGetVersion); err != nil {
+		setup.Stop()
+		m.holdUnsupported(ctx, n, err, h.Disconnected())
 		return err
 	}
 	if name, err := h.ConnectGetHostname(); err == nil {
@@ -306,6 +314,9 @@ func (m *Manager) session(ctx context.Context, n *node) error {
 	events, err := h.LifecycleEvents(evctx)
 	if err != nil {
 		return fmt.Errorf("subscribe to events: %w", err)
+	}
+	if !setup.Stop() {
+		return fmt.Errorf("the node did not answer within %s while the connection was set up", setupTimeout)
 	}
 	n.mu.Lock()
 	n.hostname = h.Name
@@ -374,6 +385,9 @@ func (n *node) set(h *hostconn.Host, state, err string) {
 	n.host, n.state, n.err = h, state, err
 	n.mu.Unlock()
 }
+
+// setupTimeout bounds what happens between the SSH and libvirt handshakes and the node being online.
+var setupTimeout = 60 * time.Second
 
 var ErrOffline = errors.New("node is offline")
 

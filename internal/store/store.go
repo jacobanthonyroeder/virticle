@@ -102,6 +102,9 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(rollSchema); err != nil {
 		return nil, err
 	}
+	if _, err := db.Exec(workSchema); err != nil {
+		return nil, err
+	}
 	if err := setSchemaVersion(db); err != nil {
 		return nil, err
 	}

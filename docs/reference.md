@@ -115,7 +115,8 @@ earlier versions no longer exist.
   `https://virticle.invalid/ns/1`.
 - **The data directory** (`-data`):
   - `virticle.db`: users, password hashes, sessions, token hashes, node list,
-    web access settings, alert destinations (addresses and secrets encrypted), task log, audit log, the state of the rolling update.
+    web access settings, alert destinations (addresses and secrets encrypted), task log, audit log, the state of the rolling update,
+    and the work directories of replication runs and backups that are not removed yet (see "Work directories" below).
   - `virticle.db.bak-<version>-<time>`: copy made before a schema upgrade
     (newest 3 kept).
   - `metrics.db`: the performance history of VMs and nodes, up to 7 days
@@ -277,6 +278,36 @@ Rules:
   VM), or with `block-dirty-bitmap-remove` for a bitmap a running QEMU calls inconsistent. This happens before a disk resize,
   and when a checkpoint could only be deleted as metadata. Their checkpoint records are deleted with them.
 - Orphan replica directories that a stopped controller left are swept (node verb `work-ls`).
+- Work directories of runs that were cut short are removed; see "Work directories" below.
+
+### Work directories
+
+What a replication run or a backup makes on a node, and when it goes:
+
+| Directory | Node | Normally removed |
+| --- | --- | --- |
+| `.virticle-rp.XXXXXX`, staging of a replication run | source | at the end of the run |
+| `.virticle-rp.XXXXXX`, the replica directory | standby | never by a run (it is the copy); "stop replication" removes it |
+| `in<S>-...` files inside the replica directory | standby | by the next run (it tidies the replica first) |
+| `.virticle-bk.XXXXXX`, staging of a backup | source | after the copy to the target, or at the end |
+| `.virticle-bk.XXXXXX`, the backup being written | target | renamed to the backup when it is complete |
+
+A run that dies with its node, or with the controller, cannot remove them. So the controller records each one in its
+database when it makes it, and drops the record when the directory is gone. When a node comes online, and before a
+replication run or a backup is planned on it, the recorded directories of that node are checked:
+
+- A directory a run of this controller uses right now is never touched.
+- A directory that is not recorded is never touched by this check: it may belong to another controller.
+- A directory from a run of the running controller that has ended is removed at once.
+- A directory recorded before the controller was restarted is removed once nothing in it has changed for 10 minutes
+  (libvirt may still be writing a backup job's files there; the check is repeated by itself after that time).
+- A new replica directory is recorded only until the VM's replication setting names it. A recorded one is removed only
+  when no replica and no setting on any node names it (all nodes must answer) and it holds no point and no base image.
+  A directory with a copy in it is never removed by this check.
+
+Each removal is logged with the path, the size and the number of files. The older checks for directories nobody
+recorded stay as they were: replica directories nothing names after 12 hours, backup directories after an hour without
+a change.
 
 ## Backup format
 
@@ -367,9 +398,9 @@ task is stopped afterwards (run `virticle node prepare` again). A linked clone t
   checkpoint's bitmap in the read-only base image, where libvirt cannot remove it; it stays there and QEMU keeps updating it.
   A libvirt restart during a backup leaves a temporary bitmap in the VM; the next backup removes it through the QEMU
   monitor (libvirt marks the VM as tainted in its log) and carries on.
-- A controller that stops in the middle of a backup leaves its hidden work directory (`.virticle-bk.XXXXXX`) in the pool
-  directory. The next backup removes work directories in which nothing has changed for an hour, when no other backup of
-  that controller is running.
+- A controller or node that stops in the middle of a backup leaves its hidden work directory (`.virticle-bk.XXXXXX`) in
+  the pool directory. It is removed as described under "Work directories" (Replication). A directory no record names is
+  removed by the next backup once nothing in it has changed for an hour, when no other backup of that controller is running.
 
 ## Node access
 
@@ -391,6 +422,22 @@ minutes, so an upgraded node comes back by itself; saving the node's connection 
 
 A node that has neither is "Not prepared": the features that need root are off. A node whose account has general
 passwordless sudo but no node command is also not prepared.
+
+### Connection
+
+One SSH connection per node (through the jump host when one is set), with libvirt on top. A node that hangs, is frozen or
+loses power sends nothing, so its TCP connection stays open; these limits make sure the controller notices and connects
+again by itself:
+
+| What | Limit |
+| --- | --- |
+| TCP connect, SSH handshake (also through the jump host) | 15 s each |
+| libvirt handshake | 30 s |
+| Everything else until the node is online (host name, access check, events) | 60 s |
+| SSH keepalive to the node and to the jump host | every 15 s; no answer within 30 s ends the connection |
+| libvirt watchdog: a trivial call | every 30 s; no answer within 15 s ends the connection |
+
+After a lost connection the controller tries again after 1 s, then waits twice as long each time, up to about 30 s.
 
 ## Versions and the node command
 

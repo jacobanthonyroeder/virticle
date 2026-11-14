@@ -63,6 +63,9 @@ func (s *Server) sweepReplicaOrphans(nodeID int64, h *hostconn.Host) {
 			continue
 		}
 		for _, full := range orphanDirs(pd.Dir, listed, known, now) {
+			if workInUse(full) { // a run of this controller works in it (a long one: its directory looks old)
+				continue
+			}
 			if err := h.RemoveTree(full); err != nil {
 				log.Printf("replication: removing the leftover directory %s on %s: %v", full, h.Name, err)
 				continue

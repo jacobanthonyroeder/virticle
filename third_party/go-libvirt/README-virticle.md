@@ -7,7 +7,8 @@ fixes this.
 
 ## What changed
 
-`rpc.go` and a new test file `stream_wedge_test.go`. Everything else is
+`rpc.go`, `libvirt.go` (third change) and the new test files
+`stream_wedge_test.go` and `disconnect_race_test.go`. Everything else is
 byte-identical to the base version. First change: `requestStream`, the
 deferred deregister.
 
@@ -62,6 +63,24 @@ that came first to the writer, in order.
 The test fails against the base version (the console ends after one byte)
 and passes with the patch. On the lab the browser test that opens the serial
 console failed 3 of 10 runs before and 0 of 12 after.
+
+## Third change: a connection lost during the handshake
+
+`libvirt.go`, `ConnectToURI`: the channel that `Disconnected()` returns is made
+before the goroutine that closes it on a lost connection starts. Test:
+`TestDisconnectedFiresWhenPeerLeavesDuringConnect` in `disconnect_race_test.go`.
+
+The base version started that goroutine (`waitAndDisconnect`) first and made the
+channel at the very end of `ConnectToURI`. When the connection was lost while
+the handshake was still running (the node went away just as the controller
+connected), the goroutine found the old channel, which is closed from the
+start, and returned. `ConnectToURI` then made a new channel that nothing ever
+closed: the connection was dead, `Disconnected()` never fired and
+`IsConnected()` said true for good. The cluster layer only reconnects when one
+of them tells it. It was also a data race on `l.disconnected`.
+
+The test fails against the base version (the first round already) and passes
+with the patch.
 
 ## Not fixed here
 

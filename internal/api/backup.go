@@ -125,6 +125,10 @@ func chainActual(out string) uint64 {
 // that can be refused is refused here, before a task exists.
 func (s *Server) planBackup(srcID int64, src *hostconn.Host, dom libvirt.Domain, req backupReq) (*bkRun, error) {
 	sweepWork() // before the free space is checked
+	s.sweepWorkDirs(srcID)
+	if req.TargetNode != 0 && req.TargetNode != srcID {
+		s.sweepWorkDirs(req.TargetNode)
+	}
 	if pers, err := src.DomainIsPersistent(dom); err != nil || pers == 0 {
 		return nil, badRequest("this VM is transient (only running, not defined); define it first")
 	}
@@ -240,7 +244,7 @@ func sweepStaleWork(h *hostconn.Host, dir string) {
 		return
 	}
 	for _, d := range stale {
-		if !strings.HasPrefix(d, strings.TrimSuffix(dir, "/")+"/.virticle-bk.") {
+		if !strings.HasPrefix(d, strings.TrimSuffix(dir, "/")+"/.virticle-bk.") || workInUse(d) {
 			continue
 		}
 		wd := &bkWork{h: h, path: d}
@@ -458,6 +462,16 @@ func (m *bkRun) run() (err error) {
 	m.mu.Lock()
 	m.srcWork = srcWork
 	m.mu.Unlock()
+	// Recorded while they exist, so that a backup cut short with its node or the controller leaves nothing
+	// behind for good (workdirs.go).
+	gone := map[string]bool{}
+	m.s.holdWork(m.src, srcWork.path, workKindStage)
+	held := []string{srcWork.path}
+	defer func() {
+		for _, p := range held {
+			m.s.releaseWork(p, gone[p])
+		}
+	}()
 	var dstWork *bkWork
 	defer func() {
 		if err != nil {
@@ -465,7 +479,9 @@ func (m *bkRun) run() (err error) {
 			var left []string
 			for _, wd := range []*bkWork{srcWork, dstWork} {
 				if wd != nil {
-					if rerr := wd.remove(); rerr != nil {
+					if rerr := wd.remove(); rerr == nil {
+						gone[wd.path] = true
+					} else {
 						// A backup job that outlived the connection (libvirt was restarted) may
 						// still write there: the next backup removes it (sweepWork).
 						keepWork(wd)
@@ -559,10 +575,15 @@ func (m *bkRun) run() (err error) {
 		if dstWork, err = newWork(m.dst, m.dstDir, "bk"); err != nil {
 			return err
 		}
+		m.s.holdWork(m.dst, dstWork.path, workKindStage)
+		held = append(held, dstWork.path)
 		if err = m.copyOver(srcWork, dstWork, man, m.ph.hashHi, m.ph.sendHi); err != nil {
 			return err
 		}
-		srcWork.remove() // staged copy; the target has the backup now
+		// staged copy; the target has the backup now
+		if srcWork.remove() == nil {
+			gone[srcWork.path] = true
+		}
 	}
 	if err = m.checkCancel(); err != nil {
 		return err
@@ -587,6 +608,7 @@ func (m *bkRun) run() (err error) {
 	}
 	m.progress(m.ph.storedAt)
 	// From here on the backup exists; the work directories are gone.
+	gone[dstWork.path] = true
 	srcWork, dstWork = nil, nil
 	m.cleanCheckpoints()
 	m.progress(m.ph.checkpointsAt)
