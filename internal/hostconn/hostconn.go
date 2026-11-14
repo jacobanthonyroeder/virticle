@@ -101,14 +101,20 @@ func Dial(t Target, knownHosts string) (*Host, error) {
 		h.Close()
 		return nil, fmt.Errorf("libvirt on %s: %w", t.Addr, err)
 	}
+	// The first keepalive to fail says why; the other one then only finds the connection closed.
+	var deadOnce sync.Once
+	dead := func(format string, args ...any) {
+		deadOnce.Do(func() {
+			log.Printf(format, args...)
+			h.Abort()
+		})
+	}
 	go keepalive(func() error { return sendKeepalive(client) }, h.stop, keepaliveInterval, keepaliveTimeout, func(err error) {
-		log.Printf("node %s: %v; closing the connection", t.Addr, err)
-		h.Abort()
+		dead("node %s: %v; closing the connection", t.Addr, err)
 	})
 	if jump != nil {
 		go keepalive(func() error { return sendKeepalive(jump) }, h.stop, keepaliveInterval, keepaliveTimeout, func(err error) {
-			log.Printf("node %s: jump host %s: %v; closing the connection", t.Addr, t.Jump.Addr, err)
-			h.Abort()
+			dead("node %s: jump host %s: %v; closing the connection", t.Addr, t.Jump.Addr, err)
 		})
 	}
 	return h, nil
