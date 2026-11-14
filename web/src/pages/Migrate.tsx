@@ -161,7 +161,7 @@ export default function MigrateDialog(props: { d: VMDetail; onClose: () => void 
           <p className="muted">
             {task?.status === "ok" ? "Done." : task?.status === "failed" ? "Failed." : `${Math.round((task?.progress ?? 0) * 100)}%`}
           </p>
-          {busy && <p className="muted">The migration keeps running if you close this window. Follow it in the Tasks panel.</p>}
+          {busy && <p className="muted">Keeps running if you close this window.</p>}
           {confirm.dialog}
           <ErrorBox error={task?.status === "failed" ? task.error : cancel.error} />
           <footer>

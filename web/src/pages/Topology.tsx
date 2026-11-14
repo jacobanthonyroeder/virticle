@@ -444,7 +444,7 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
       <ErrorBox error={migAct.error ?? nets.error} />
       {nets.dialog}
       {migDone.length > 0 && <MigrationResult items={migDone} onClose={() => setMigDone([])} />}
-      {n.switches.length === 0 && <p className="muted">This node has no bridges and no virtual networks.</p>}
+      {n.switches.length === 0 && <p className="muted">No bridges or virtual networks</p>}
       {n.switches.map((s, i) => (
         <SwitchBox
           key={s.id}
@@ -564,8 +564,8 @@ export default function Topology({ node }: { node?: number }) {
           </button>
         </div>
       )}
-      {!all && !topo.error && <p className="muted">Loading the network layout.</p>}
-      {all && visible.length === 0 && <div className="empty">{filtering ? "Nothing matches this filter." : "There are no nodes to show."}</div>}
+      {!all && !topo.error && <p className="muted">Loading</p>}
+      {all && visible.length === 0 && <div className="empty">{filtering ? "No match" : "No nodes"}</div>}
       {visible.map((n, idx) => {
         const expanded = single || filtering || pick !== 0 || idx < SHOWN_OPEN || open.has(n.node);
         return (

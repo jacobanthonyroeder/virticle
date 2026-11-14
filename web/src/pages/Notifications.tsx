@@ -92,9 +92,9 @@ export function AlertSettings() {
       </div>
       <section className="card" aria-label="Notifications">
         <h2>Notifications</h2>
-        <p className="muted">{links ? "Alerts that are raised or cleared are sent to these destinations." : "Messages carry no links to Virticle until a public URL is set under Web access."}</p>
+        {!links && <p className="muted">Messages carry no links to Virticle until a public URL is set under Web access.</p>}
         <ErrorBox error={loadError ?? act.error} />
-        {dests && dests.length === 0 && <p className="muted">No destinations yet. Add one to get alerts in Slack, Mattermost, Discord or your own system.</p>}
+        {dests && dests.length === 0 && <p className="muted">No destinations</p>}
         <ul className="dests">
           {(dests ?? []).map((d) => {
             const status: CheckStatus = d.state === "failing" ? "error" : d.state === "ok" ? "ok" : "pending";

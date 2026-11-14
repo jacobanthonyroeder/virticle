@@ -174,7 +174,7 @@ export default function DiskMoveDialog({ d, disk, onClose, onDone }: { d: VMDeta
             <div className={task?.status === "failed" ? "full" : ""} style={{ width: pct + "%" }} />
           </div>
           <p className="muted">{task?.status === "ok" ? "Done." : task?.status === "failed" ? (task.error?.includes("cancelled") ? "Cancelled." : "Failed.") : `${pct}%`}</p>
-          {busy && <p className="muted">The move keeps running if you close this window. Follow it in the Tasks panel.</p>}
+          {busy && <p className="muted">Keeps running if you close this window.</p>}
           {!live && busy && <p className="muted">Cancel takes effect when the copy returns; the new volume is then removed.</p>}
           <ErrorBox error={task?.status === "failed" ? task.error : cancel.error} />
           <footer>

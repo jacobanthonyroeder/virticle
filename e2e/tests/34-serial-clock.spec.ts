@@ -78,9 +78,9 @@ test.describe.serial("serial console", () => {
     await api.put(`/nodes/${vm.node}/vms/${vm.uuid}/xml`, { xml });
     expect((await detail(api)).serials).toEqual([]);
     await openVM(page, vm, "console");
-    await expect(page.locator(".empty")).toContainText("neither a VNC display nor a serial console");
+    await expect(page.locator(".empty")).toContainText("No VNC display or serial console");
     await page.getByRole("button", { name: "Add serial console" }).click();
-    await expect(page.locator(".empty")).toContainText("Start the VM to open its console.");
+    await expect(page.locator(".empty")).toHaveText("Shutoff");
     expect((await detail(api)).serials).toEqual([{ type: "pty", port: "0" }]);
   });
 

@@ -233,7 +233,7 @@ function Pinning({ t, busy, save }: P) {
   return (
     <div>
       <h4>vCPU pinning</h4>
-      <small>Host CPUs {hostList}. Empty: no pin. Syntax 0-3,6 or ^1.</small>
+      <small>Host CPUs {hostList}. Syntax 0-3,6 or ^1.</small>
       <table className="compact">
         <tbody>
           {pins.map((v, i) => (
@@ -256,7 +256,7 @@ function Pinning({ t, busy, save }: P) {
         <button disabled={busy} onClick={apply}>
           Save pinning
         </button>
-        <button disabled={busy || (s.pins.length === 0 && !s.emulatorPin)} onClick={async () => (await confirm.ask({ title: "Remove CPU pinning", message: "All CPU pinning of this VM is removed. Its vCPUs and emulator threads may then run on any host CPU.", confirm: "Remove pinning" })) && save("pinning", { clear: true })}>
+        <button disabled={busy || (s.pins.length === 0 && !s.emulatorPin)} onClick={async () => (await confirm.ask({ title: "Remove CPU pinning", message: "All CPU pinning of this VM is removed.", confirm: "Remove pinning" })) && save("pinning", { clear: true })}>
           Remove pinning
         </button>
       </footer>

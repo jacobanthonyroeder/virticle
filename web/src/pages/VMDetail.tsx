@@ -129,7 +129,7 @@ function ConsoleTab({ d, base, onChanged }: { d: VMDetail; base: string; onChang
   if (kinds.length === 0)
     return (
       <div className="empty">
-        <p>{d.serialPending === "add" ? "A serial console is saved. It applies after the VM is powered off and started." : "This VM has neither a VNC display nor a serial console."}</p>
+        <p>{d.serialPending === "add" ? "A serial console is saved. It applies after the VM is powered off and started." : "No VNC display or serial console"}</p>
         {op && d.serialPending !== "add" && (
           <button
             disabled={act.busy}
@@ -148,7 +148,7 @@ function ConsoleTab({ d, base, onChanged }: { d: VMDetail; base: string; onChang
         <ErrorBox error={act.error} />
       </div>
     );
-  if (d.state === "shutoff") return <div className="empty">Start the VM to open its console.</div>;
+  if (d.state === "shutoff") return <div className="empty">Shutoff</div>;
   return (
     <>
       {kinds.length > 1 && (
@@ -186,8 +186,7 @@ function XMLEditor({ d, base, onSaved }: { d: VMDetail; base: string; onSaved: (
   return (
     <div className="xml">
       <p className="muted">
-        The full libvirt definition, the same document <code>virsh edit</code> shows. libvirt validates it on save.
-        {d.state !== "shutoff" && " The VM is running: saved changes apply the next time it is started from off."}
+        {d.state !== "shutoff" && "Saved changes apply the next time the VM is started from off."}
       </p>
       <textarea
         spellCheck={false}

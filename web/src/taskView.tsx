@@ -66,7 +66,7 @@ export function useStopTask() {
   const [asked, setAsked] = useState<ReadonlySet<number>>(new Set());
   const [error, setError] = useState("");
   const stop = useCallback(async (t: Task) => {
-    if (!(await ask.current({ title: "Stop task", message: `${t.kind} ${t.target} is asked to stop. It can take a moment to end.`, confirm: "Stop task" }))) return;
+    if (!(await ask.current({ title: "Stop task", message: `${t.kind} ${t.target} is asked to stop.`, confirm: "Stop task" }))) return;
     setAsked((s) => new Set(s).add(t.id));
     try {
       await post(`/tasks/${t.id}/cancel`);

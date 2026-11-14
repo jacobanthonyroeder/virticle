@@ -96,7 +96,7 @@ test.describe.serial("datacenter", () => {
 
     await r.click();
     await expect(page.getByRole("heading", { name: `Volumes in ${POOL} on ${env.node2}` })).toBeVisible();
-    await expect(page.getByText("This pool is empty.")).toBeVisible();
+    await expect(page.getByText("No volumes", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "New volume" }).click();
     const vd = dialog(page, `New volume in ${POOL}`);
     await field(vd, "Name").fill(`${P}dcvol`);

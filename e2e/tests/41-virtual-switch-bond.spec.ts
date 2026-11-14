@@ -48,12 +48,10 @@ test.describe.serial("virtual switch with several uplinks", () => {
     await group.getByRole("checkbox", { name: new RegExp("^" + n!.cards[1] + " ") }).check();
     const mode = dlg.getByRole("combobox", { name: "Mode" });
     await expect(mode).toContainText("Failover (works with any switch)");
-    await expect(dlg.getByText("One card carries the traffic. If its link fails, another card takes over.")).toBeVisible();
     await mode.click();
     await expect(page.getByRole("option", { name: "Load balance, needs LACP on the switch" })).toBeVisible();
     await expect(page.getByRole("option")).toHaveCount(2);
     await page.getByRole("option", { name: "Load balance, needs LACP on the switch" }).click();
-    await expect(dlg.getByText("The ports of the physical switch must be set up for LACP.")).toBeVisible();
     // the MTU lives in the one Advanced section, with the confirm time
     await expect(dlg.getByRole("button", { name: "Advanced" })).toHaveCount(1);
     await dlg.getByRole("button", { name: "Advanced" }).click();

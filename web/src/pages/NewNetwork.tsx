@@ -51,7 +51,7 @@ export function AddNetworkChooser(props: {
             <input type="radio" name="addnet-where" checked={where === "private"} onChange={() => setWhere("private")} />
             A private network made by libvirt
           </label>
-          {where === "private" && <small>NAT, with its own addresses, or isolated. Under Advanced: routed, open, or your own definition.</small>}
+          {where === "private" && <small>NAT or isolated. Routed, open or custom under Advanced.</small>}
         </Field>
         <footer>
           <button type="button" onClick={props.onClose}>
@@ -146,7 +146,7 @@ export function PrivateNetworkDialog({ node, onClose, onDone }: { node: number; 
             <Field label="Name">
               <input value={f.name} onChange={set("name")} required autoFocus />
             </Field>
-            <Field label={mode === "isolated" ? "Address (optional)" : "Address of the node on this network"} hint="For example 10.77.1.1/24">
+            <Field label={mode === "isolated" ? "Address (optional)" : "Address of the node on this network"}>
               <input value={address} onChange={(e) => setTypedAddress(e.target.value)} required={mode !== "isolated"} placeholder="10.77.1.1/24" />
             </Field>
           </>

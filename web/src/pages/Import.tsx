@@ -82,7 +82,7 @@ export default function ImportDialog({ node, pool, volumes, initial, onClose, on
     <Modal title="Import a disk image or OVA" onClose={onClose}>
       <form onSubmit={submit}>
         <p className="muted">
-          The image must already be on the node: upload it or download it into a pool first, or point to a file inside a pool directory. The format is detected from the content, and the result is a new qcow2 volume in <strong>{pool}</strong>.
+          The format is detected from the content. The result is a new qcow2 volume in <strong>{pool}</strong>.
         </p>
         <div className="segmented">
           <button type="button" className={mode === "volume" ? "on" : ""} onClick={() => (setMode("volume"), setInfo(undefined))}>
@@ -179,7 +179,7 @@ function Finished({ node, done, onClose }: { node: number; done: Imported; onClo
     return (
       <Modal title="Import finished" onClose={onClose}>
         <p>
-          Created volume <strong className="mono">{done.volume}</strong>. Create a VM with "Existing volume" as its disk source to use it.
+          Created volume <strong className="mono">{done.volume}</strong>.
         </p>
         <footer>
           <button className="primary" onClick={onClose}>
@@ -198,8 +198,8 @@ function Finished({ node, done, onClose }: { node: number; done: Imported; onClo
   return (
     <Modal title="OVA imported" onClose={onClose}>
       <p>
-        Disk{(done.volumes?.length ?? 0) > 1 ? "s" : ""} converted: <span className="mono">{done.volumes?.join(", ")}</span>. The descriptor suggests the VM below ({p.firmware.toUpperCase()}
-        {p.secureBoot ? " + Secure Boot" : ""}, {p.osType}). Adjust it and create it; the imported volume is used as the disk, not copied.
+        Disk{(done.volumes?.length ?? 0) > 1 ? "s" : ""} converted: <span className="mono">{done.volumes?.join(", ")}</span>. VM below: {p.firmware.toUpperCase()}
+        {p.secureBoot ? " + Secure Boot" : ""}, {p.osType}. The imported volume is used as the disk, not copied.
       </p>
       {done.warnings && done.warnings.length > 0 && <CheckList summary={false} label="Import warnings" items={done.warnings.map((w) => ({ key: w, status: "warning", detail: w }))} />}
       <div className="grid2">

@@ -43,7 +43,7 @@ export default function NodeDetail() {
   const tab: Tab = TABS.some(([k]) => k === tabParam) ? (tabParam as Tab) : "summary";
 
   if (!nodes.data) return <ErrorBox error={nodes.error} />;
-  if (!n) return <div className="empty">There is nothing at this address, or your role does not allow it.</div>;
+  if (!n) return <div className="empty">Not found</div>;
 
   const online = n.state === "online";
   const name = n.hostname || n.addr;
@@ -89,7 +89,7 @@ export default function NodeDetail() {
       {!online && tab !== "settings" ? (
         <div className="empty nodeoffline">
           <ServerOff size={28} aria-hidden="true" />
-          <p>{n.state === "connecting" ? "Connecting to this node" : "This node is offline, so nothing can be read from or changed on it."}</p>
+          <p>{n.state === "connecting" ? "Connecting to this node" : "Offline"}</p>
           {n.error && <StatusLine status="error">{n.error}</StatusLine>}
         </div>
       ) : (

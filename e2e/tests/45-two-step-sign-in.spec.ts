@@ -51,7 +51,6 @@ test.describe.serial("two-step sign-in", () => {
     await expect(page.getByRole("link", { name: USER })).toBeVisible(); // signed in before the next page is asked for
     await page.goto("/account");
     await page.getByRole("button", { name: "Turn on two-step sign-in" }).click();
-    await expect(page.getByText("Works with Google Authenticator, Microsoft Authenticator, Duo Mobile").first()).toBeVisible();
     await expect(page.getByRole("img", { name: /QR code/ })).toBeVisible();
     secret = (await page.locator(".ts-secret").innerText()).replace(/\s/g, "");
     expect(secret).toHaveLength(32);
@@ -71,7 +70,7 @@ test.describe.serial("two-step sign-in", () => {
     const ctx = await browser.newContext({ storageState: { cookies: [], origins: [] }, baseURL: env.base });
     const page = await ctx.newPage();
     await signIn(page);
-    await expect(page.getByText("Two-step sign-in. Enter the 6-digit code")).toBeVisible();
+    await expect(page.getByText("Two-step sign-in. Authenticator or recovery code.")).toBeVisible();
     await page.getByLabel("Code").fill("123456");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByText("that code is not right")).toBeVisible();

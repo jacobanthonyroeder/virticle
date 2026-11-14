@@ -17,7 +17,7 @@ test.describe.serial("snapshots", () => {
   test("take a snapshot with memory of the running VM", async ({ page, api, n1 }) => {
     vm = await createCirros(api, n1, NAME, { start: true });
     await openVM(page, vm, "snapshots");
-    await expect(page.getByText("No snapshots yet.")).toBeVisible();
+    await expect(page.getByText("No snapshots", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Take snapshot" }).first().click();
     const dlg = dialog(page, "Take snapshot");
     await expect(dlg.getByLabel(/Save the running state too/)).toBeChecked();
@@ -96,7 +96,7 @@ test.describe.serial("snapshots", () => {
     const d2 = dialog(page, "Delete first");
     await d2.getByRole("button", { name: "Delete 1 snapshot" }).click();
     await expect(d2).toBeHidden({ timeout: 60_000 });
-    await expect(page.getByText("No snapshots yet.")).toBeVisible();
+    await expect(page.getByText("No snapshots", { exact: true })).toBeVisible();
     expect(await snaps(api)).toHaveLength(0);
   });
 

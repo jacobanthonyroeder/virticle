@@ -63,7 +63,7 @@ export function AlertBell() {
             </ul>
           )}
           <footer className="muted">
-            Checked every minute. Alerts clear themselves when the condition is gone.
+            Checked every minute.
             {admin && (
               <>
                 {" "}

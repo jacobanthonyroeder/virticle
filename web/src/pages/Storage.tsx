@@ -73,7 +73,7 @@ export default function Storage({ fixedNode, allNodes }: { fixedNode?: number; a
       <>
         <PageTitle>Storage</PageTitle>
         <div className="empty">
-          No nodes yet. <Link to={allNodes ? "/datacenter/nodes" : "/nodes"}>Add a node</Link> to manage its storage.
+          No nodes. <Link to={allNodes ? "/datacenter/nodes" : "/nodes"}>Add a node</Link>
         </div>
       </>
     );
@@ -101,7 +101,7 @@ export default function Storage({ fixedNode, allNodes }: { fixedNode?: number; a
       {allNodes && <SharedStorage nodes={all} adding={addingShared} onAddClose={() => setAddingShared(false)} />}
       {allNodes && <NodeFilter nodes={all} value={filterNode} onChange={setFilterNode} text={text} onText={setText} placeholder="Search pools by name, type or state" shown={shown.length} total={rows.length} />}
       {allNodes && loaded && shown.length === 0 ? (
-        <div className="empty">{rows.length ? "No pool matches the filter." : "No storage pools on the connected nodes."}</div>
+        <div className="empty">{rows.length ? "No pool matches the filter." : "No storage pools"}</div>
       ) : (
         <table className={allNodes ? "dctable" : ""}>
           <thead>
@@ -253,7 +253,7 @@ function Volumes({ node, nodeName, showNode, pool, openCatalogue }: { node: numb
       )}
       <ErrorBox error={vols.error ?? act.error} />
       {vols.data && vols.data.length === 0 ? (
-        <div className="empty">This pool is empty.</div>
+        <div className="empty">No volumes</div>
       ) : (
         <table>
           <thead>
@@ -411,7 +411,7 @@ function CreatePool({ node: initialNode, nodes, onClose, onDone }: { node: numbe
             <Select label="Other storage types" value={type} onChange={setType} options={Object.entries(poolTypes).map(([k, v]) => ({ value: k, label: v }))} />
           </Field>
           {type === "logical" && (
-            <Field label="Volume group" hint="An existing LVM volume group on the node.">
+            <Field label="Volume group" hint="Must exist on the node.">
               <input value={f.sourceName} onChange={set("sourceName")} required placeholder="vg0" />
             </Field>
           )}

@@ -209,7 +209,7 @@ export default function TasksDock() {
           ) : !loaded ? (
             <div className="dock-note">Loading</div>
           ) : rows.length === 0 ? (
-            <div className="dock-note">Nothing has been done yet.</div>
+            <div className="dock-note">No tasks</div>
           ) : (
             <div className="dock-table" role="table" aria-label="Recent tasks">
               <div className="dk-head" role="rowgroup">

@@ -659,7 +659,7 @@ Select the name of a network for its details; **Actions** on the network has:
 The details show the mode, bridge, address, DHCP range and attached VM interfaces, the **DHCP leases**, the **DHCP
 reservations** (add, edit and remove; changes apply at once, without restarting the network) and the **Definition (XML)**, which you
 can edit (a running network takes it after it is stopped and started again). The details of a stopped network say
-"Start the network to see leases."
+"Not running" in place of the leases.
 
 ### Network alerts
 

@@ -16,7 +16,7 @@ test.describe.serial("backups", () => {
     test.setTimeout(240_000);
     vm = await createCirros(api, n1, NAME);
     await openVM(page, vm, "backups");
-    await expect(page.getByText("No backups of this VM yet.")).toBeVisible();
+    await expect(page.getByText("No backups", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Back up now" }).first().click();
     const dlg = dialog(page, `Back up ${NAME}`);
     await expect(dlg.getByLabel("Target pool")).toContainText("default");
@@ -89,7 +89,7 @@ test.describe.serial("backups", () => {
     const dlg = dialog(page, "Delete backup");
     await dlg.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(dlg).toBeHidden();
-    await expect(page.getByText("No backups of this VM yet.")).toBeVisible();
+    await expect(page.getByText("No backups", { exact: true })).toBeVisible();
     expect(await api.get(`/backups?uuid=${vm.uuid}`)).toHaveLength(0);
   });
 });

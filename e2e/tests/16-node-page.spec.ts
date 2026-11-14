@@ -68,7 +68,7 @@ test.describe.serial("node page", () => {
 
   test("an unknown node shows the empty state", async ({ page }) => {
     await page.goto("/node/99999");
-    await expect(page.getByText("There is nothing at this address")).toBeVisible();
+    await expect(page.getByText("Not found", { exact: true })).toBeVisible();
   });
 
   test("no sideways scroll at 390px on any tab", async ({ page }) => {

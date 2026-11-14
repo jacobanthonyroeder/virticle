@@ -147,7 +147,7 @@ function Detail({ base, name }: { base: string; name: string }) {
             {!n.dhcp ? (
               <div className="muted">This network has no DHCP server.</div>
             ) : !n.active ? (
-              <div className="muted">Start the network to see leases.</div>
+              <div className="muted">Not running</div>
             ) : n.leases.length === 0 ? (
               <div className="muted">No active leases.</div>
             ) : (
@@ -216,7 +216,7 @@ function Reservations({ url, n, onChange }: { url: string; n: Network; onChange:
     <div className="card">
       {confirm.dialog}
       <h3>DHCP reservations</h3>
-      <small>Changes apply immediately, without restarting the network. A VM that already has a lease picks up the reserved address when it renews.</small>
+      <small>Applied immediately. A VM with a lease gets the reserved address when it renews.</small>
       {n.hosts.length > 0 && (
         <table className="compact">
           <thead>

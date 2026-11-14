@@ -208,7 +208,7 @@ function Run({ task, timeout, started }: { task: Task | undefined; timeout: numb
       <Steps steps={steps} />
       {ok && <StatusLine status="ok">The change is confirmed.</StatusLine>}
       {failed && <StatusLine status="error">{failureWords(task!.error)}</StatusLine>}
-      {!ok && !failed && <p className="muted">You can close this window: the change goes on and the node shows it here when it is done.</p>}
+      {!ok && !failed && <p className="muted">You can close this window; the change continues.</p>}
     </>
   );
 }
@@ -431,7 +431,7 @@ export function SwitchDialog(props: { node: number; st: HostnetState; mode: Swit
           )}
           {mode === "vlans" && (
             <>
-              <Field label="Allowed VLAN ids" hint="Leave empty to allow all. For example 10,20,30-40.">
+              <Field label="Allowed VLAN ids" hint="Empty: all. For example 10,20,30-40.">
                 <input value={ids} onChange={(e) => setIds(e.target.value)} placeholder="All" autoFocus />
               </Field>
               {bridge!.networks.length > 0 && <p className="muted">Networks on this switch keep their VLAN: {bridge!.networks.join(", ")}.</p>}
@@ -459,7 +459,7 @@ export function SwitchDialog(props: { node: number; st: HostnetState; mode: Swit
                 <Select label="Address" value={method} onChange={setMethod} options={[{ value: "dhcp", label: "From DHCP" }, { value: "static", label: "Enter an address" }]} />
               </Field>
               {method === "static" && (
-                <Field label="IP address with prefix" hint="For example 10.30.0.5/24.">
+                <Field label="IP address with prefix">
                   <input value={address} onChange={(e) => setAddress(e.target.value)} required placeholder="10.30.0.5/24" />
                 </Field>
               )}
@@ -486,12 +486,12 @@ export function SwitchDialog(props: { node: number; st: HostnetState; mode: Swit
           {!direct && (
             <DialogAdvanced>
               {mode === "add" && vlanOn && (
-                <Field label="Allowed VLAN ids" hint="Leave empty to allow all. For example 10,20,30-40.">
+                <Field label="Allowed VLAN ids" hint="Empty: all. For example 10,20,30-40.">
                   <input value={ids} onChange={(e) => setIds(e.target.value)} placeholder="All" />
                 </Field>
               )}
               {mode === "add" && (
-                <Field label="MTU" hint="Leave empty to keep the cards as they are. Between 1280 and 9000.">
+                <Field label="MTU" hint="Empty: unchanged. 1280 to 9000.">
                   <input type="number" min={1280} max={9000} value={mtu} onChange={(e) => setMtu(e.target.value)} placeholder="Unchanged" />
                 </Field>
               )}
@@ -685,7 +685,7 @@ export function AddNetworkDialog(props: {
             label="VLAN"
             hint={
               props.ovs
-                ? "VMs on this network are put on this access VLAN (1-4094). Leave empty for no VLAN."
+                ? "Access VLAN (1-4094). Empty: no VLAN."
                 : (info?.vlans && info.vlans !== "2-4094" ? `Allowed on this switch: ${info.vlans}. ` : "Leave empty for no VLAN. ") +
               (ids.length ? `In use on this switch: ${ids.join(", ")}.` : "No VLAN is in use on this switch yet.")
             }

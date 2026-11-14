@@ -79,7 +79,7 @@ test.describe.serial("console preview and extras", () => {
     let asked = 0;
     page.on("request", (r) => SHOT.test(r.url()) && asked++);
     await openVM(page, off);
-    await expect(page.locator(".cc-note")).toContainText("shut off");
+    await expect(page.locator(".cc-note")).toHaveText("Shutoff");
     await page.waitForTimeout(1500);
     expect(asked).toBe(0);
   });

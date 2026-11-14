@@ -20,5 +20,5 @@ test("no start panel when nodes exist", async ({ page, api }) => {
   await page.goto("/datacenter");
   await expect(page.getByRole("heading", { name: "Nodes", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Set up this machine as a node" })).toHaveCount(0);
-  await expect(page.getByText("No nodes yet.")).toHaveCount(0);
+  await expect(page.getByText("No nodes", { exact: true })).toHaveCount(0);
 });

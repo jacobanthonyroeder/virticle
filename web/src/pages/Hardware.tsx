@@ -517,7 +517,7 @@ function PickISO({ d, drive, send, onClose }: { d: VMDetail; drive: DiskT; send:
   return (
     <Modal title={`Media for ${drive.target}`} onClose={onClose}>
       {isos && isos.length === 0 ? (
-        <p className="muted">No ISO volumes in this node's pools. Upload one on the Storage page.</p>
+        <p className="muted">No ISO volumes in this node's pools.</p>
       ) : (
         <Field label="ISO image" hint={drive.source ? `Replaces ${drive.source}.` : undefined}>
           <Select label="ISO image" value={choice} onChange={setChoice} options={(isos ?? []).map(({ pool, vol }) => ({ value: pool + "/" + vol.name, label: `${pool} / ${vol.name} (${bytes(vol.capacity)})` }))} />
@@ -685,7 +685,7 @@ function NICForm({ d, nic, send, onClose }: { d: VMDetail; nic?: NicT; send: Sen
   const origTarget = nic ? (nic.type === "bridge" ? "br:" : "net:") + nic.source : "";
   const targetChanged = !!nic && target !== origTarget;
   const limitField = (
-    <Field label="Speed limit (Mbit/s)" hint="Empty for no limit.">
+    <Field label="Speed limit (Mbit/s)">
       <input
         inputMode="numeric"
         placeholder={down !== up ? "Set in Advanced" : "No limit"}

@@ -28,12 +28,12 @@ export default function StartPanel() {
   useEffect(() => {
     if (admin) get<LocalNode>("/local-node").then(setLocal, () => {});
   }, [admin]);
-  if (!admin) return <p className="muted">No nodes yet. An administrator can add one.</p>;
+  if (!admin) return <p className="muted">No nodes</p>;
   if (!local) return null;
   const offer = local.capable && !local.registered;
   return (
     <div className="startpanel">
-      <p className="muted">No nodes yet.</p>
+      <p className="muted">No nodes</p>
       {offer ? (
         <>
           <div className="actions">
@@ -42,9 +42,8 @@ export default function StartPanel() {
             </button>
             <button onClick={() => nav("/datacenter/nodes")}>Add another machine</button>
           </div>
-          <p className="muted">Virtual machines will run on this machine ({local.hostname}).</p>
           {!local.sshReachable && (
-            <StatusLine status="warning">SSH is not running on this machine. Start it (for example: sudo systemctl enable --now sshd) and reload.</StatusLine>
+            <StatusLine status="warning">SSH is not running on this machine.</StatusLine>
           )}
         </>
       ) : (

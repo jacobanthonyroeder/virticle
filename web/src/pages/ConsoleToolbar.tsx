@@ -65,8 +65,8 @@ function PasteDialog({ onClose, onType }: { onClose: () => void; onType: (text: 
   return (
     <Modal title="Paste text into the guest" onClose={onClose}>
       <p className="muted">
-        The text is typed into the guest as key presses on a US keyboard layout, about {Math.round(1000 / KEY_DELAY_MS)} characters per second. Keys the guest maps
-        differently (other layouts) come out wrong, and characters with no US key are skipped. Click into the right field in the guest first.
+        Typed as key presses on a US layout, about {Math.round(1000 / KEY_DELAY_MS)} characters per second. Other layouts
+        come out wrong; characters with no US key are skipped.
       </p>
       <textarea className="paste-text" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="Text to type" autoFocus />
       {skipped > 0 && <ResultLine status="warning">{skipped} character{skipped > 1 ? "s" : ""} cannot be typed and will be skipped.</ResultLine>}

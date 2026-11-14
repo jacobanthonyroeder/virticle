@@ -53,7 +53,7 @@ test.describe.serial("replication", () => {
     await expect(page.locator("#replication-row")).toHaveCount(0);
     const card = page.getByRole("dialog", { name: "Replication", exact: true });
     await openReplication(page);
-    await expect(card).toContainText("Keep a copy of this VM on another node that starts with one click if this node fails.");
+    await expect(card).toContainText("A standby copy on another node, started with one click.");
     await card.getByRole("button", { name: "Set up replication" }).click();
     const dlg = dialog(page, `Replicate ${NAME}`);
     await expect(field(dlg, "Replicate to")).toContainText(env.node2);

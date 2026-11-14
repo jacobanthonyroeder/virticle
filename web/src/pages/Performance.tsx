@@ -218,14 +218,13 @@ export function PerformanceTab(props: { kind: "vm" | "node"; id: string; passthr
 
       {res && (
         <>
-          <p className="pnote">
+          <p className="pnote" title={kind === "vm" ? "Gaps mean no data: the VM was not running, or the node or the controller could not be read." : "Gaps mean no data: the node or the controller could not be read."}>
             {shown && `${stamp(shown.from)} to ${stamp(shown.to)}. `}
             1 point = {stepWords(res.step)}
-            {res.peak ? "; the band shows the peak." : "."} Gaps mean no data
-            {kind === "vm" ? ": the VM was not running, or the node or the controller could not be read." : ": the node or the controller could not be read."} Move over a chart, or tap it, to read the values at that time; drag across it to zoom.
-            {res.events.length > 0 && " Markers on the axis: triangle started, square stopped, diamond moved to another node."}
+            {res.peak ? "; the band shows the peak." : "."}
+            {res.events.length > 0 && " Markers: triangle started, square stopped, diamond moved to another node."}
           </p>
-          {!hasData && !busy && <div className="empty">No data in this range yet. The controller records every 15 seconds while it runs.</div>}
+          {!hasData && !busy && <div className="empty">No data in this range</div>}
           {hasData &&
             panels.map((p) => (
               <PerfChart key={p.title} panel={p} res={res} cursor={cursor} tip={tipOn === p.title}

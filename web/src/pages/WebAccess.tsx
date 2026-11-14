@@ -313,7 +313,7 @@ export default function WebAccess() {
         <div className="card wa-pending">
           <h2>{resp.onNewListener ? "Keep this setting" : "Change waiting for confirmation"}</h2>
           {resp.onNewListener ? (
-            <p>This page was reached through the new settings. Keep them, or they revert at {when(pend.deadline)}.</p>
+            <p>Keep these settings or they revert at {when(pend.deadline)}.</p>
           ) : (
             <p>
               Open <a href={pend.url + "web-access"}>{pend.url}</a> and choose Keep this setting there. Without that the previous settings ({pend.previousMode}) return at {when(pend.deadline)}.
@@ -344,7 +344,7 @@ export default function WebAccess() {
         ))}
         {(portChanged || pend || st.source === "default") && <FirewallHint />}
         {st.settings.mode === "off" && <StatusLine status="info">Mode: plain HTTP.</StatusLine>}
-        {st.settings.mode === "proxy" && <StatusLine status="info">Mode: behind a reverse proxy, which provides HTTPS.</StatusLine>}
+        {st.settings.mode === "proxy" && <StatusLine status="info">Mode: behind a reverse proxy.</StatusLine>}
         {plainOpen && <StatusLine status="warning">Sign-ins travel unencrypted</StatusLine>}
         {!resp.tls && st.settings.mode !== "off" && st.settings.mode !== "proxy" && <StatusLine status="info">This page was opened over plain HTTP.</StatusLine>}
         {st.cert && (
@@ -552,7 +552,7 @@ function FirewallHint() {
     );
   return (
     <p className="muted">
-      If this machine has a firewall, run: <code>{cmd}</code>{" "}
+      Firewall: <code>{cmd}</code>{" "}
       <button onClick={copy} aria-label="Copy the firewall command">
         Copy
       </button>{" "}

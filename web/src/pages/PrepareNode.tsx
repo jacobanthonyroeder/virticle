@@ -129,9 +129,9 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
     const asksTakeOver = !running && !job?.ok && !!job?.rows.some((r) => r.id === "controller" && r.status === "error");
     return (
       <Modal title={job?.checkOnly ?? lastCheck ? "Check node" : label} onClose={onClose} wide>
-        {job && job.rows.length > 0 ? <CheckList sort={false} label="Preparation" items={rowItems(job.rows)} /> : <p className="muted">Starting. Progress is also in the Tasks panel.</p>}
-        {running && job && job.rows.length > 0 && <p className="muted">Running. Progress is also in the Tasks panel.</p>}
-        {checked && <p className="muted">The check changed nothing. Press {label} to make the changes listed above.</p>}
+        {job && job.rows.length > 0 ? <CheckList sort={false} label="Preparation" items={rowItems(job.rows)} /> : <p className="muted">Starting</p>}
+        {running && job && job.rows.length > 0 && <p className="muted">Running</p>}
+        {checked && <p className="muted">The check changed nothing.</p>}
         <ErrorBox error={act.error || reg.error} />
         <footer>
           {!running && (
@@ -165,11 +165,7 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
   return (
     <Modal title={adding ? "Add node" : "Prepare node"} onClose={onClose} wide>
       <form onSubmit={submit} autoComplete="off">
-        <p>
-          {direct
-            ? "Connects to a node that is already prepared; no administrator login is needed."
-            : "Installs libvirt and the node command on the host if they are missing, then adds it. The credential is used for this run only and is not stored."}
-        </p>
+        {!direct && <p>Installs libvirt and the node command if missing, then adds the node. The credential is used for this run only and is not stored.</p>}
         <div className="grid2">
           <Field label="Address" hint="Host name or IP, optionally with :port.">
             <input value={addr} onChange={(e) => setAddr(e.target.value)} required autoFocus={!addr0} readOnly={!adding} />
@@ -205,7 +201,7 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
                 <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} required autoComplete="new-password" autoFocus={!!addr0} />
               </Field>
             ) : (
-              <Field label="Private key" hint="Paste the key. It must have no passphrase.">
+              <Field label="Private key" hint="Without a passphrase.">
                 <textarea className="mono" rows={5} value={secret} onChange={(e) => setSecret(e.target.value)} required spellCheck={false} autoComplete="off" />
               </Field>
             )}

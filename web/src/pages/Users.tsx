@@ -29,7 +29,7 @@ export default function Users() {
         </button>
       </div>
       <p className="muted">
-        Administrators manage everything, including users and nodes. Operators manage virtual machines, storage and networks. Viewers can look but not change anything, and cannot open consoles.
+        Administrators: everything, including users and nodes. Operators: VMs, storage and networks. Viewers: read only, no consoles.
       </p>
       <ErrorBox error={loadError ?? act.error} />
       <table className="users">
@@ -69,7 +69,7 @@ export default function Users() {
                   </button>
                 )}
                 {u.twoStep && (
-                  <button disabled={act.busy} onClick={async () => (await confirm.ask({ title: `Reset two-step sign-in of ${u.username}`, message: `Two-step sign-in is turned off for ${u.username}, who is signed out everywhere. Use this when the phone is lost. They can set it up again after signing in.`, confirm: "Reset two-step sign-in" })) && act.run(() => post(`/users/${u.id}/reset-2fa`)).then(reload)}>
+                  <button disabled={act.busy} onClick={async () => (await confirm.ask({ title: `Reset two-step sign-in of ${u.username}`, message: `Two-step sign-in is turned off for ${u.username}, who is signed out everywhere.`, confirm: "Reset two-step sign-in" })) && act.run(() => post(`/users/${u.id}/reset-2fa`)).then(reload)}>
                     Reset two-step sign-in
                   </button>
                 )}
@@ -106,7 +106,7 @@ function AddUser({ onClose, onDone }: { onClose: () => void; onDone: () => void 
         <Field label="Username" hint="Letters, digits and . _ @ -">
           <input value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus autoComplete="off" />
         </Field>
-        <Field label="Password" hint="At least 10 characters. The user can change it under My account.">
+        <Field label="Password" hint="At least 10 characters.">
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
         </Field>
         <Field label="Role">

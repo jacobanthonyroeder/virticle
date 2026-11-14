@@ -24,10 +24,10 @@ export default function ConsolePage() {
   }, [d?.name]);
 
   const msg = (text: string) => <div className="empty" style={{ margin: 24 }}>{text}</div>;
-  if (viewer) return msg("The console is available to operators and administrators.");
+  if (viewer) return msg("Only operators and administrators.");
   if (!d) return vm.error ? msg(vm.error) : null;
-  if (d.state === "shutoff") return msg(`${d.name} is shut off. Start it and this page connects by itself.`);
+  if (d.state === "shutoff") return msg("Shutoff");
   const serial = params.get("kind") === "serial" || !d.hasVNC;
-  if (serial && !d.hasSerial) return msg(`${d.name} has neither a VNC display nor a serial console.`);
+  if (serial && !d.hasSerial) return msg("No VNC display or serial console");
   return serial ? <SerialConsole node={node} uuid={uuid} variant="page" /> : <VNCConsole node={node} uuid={uuid} name={d.name} variant="page" />;
 }

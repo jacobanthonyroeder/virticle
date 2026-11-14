@@ -63,9 +63,9 @@ export default function Evacuate({ node, nodes, onClose }: { node: NodeStatus; n
     <Modal title={`Evacuate ${name}`} onClose={onClose} wide>
       {!run && (
         <>
-          <p>Moves the virtual machines of this node to the other nodes with the normal migration; nodes in maintenance are never used.</p>
-          {others.length === 0 && <div className="muted">There is no other node.</div>}
-          {others.length > 0 && chosen.length === 0 && <div className="muted">No other node is available as a target.</div>}
+          <p>Migrates the VMs to the other nodes; nodes in maintenance are not used.</p>
+          {others.length === 0 && <div className="muted">No other node</div>}
+          {others.length > 0 && chosen.length === 0 && <div className="muted">No target available</div>}
           {check.busy && !plan && <p className="muted">Checking</p>}
           <ErrorBox error={check.error} />
           {plan && (
@@ -107,7 +107,7 @@ export default function Evacuate({ node, nodes, onClose }: { node: NodeStatus; n
                   ))}
                 </tbody>
               </table>
-              {plan.assignments.length + plan.blocked.length === 0 && <div className="muted">This node has no virtual machines to move.</div>}
+              {plan.assignments.length + plan.blocked.length === 0 && <div className="muted">No virtual machines</div>}
             </div>
           )}
           <DialogAdvanced>
