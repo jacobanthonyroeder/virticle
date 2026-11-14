@@ -32,10 +32,10 @@ test.describe("controller backup", () => {
     await expect(page.getByRole("heading", { name: "Controller backup", exact: true })).toBeVisible();
     await expect(page.getByText("The file contains private keys.")).toBeVisible();
     await expect(page.getByText("It does not hold VMs, storage or networks")).toBeVisible();
-    await expect(page.getByText("Restore is done on the command line")).toBeVisible();
+    await expect(page.getByText("Restore, with the controller stopped")).toBeVisible();
     await expect(page.locator("code").filter({ hasText: "virticle restore" })).toBeVisible();
     await expect(page.getByRole("checkbox", { name: "Keep a daily backup on this server" })).toBeVisible();
-    await expect(page.getByText("not against losing this machine")).toBeVisible();
+    await expect(page.getByText("Not a copy off this machine")).toBeVisible();
   });
 
   test("a download needs the password again", async ({ page, api }) => {
