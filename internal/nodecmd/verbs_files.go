@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -416,9 +417,17 @@ func verbChmodWork(c *Ctx) error {
 	return nil
 }
 
+// verbSHA256 prints the SHA-256 of a file as 64 hex digits. With "progress" after the path it first prints
+// "@@progress DONE TOTAL" (bytes read, file size) once a second while it reads, for a large file; the digest is
+// the last line. A node command from before that form refuses the extra word; the controller then asks again
+// without it.
 func verbSHA256(c *Ctx) error {
-	if err := c.Need(1, 1, "sha256 PATH"); err != nil {
+	if err := c.Need(1, 2, "sha256 PATH [progress]"); err != nil {
 		return err
+	}
+	report := len(c.Args) == 2
+	if report && c.Args[1] != "progress" {
+		return Die("usage: sha256 PATH [progress]")
 	}
 	r, err := c.ResolveRead(c.Args[0])
 	if err != nil {
@@ -435,7 +444,29 @@ func verbSHA256(c *Ctx) error {
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, err := io.CopyBuffer(h, f, make([]byte, 1<<20)); err != nil {
+	in := &countReader{r: f}
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	if report {
+		go func() {
+			defer close(stopped)
+			t := time.NewTicker(time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-t.C:
+					fmt.Fprintf(c.Stdout, "@@progress %d %d\n", in.n.Load(), st.Size)
+				}
+			}
+		}()
+	} else {
+		close(stopped)
+	}
+	_, err = io.CopyBuffer(h, in, make([]byte, 1<<20))
+	close(stop)
+	<-stopped
+	if err != nil {
 		return Fail("cannot read %s", c.Args[0])
 	}
 	fmt.Fprintln(c.Stdout, hex.EncodeToString(h.Sum(nil)))

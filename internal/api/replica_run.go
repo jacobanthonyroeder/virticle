@@ -690,7 +690,7 @@ func (r *replRun) run() (err error) {
 			return err
 		}
 	}
-	if err = m.measure(srcWork); err != nil {
+	if err = m.measure(srcWork, replCopyHi, replHashHi); err != nil {
 		return err
 	}
 	if !r.live {
@@ -756,7 +756,7 @@ func (r *replRun) produce(wd *bkWork, stamp time.Time, plan replPlan) error {
 		if err := r.src.ChmodWork(wd.path, "711"); err != nil {
 			return fmt.Errorf("chmod: %w", err)
 		}
-		return m.liveBackup(wd, stamp, 0.02, 0.5)
+		return m.liveBackup(wd, stamp, 0.02, replCopyHi)
 	}
 	// Shut off. Only the copy of what changed since the last point is worth starting QEMU for: a planned failover
 	// has to be quick whatever the size of the disks. The VM is started paused (its virtual CPUs never run, so
@@ -774,7 +774,7 @@ func (r *replRun) produce(wd *bkWork, stamp time.Time, plan replPlan) error {
 		setPausedCopy(r.uuid, true)
 		defer setPausedCopy(r.uuid, false)
 		if err := r.startPaused(); err == nil {
-			err := m.liveBackup(wd, stamp, 0.02, 0.5)
+			err := m.liveBackup(wd, stamp, 0.02, replCopyHi)
 			serr := r.stopPaused()
 			if serr == nil {
 				_ = r.setSourceConfig(func(c *replConfig) { c.PausedCopy = false })
@@ -792,7 +792,7 @@ func (r *replRun) produce(wd *bkWork, stamp time.Time, plan replPlan) error {
 	}
 	m.plan = backupPlan{Kind: kindFull, Reason: whyReplShutOff}
 	m.live = false
-	if err := m.offlineBackup(wd, 0.02, 0.5); err != nil {
+	if err := m.offlineBackup(wd, 0.02, replCopyHi); err != nil {
 		return err
 	}
 	return nil
@@ -836,21 +836,32 @@ func (r *replRun) copyTPM(wd *bkWork) (string, error) {
 	return "tpm.state", nil
 }
 
+// Where the phases of a replication run end on the progress bar: the copy on the source, its checksums, and the
+// transfer to the standby with the checksums taken there. As for a backup (see bkPhasesFor), a checksum and a
+// transfer each take two to three times as long as the copy.
+const (
+	replCopyHi = 0.15
+	replHashHi = 0.4
+	replSendHi = 0.9
+)
+
 // send copies the staged files into the replica directory under names no point uses, and checks them.
 func (r *replRun) send(wd *bkWork, seq int, nvram, tpm string, total uint64) error {
 	m := r.bk
 	if total == 0 {
 		total = 1
 	}
+	// Every byte is sent, then read again on the standby for its checksum: both move the bar.
+	frac := func(n uint64) float64 { return float64(n) / float64(2*total) }
 	var done uint64
 	for _, d := range m.disks {
 		if err := m.checkCancel(); err != nil {
 			return err
 		}
-		base := done
+		base := 2 * done
 		dst := r.st.file(replIncomingName(seq, d.Target))
 		if err := copyToNode(m.ctx, r.src, r.dst, r.ep, wd.file(d.File), dst, "600", func(sent uint64) {
-			r.spread(0.5, 0.9, float64(base+sent)/float64(total))
+			r.spread(replHashHi, replSendHi, frac(base+sent))
 		}); err != nil {
 			if m.cancelled.Load() {
 				return errBackupCancelled
@@ -860,16 +871,20 @@ func (r *replRun) send(wd *bkWork, seq int, nvram, tpm string, total uint64) err
 			}
 			return fmt.Errorf("the copy of %s to %s was interrupted (the connection or the node command on %s stopped): %w. The earlier copy is kept as it is; the next run sends it again", d.File, r.dst.Name, r.dst.Name, err)
 		}
-		done += d.Size
 		if d.SHA != "" {
-			sum, err := r.dst.SHA256(dst)
+			sum, err := r.dst.SHA256Progress(m.ctx, dst, func(n, _ uint64) { r.spread(replHashHi, replSendHi, frac(base+d.Size+n)) })
 			if err != nil {
+				if m.cancelled.Load() {
+					return errBackupCancelled
+				}
 				return err
 			}
 			if sum != d.SHA {
 				return fmt.Errorf("%s arrived damaged on %s (SHA-256 %s, sent %s); nothing was changed there", d.File, r.dst.Name, sum, d.SHA)
 			}
 		}
+		done += d.Size
+		r.spread(replHashHi, replSendHi, frac(2*done))
 	}
 	if nvram != "" {
 		if err := copyToNode(m.ctx, r.src, r.dst, r.ep, wd.file(nvram), r.st.file(replNVRAMName(seq)), "600", nil); err != nil {
@@ -1018,7 +1033,7 @@ func (s *Server) launchReplica(req *http.Request, r *replRun) (int64, <-chan err
 	}
 	id, done, err := s.startBackgroundStop(req, "replicate", replTarget2(r.name, r.dst.Name), r.src.Name, taskStop{operator, r.cancel}, func(progress func(float64)) error {
 		defer releaseRepl(r)
-		r.progress = progress
+		r.progress = forwardOnly(progress)
 		err := r.run()
 		res := r.bk.finishFreeze(err)
 		var dn doneNote

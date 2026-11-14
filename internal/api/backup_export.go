@@ -153,6 +153,11 @@ func (b *backupRef) flatten(m *backupManifest, chain []chainLink, st *stopper, p
 			return nil, nil, err
 		}
 	}
+	if m.TPMState != "" { // every backup of a chain holds the whole TPM state
+		if err = b.h.Copy(b.dir+"/"+m.TPMState, wd.file(m.TPMState)); err != nil {
+			return nil, nil, err
+		}
+	}
 	mj, _ := json.MarshalIndent(&cp, "", "  ")
 	if err = writeNodeFile(b.h, wd.file("manifest.json"), mj); err != nil {
 		return nil, nil, err

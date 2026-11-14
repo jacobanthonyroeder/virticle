@@ -183,8 +183,8 @@ func (s *Server) planRestore(src *backupRef, req restoreReq) (*restorePlan, erro
 	if len(p.media) > 0 {
 		p.warn = append(p.warn, "install media/CD-ROM images are ejected: "+strings.Join(p.media, ", "))
 	}
-	if man.TPM {
-		p.warn = append(p.warn, "the VM had a TPM; its state is not part of a backup, the restored VM starts with an empty TPM")
+	if w := tpmRestoreWarning(man); w != "" {
+		p.warn = append(p.warn, w)
 	}
 	if p.remote {
 		dn, _ := s.nodeStatus(p.dstID)
@@ -438,7 +438,7 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 		}
 		var left []string
 		if defined != nil {
-			f := libvirt.DomainUndefineNvram | libvirt.DomainUndefineManagedSave | libvirt.DomainUndefineSnapshotsMetadata
+			f := libvirt.DomainUndefineNvram | libvirt.DomainUndefineManagedSave | libvirt.DomainUndefineSnapshotsMetadata | libvirt.DomainUndefineTpm
 			if uerr := dst.DomainUndefineFlags(*defined, f); uerr != nil {
 				left = append(left, "VM definition "+p.name+": "+uerr.Error())
 			}
@@ -551,6 +551,10 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 			return "", fmt.Errorf("copying the UEFI variables: %s", impFirstLine(cerr.Error()))
 		}
 	}
+	tpmStage, err := p.stageTPM(st.Ctx(), wd)
+	if err != nil {
+		return "", st.cancelled("restore", err)
+	}
 	xmlText, err := p.definition()
 	if err != nil {
 		return "", err
@@ -594,6 +598,12 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 	}
 	defined = &dom
 	uuid = cluster.FormatUUID(dom.UUID)
+	if tpmStage != "" {
+		// The state belongs to the VM's UUID, which a restore as a new VM has only now.
+		if terr := dst.TPMPlace(tpmStage, uuid); terr != nil {
+			return "", fmt.Errorf("placing the TPM state of the VM on %s: %w", dst.Name, terr)
+		}
+	}
 	if perr := restorePlacement(dst, dom, oldMeta); perr != nil {
 		log.Printf("restore %s: replication settings: %v", p.name, perr)
 	}

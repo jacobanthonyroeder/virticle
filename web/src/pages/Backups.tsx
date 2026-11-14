@@ -16,6 +16,8 @@ interface Manifest {
   sourceNode: string;
   live: boolean;
   tpm: boolean;
+  /** The file with the state of the VM's emulated TPM 2.0; absent when the backup does not hold it. */
+  tpmState?: string;
   disks: { target: string; file: string; virtualSize: number; bytes: number; sha256?: string }[];
   nvram?: string;
   notes: string[];
@@ -52,7 +54,11 @@ const url = (b: BackupEntry) => `/nodes/${b.node}/backups/${encodeURIComponent(b
 
 const hasLaterOnes = (n?: number) => (n ?? 0) > 0;
 
-const notIncluded = "A backup holds the VM's current state: snapshots are not included, and neither is TPM state (a restored VM starts with an empty TPM).";
+const notIncluded = "A backup holds the VM's current state without its snapshots. It holds the state of an emulated TPM 2.0 as well, so keep it as safe as the VM.";
+
+/** What a restore of this backup does with the TPM. */
+const tpmLine = (m: Manifest) =>
+  m.tpmState ? " The TPM state is restored too." : m.tpm ? " Its TPM state is not included: the restored VM starts with an empty TPM." : "";
 
 /** Follows a task started in the background, showing progress and the result. */
 function TaskFollow(props: { id: number; onDone: (ok: boolean) => void; onCancel?: () => void }) {
@@ -184,7 +190,7 @@ function BackupNow(props: { d: VMDetail; onClose: () => void; onDone: () => void
         </>
       ) : (
         <>
-          <p className="muted">Copies what changed since the last backup when that is possible, otherwise the whole disks. Snapshots and TPM state are not included.</p>
+          <p className="muted">Copies what changed since the last backup when that is possible, otherwise the whole disks. Snapshots are not included. The state of an emulated TPM 2.0 is, so keep backups as safe as the VM.</p>
           <Target node={node} pool={pool} setNode={setNode} setPool={setPool} />
           <Field label="Keep the newest" hint="Older backups of this VM in this pool are deleted, except those a kept incremental backup builds on. 0 keeps all.">
             <input type="number" min={0} max={1000} value={keep} onChange={(e) => setKeep(Number(e.target.value))} />
@@ -252,7 +258,7 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
       ) : (
         <>
           <p className="muted">
-            Backup of {m.vm} from {when(m.created)}. {notIncluded}
+            Backup of {m.vm} from {when(m.created)}.{tpmLine(m)} Snapshots are not included.
           </p>
           <Field label="Restore" hint={whyNot || undefined}>
             <Select

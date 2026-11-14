@@ -165,6 +165,10 @@ func TestFileVerbsHappyPath(t *testing.T) {
 	if got := n.ok("", "sha256", b); got != want {
 		t.Errorf("sha256 %q", got)
 	}
+	if got := n.ok("", "sha256", b, "progress"); !strings.HasSuffix(got, want) {
+		t.Errorf("sha256 with progress %q", got)
+	}
+	n.refused("sha256 with an unknown word", "", "sha256", b, "fast")
 	n.denied("move onto an existing file", "", "move", a, b)
 	n.denied("move a missing file", "", "move", n.pool("missing"), n.pool("x"))
 	n.ok("", "move", a, cpath)

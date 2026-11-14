@@ -48,7 +48,7 @@ last, under [Planned](#planned).
 ## Snapshots and backup
 - [~] Snapshots with memory, tree view, revert, delete (done). One kind per VM, chosen by the server; greyed option with a hint in the dialog (see note). Open: quiesce untested with a real agent
 - [x] Scheduled snapshots with retention (schedule stored in domain metadata, stored in UTC and shown in the browser time zone)
-- [~] Backup and restore to another pool or node (live, no snapshot left behind); export/import a VM as one tar file. Scheduled backups with retention (one unexplained stall seen in testing, not reproduced). Open: TPM state and snapshots are not part of a backup
+- [~] Backup and restore to another pool or node (live, no snapshot left behind); export/import a VM as one tar file. Scheduled backups with retention (one unexplained stall seen in testing, not reproduced). The state of an emulated TPM 2.0 is part of every backup and comes back with a restore (new or original VM, another node, export and import), checked on the Rocky pair with a mark that a Linux guest wrote into its TPM (not tested with Windows and BitLocker). Open: snapshots are not part of a backup
 - [x] Incremental backups: after the first full backup only the changed blocks are copied (libvirt checkpoints), a full one after every 7 and whenever a chain cannot be trusted, every file checked by SHA-256, restore and export put the chain together, retention keeps what kept backups need. Browser spec 49; the lab found and fixed killed-QEMU and libvirt-restart cases (Debian 13 with libvirt 11.3, Rocky 10 with libvirt 11.10). Not tested: Windows guests
 
 ## Networking

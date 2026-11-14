@@ -287,6 +287,15 @@ A directory `<vm>-<UTC timestamp>.vmbackup` in a directory-backed pool:
 - `<target>.qcow2`: one flattened image per writable disk. In an incremental backup it holds only the blocks that changed
   since the parent, and has no backing file.
 - `nvram.fd`: for UEFI guests; the manifest records its format (`nvramFormat`: `qcow2`, or `raw` for VMs made before qcow2 stores).
+- `tpm2-state.bin`: the state of an emulated TPM 2.0 (swtpm's `tpm2-00.permall` from `/var/lib/libvirt/swtpm/<uuid>/tpm2/`,
+  node verb `tpm-save`), whole in every backup, incremental ones too. The manifest names it in `tpmState` with `tpmBytes` and
+  `tpmSha256`. It is absent for a VM without a TPM, a TPM 1.2 or passthrough TPM, a TPM that has no state yet (the VM never
+  ran), a state the node could not read, and for backups from before this field. The manifest format number did not change:
+  an older Virticle ignores the field and restores such a backup with an empty TPM; it refuses to import an export that
+  contains the file. A restore checks the file against `tpmSha256` on the target node, defines the VM and then places the
+  state under the VM's UUID (a new one for a restore as a new VM) with `tpm-place`, the verb a failover uses; libvirt labels
+  it for SELinux or AppArmor when the VM starts. The notes say "TPM state is included" or "TPM state is not included"; the task
+  of a backup of a VM with a TPM whose state is not included ends with the note "TPM state not included: REASON".
 
 A running VM is backed up with libvirt's backup API and keeps running. The
 directory is renamed into place last, so a backup is complete or absent. A
@@ -553,7 +562,7 @@ The update log is `/var/lib/virticle-update/update.log` on the node. dnf: `check
 
 - A Debian node and a Rocky Linux node cannot migrate VMs to each other
   (emulator path and machine type differ).
-- Snapshots and TPM state are not part of a backup.
+- Snapshots are not part of a backup. TPM state is, for an emulated TPM 2.0 only.
 - Only file-based, non-shareable disks can be backed up.
 - Internal snapshots pause the guest while memory is saved and block live
   migration (not when every disk is on shared storage).

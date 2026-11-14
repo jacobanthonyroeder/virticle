@@ -34,6 +34,9 @@ const (
 	backupMaxDisks    = 32
 	backupMaxScan     = 500 // backups listed per pool
 	backupNVRAMFile   = "nvram.fd"
+	// backupTPMFile holds the state of an emulated TPM 2.0 (swtpm's tpm2-00.permall, a few KiB).
+	backupTPMFile = "tpm2-state.bin"
+	backupTPMMax  = 1 << 20 // the node command copies no larger state
 )
 
 var (
@@ -46,6 +49,8 @@ var (
 const (
 	noteSnapshots = "Snapshots are not included: a backup holds the current state of the VM only."
 	noteTPM       = "TPM state is not included: a restored VM starts with an empty TPM (BitLocker keys or measured-boot secrets sealed to it will not unseal)."
+	// noteTPMIncluded is the note of a backup that holds the TPM state.
+	noteTPMIncluded = "TPM state is included: the backup holds the keys the TPM keeps (BitLocker, for instance), so protect it like the VM itself."
 )
 
 type backupDiskRec struct {
@@ -72,9 +77,15 @@ type backupManifest struct {
 	NVRAM      string          `json:"nvram,omitempty"` // file name of the saved UEFI variables
 	// NVRAMFormat is the on-disk format of the saved UEFI variables: "qcow2"
 	// or "raw". Backups from before qcow2 stores have none, which means raw.
-	NVRAMFormat string   `json:"nvramFormat,omitempty"`
-	TPM         bool     `json:"tpm"` // the VM had a TPM (its state is not saved)
-	Notes       []string `json:"notes"`
+	NVRAMFormat string `json:"nvramFormat,omitempty"`
+	TPM         bool   `json:"tpm"` // the VM had a TPM
+	// TPMState is the file with the state of the VM's emulated TPM 2.0, with its size and SHA-256. Backups made
+	// before TPM state was saved, and backups of a VM whose TPM state could not be read, have none: the restored
+	// VM starts with an empty TPM. A program that does not know the field restores the backup the same way.
+	TPMState  string   `json:"tpmState,omitempty"`
+	TPMBytes  uint64   `json:"tpmBytes,omitempty"`
+	TPMSHA256 string   `json:"tpmSha256,omitempty"`
+	Notes     []string `json:"notes"`
 	// Kind is "full" or "incremental"; a backup from before incremental
 	// backups has none and is full. An incremental backup (format 2) holds
 	// only the blocks that changed since its Parent, a backup in the same pool.
@@ -162,11 +173,24 @@ func parseBackupManifest(raw []byte) (*backupManifest, error) {
 	if m.NVRAMFormat != "" && m.NVRAMFormat != "raw" && m.NVRAMFormat != "qcow2" {
 		return nil, fmt.Errorf("manifest: bad NVRAM format %q", m.NVRAMFormat)
 	}
+	switch {
+	case m.TPMState == "" && (m.TPMBytes != 0 || m.TPMSHA256 != ""):
+		return nil, errors.New("manifest: a size or checksum for TPM state, but no file")
+	case m.TPMState == "":
+	case m.TPMState != backupTPMFile:
+		return nil, fmt.Errorf("manifest: bad TPM state file name %q", m.TPMState)
+	case !m.TPM:
+		return nil, errors.New("manifest: TPM state, but the VM has no TPM")
+	case m.TPMBytes == 0 || m.TPMBytes > backupTPMMax:
+		return nil, errors.New("manifest: the TPM state has an impossible size")
+	case !sha256RE.MatchString(m.TPMSHA256):
+		return nil, errors.New("manifest: the TPM state needs its SHA-256")
+	}
 	return &m, nil
 }
 
 func reservedBackupFile(n string) bool {
-	return n == "manifest.json" || n == "domain.xml" || n == backupNVRAMFile
+	return n == "manifest.json" || n == "domain.xml" || n == backupNVRAMFile || n == backupTPMFile
 }
 
 // files lists every file a backup directory consists of.
@@ -175,10 +199,25 @@ func (m *backupManifest) files() []string {
 	if m.NVRAM != "" {
 		out = append(out, m.NVRAM)
 	}
+	if m.TPMState != "" {
+		out = append(out, m.TPMState)
+	}
 	for _, d := range m.Disks {
 		out = append(out, d.File)
 	}
 	return out
+}
+
+// tpmNotes is what the notes of a backup say about the TPM: that its state is included, or for a VM with a TPM
+// whose state is not (TPM 1.2, a passthrough TPM, a state that could not be read), that it is not.
+func tpmNotes(hasTPM, included bool) []string {
+	switch {
+	case included:
+		return []string{noteTPMIncluded}
+	case hasTPM:
+		return []string{noteTPM}
+	}
+	return nil
 }
 
 // --- libvirt backup XML ---
@@ -335,7 +374,7 @@ func vetTar(in io.Reader, out io.Writer, budget int64) ([]string, error) {
 			return nil, badRequest("refusing archive: duplicate member " + h.Name)
 		}
 		seen[h.Name] = true
-		if len(names) >= backupMaxDisks+3 {
+		if len(names) >= backupMaxDisks+4 {
 			return nil, badRequest("refusing archive: too many members")
 		}
 		if h.Size < 0 {
