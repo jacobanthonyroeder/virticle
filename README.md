@@ -44,15 +44,16 @@ Pick one.
 
 Download packages from
 [Releases](https://github.com/jacobanthonyroeder/virticle/releases). A package runs a
-systemd service that serves HTTPS with a self-signed certificate on port 8443
+systemd service that serves HTTPS with a self-signed certificate on port 8463
 of all interfaces. It does not touch the firewall: run `sudo virticle setup`
-once. It opens the web port in firewalld or ufw and prints the address to
-open. The container serves the same on port 8443 (compose.yaml publishes it on
+once. It asks which address and port to use (Enter keeps the defaults), asks
+before it opens the port in firewalld or ufw, and prints the address to open.
+The container serves the same on port 8463 (compose.yaml publishes it on
 `127.0.0.1`). More in [docs/install.md](docs/install.md).
 
 ### 2. Create the administrator
 
-1. Open the address that `sudo virticle setup` printed, `https://<address>:8443`
+1. Open the address that `sudo virticle setup` printed, `https://<address>:8463`
    (the journal says the same: `journalctl -u virticle`). Your browser warns
    about the self-signed certificate. A source build started by hand in a data
    directory without users behaves the same.

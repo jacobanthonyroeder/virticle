@@ -103,9 +103,11 @@ The package installs:
 | Manual and documentation | `/usr/share/man/man1/virticle.1.gz`, `/usr/share/doc/virticle/` (the README and the `docs/` folder with the pictures, laid out as in the repository so that the links work) |
 | System user and group | `virticle` |
 
-A new install serves HTTPS with a self-signed certificate on port 8443 of all
-interfaces; the journal line `open https://<address>:8443 to create the
-administrator` says where. An installation from before this default, which has
+A new install serves HTTPS with a self-signed certificate on port 8463 of all
+interfaces; the journal line `open https://<address>:8463 to create the
+administrator` says where. `sudo virticle setup` lets you choose another
+address and port (see below). An install that already has stored settings keeps
+its port, including 8443 from version 0.3.0. An installation from before this default, which has
 an administrator and no stored web settings, keeps listening on
 `127.0.0.1:8080` and the **Web access** page says so. The same rule applies to
 every start without a `-listen` flag: a data directory without users gets the
@@ -115,13 +117,14 @@ HTTPS default, one with users keeps what it has.
 | --- | --- |
 | Debian, RHEL | The service is enabled and started. An upgrade restarts it when it was running. |
 
-### Setup: open the firewall
+### Setup: choose the address and port, open the firewall
 
 The package does not touch the firewall. Run this once after installing:
 
     sudo virticle setup
 
-It opens the web port when firewalld or ufw is active, makes sure the service
+It asks which address and port to use, checks that the port is free, asks
+before it opens the port when firewalld or ufw is active, makes sure the service
 runs, and prints the address to open. Running it again changes nothing; if you
 later change the web port, run it again and it moves the rule to the new port.
 The **Web access** page tells you to run it while a port change waits for
@@ -131,6 +134,42 @@ it once more after you chose **Keep this setting** to close the old port.
 removes the firewall rule it added (do this before you uninstall). Then open
 the address it prints.
 
+#### Choose the address and port
+
+On a terminal, on a machine that is not set up yet, setup asks two short
+questions. Enter takes the answer in brackets:
+
+    Which address should the web interface listen on?
+      all   every address of this machine
+      192.0.2.10
+      198.51.100.7
+    Address [all]:
+    Port [8463]:
+    Open TCP port 8463 in firewalld for the web interface? [Y/n]
+
+The default port is 8463 because 8443 is used by many other products. Setup
+tries to listen on the address and port first. If another program has the
+port, it names the program, changes nothing and asks for another port. Without
+a terminal it stops with an error.
+
+| Option | What it does |
+| --- | --- |
+| `--address ADDR` | An IP address of this machine, or `all`. Answers the first question. |
+| `--port N` | A port from 1 to 65535. Answers the second question. |
+| `--no-firewall` | Does not change the firewall. Prints the command to run yourself. |
+| `--yes` | Asks nothing: takes the defaults and answers yes. |
+
+Without a terminal (a script, a pipe) nothing is asked: setup uses the flags or
+the defaults, and opens the port in the firewall unless you give
+`--no-firewall`. If you answer no to the firewall question, setup prints the
+exact command to run later.
+
+`--address` and `--port` work only while no administrator exists and the web
+settings are still the ones of a first start. On a machine that is set up,
+setup keeps the web address and refuses other values. Change it on the **Web
+access** page, which asks you to confirm and goes back by itself if you do not.
+Run setup again after that to move the firewall rule.
+
 Check the service with `systemctl status virticle`, `journalctl -u virticle` and
 `virticle version`.
 
@@ -138,7 +177,7 @@ Check the service with `systemctl status virticle`, `journalctl -u virticle` and
 
 | Where | Port | Needed for |
 | --- | --- | --- |
-| Controller | The web port, `8443` by default (set on the **Web access** page) | Browsers and the API. `virticle setup` opens it. |
+| Controller | The web port, `8463` by default (set on the **Web access** page) | Browsers and the API. `virticle setup` opens it. |
 | Each node | SSH, `22` or the port you gave for the node | The controller signs in to the node. Open to the controller only if you restrict SSH. |
 | Each node, from the other nodes | TCP `49152` to `49215` | Data of live migrations. `virticle node prepare` opens it. |
 
@@ -172,16 +211,16 @@ the user `virticle`, for example under `/etc/virticle/`.
 ## Container
 
     docker build -t virticle .      # in an LXC: podman build --network=host
-    docker run -d --name virticle -p 127.0.0.1:8443:8443 -v virticle-data:/data virticle
+    docker run -d --name virticle -p 127.0.0.1:8463:8463 -v virticle-data:/data virticle
 
 or `docker compose up -d --build` with the `compose.yaml` of this repository.
 
 - The image is based on `gcr.io/distroless/static` and runs as the non-root
   user 65532.
-- All state is in the volume `/data`. Port 8443 is exposed (8080 too, for
+- All state is in the volume `/data`. Port 8463 is exposed (8080 too, for
   volumes from 0.2.0, see [From 0.2.0 to 0.3.0](#from-020-to-030)).
 - The controller serves HTTPS with a self-signed certificate that it makes in
-  `/data`. Open `https://127.0.0.1:8443`. The image passes no `-listen`, so
+  `/data`. Open `https://127.0.0.1:8463`. The image passes no `-listen`, so
   the **Web access** page manages the listener (see [web-tls.md](web-tls.md)).
 - Pass environment variables such as `VIRTICLE_JUMP_PASSWORD` with `-e` or
   `env_file`.
@@ -204,7 +243,7 @@ To build from source, run `make build` (needs Go and Node.js). The result is
 ## First run
 
 1. Open the address that `sudo virticle setup` printed, for example
-   `https://<address>:8443` (the journal line `open ... to create the
+   `https://<address>:8463` (the journal line `open ... to create the
    administrator` says the same).
 2. Create the administrator account. The password needs at least 10
    characters.
@@ -275,7 +314,7 @@ Stop the old controller before you start the new one.
 
 1. **Upgrade the controller** as above. A backup first is a good idea:
    `sudo virticle backup -o /root/backups/` (see [controller-backup.md](controller-backup.md)).
-2. **Check the web address.** The new HTTPS default (self-signed, port 8443) applies to **fresh installs only**. A data
+2. **Check the web address.** The HTTPS default (self-signed, port 8463; 0.3.0 used 8443) applies to **fresh installs only**. A data
    directory that already has users and no stored web settings keeps serving plain HTTP on `127.0.0.1:8080`, as before.
    The **Web access** page says so. To reach the controller from other computers, choose a mode on that page. Settings you
    stored with 0.2.0 are kept.
@@ -309,8 +348,8 @@ Existing VMs keep their firmware, and a VM keeps the kind of snapshot it already
 **Container.** The new image keeps a data volume from 0.2.0 (an administrator, no stored web settings) answering where
 0.2.0 did: HTTPS with a self-signed certificate on port 8080 inside the container. Recreate the container from the new
 image with the same `-p 127.0.0.1:8080:8080 -v ...:/data` as before and nothing else changes. The **Web access** page says
-so. When you choose a mode there, the controller moves to the port you set (8443 by default), so publish that port too. A
-new volume starts on port 8443 as described under [Container](#container). Tried with both images built from the tags
+so. When you choose a mode there, the controller moves to the port you set (8463 by default), so publish that port too. A
+new volume starts on port 8463 as described under [Container](#container). Tried with both images built from the tags
 `v0.2.0` and this version.
 
 ### From 0.1.0

@@ -74,7 +74,7 @@ var noBind = CheckEnv{Bind: func(string) error { return nil }}
 
 func TestNormalize(t *testing.T) {
 	s := Settings{Mode: " Proxy ", Names: []string{"a.example, B.example", "a.EXAMPLE"}, PublicURL: "https://x.example/"}.Normalize()
-	if s.Mode != "proxy" || s.Listen != DefaultListen || s.HTTPSListen != ":8443" || s.PublicURL != "https://x.example" {
+	if s.Mode != "proxy" || s.Listen != DefaultListen || s.HTTPSListen != DefaultHTTPSListen || s.PublicURL != "https://x.example" {
 		t.Errorf("%+v", s)
 	}
 	if len(s.Names) != 2 {
@@ -708,7 +708,7 @@ func TestOwnNamesComeFromCertificate(t *testing.T) {
 
 func TestFirstRunDefaults(t *testing.T) {
 	d := FirstRunDefaults()
-	if d.Mode != ModeSelfSigned || d.HTTPSListen != ":8443" || len(d.Names) != 0 {
+	if d.Mode != ModeSelfSigned || d.HTTPSListen != DefaultHTTPSListen || len(d.Names) != 0 {
 		t.Errorf("%+v", d)
 	}
 	if o := Defaults(); o.Mode != ModeOff || o.Listen != DefaultListen {
@@ -807,7 +807,7 @@ func TestPeekLeavesAPendingChangeAlone(t *testing.T) {
 	st.SetWebSetting(keyPending, string(pb))
 	st.SetWebSetting(keySettings, string(nb))
 	got, p, ok, err := m.Peek()
-	if err != nil || !ok || got.HTTPSListen != ":9443" || p == nil || p.HTTPSListen != ":8443" {
+	if err != nil || !ok || got.HTTPSListen != ":9443" || p == nil || p.HTTPSListen != DefaultHTTPSListen {
 		t.Fatalf("Peek = %+v %+v %v %v", got, p, ok, err)
 	}
 	if _, pending := st.m[keyPending]; !pending {

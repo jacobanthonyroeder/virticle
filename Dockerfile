@@ -1,7 +1,7 @@
 # Multi-stage build: web UI, then the Go binary (pure Go, no CGO), then a
 # distroless static image that runs as a non-root user.
 #   docker build -t virticle .
-#   docker run -p 8443:8443 -v virticle-data:/data virticle
+#   docker run -p 8463:8463 -v virticle-data:/data virticle
 
 FROM --platform=$BUILDPLATFORM node:20-alpine AS web
 WORKDIR /src/web
@@ -40,13 +40,13 @@ COPY --from=build /out/virticle /usr/bin/virticle
 COPY --from=build --chown=65532:65532 /out/data /data
 USER 65532:65532
 VOLUME /data
-EXPOSE 8443 8080
+EXPOSE 8463 8080
 # A data volume from 0.2.0 (an administrator, no stored web settings) keeps
 # answering on 0.0.0.0:8080 over HTTPS, where the 0.2.0 image did, until a mode
 # is chosen on the Web access page.
 ENV VIRTICLE_UPGRADE_LISTEN=0.0.0.0:8080
 # No -listen: the controller serves HTTPS with a generated self-signed
-# certificate (kept in /data) on port 8443 until the Web access page says
+# certificate (kept in /data) on port 8463 until the Web access page says
 # otherwise.
 ENTRYPOINT ["/usr/bin/virticle"]
 CMD ["-data", "/data"]

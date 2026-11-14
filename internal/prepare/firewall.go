@@ -26,7 +26,7 @@ const NodeFirewallService = "virticle-node"
 type FirewallSpec struct {
 	Service     string   // firewalld service name, and the ufw rule comment
 	Description string   // one line for the firewalld service
-	Ports       []string // TCP ports: "8443" or a range "49152-49215". Empty: remove what Service added
+	Ports       []string // TCP ports: "8463" or a range "49152-49215". Empty: remove what Service added
 	Actor       string   // "Prepare" or "Setup", for the sentences
 	Purpose     string   // "for migrations between nodes"
 }
@@ -42,8 +42,8 @@ func NodeFirewall() FirewallSpec {
 	}
 }
 
-// PortsText writes ports in plain words: "TCP port 8443", "TCP ports 80 and
-// 8443", "TCP ports 49152 to 49215".
+// PortsText writes ports in plain words: "TCP port 8463", "TCP ports 80 and
+// 8463", "TCP ports 49152 to 49215".
 func PortsText(ports []string) string {
 	var parts []string
 	plural := len(ports) > 1

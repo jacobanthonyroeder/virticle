@@ -33,6 +33,14 @@ const (
 // where "virticle web reset" puts it back.
 const DefaultListen = "127.0.0.1:8080"
 
+// DefaultHTTPSPort is the HTTPS port of a fresh install. 8443 is used by many
+// other products, so a less common port is the default. An install that has
+// stored settings keeps whatever port it has.
+const DefaultHTTPSPort = 8463
+
+// DefaultHTTPSListen is the HTTPS listener of a fresh install: every interface.
+const DefaultHTTPSListen = ":8463"
+
 // Settings is the whole web access configuration. It is stored as JSON.
 type Settings struct {
 	Mode string `json:"mode"`
@@ -74,7 +82,7 @@ type ACME struct {
 
 // Defaults is what a controller without stored settings does.
 func Defaults() Settings {
-	return Settings{Mode: ModeOff, Listen: DefaultListen, HTTPSListen: ":8443", ACME: ACME{Directory: LetsEncrypt}, TrustedProxies: []string{"127.0.0.1", "::1"}}
+	return Settings{Mode: ModeOff, Listen: DefaultListen, HTTPSListen: DefaultHTTPSListen, ACME: ACME{Directory: LetsEncrypt}, TrustedProxies: []string{"127.0.0.1", "::1"}}
 }
 
 // FirstRunDefaults is what a controller with no users and no stored settings
@@ -200,7 +208,7 @@ func ParsePublicURL(raw string) (*url.URL, error) {
 func SplitAddr(addr string) (host string, port int, err error) {
 	h, p, err := net.SplitHostPort(addr)
 	if err != nil {
-		return "", 0, fmt.Errorf("%q is not host:port (for example 127.0.0.1:8080 or :8443)", addr)
+		return "", 0, fmt.Errorf("%q is not host:port (for example 127.0.0.1:8080 or :8463)", addr)
 	}
 	n, err := net.LookupPort("tcp", p)
 	if err != nil || n < 0 || n > 65535 {
