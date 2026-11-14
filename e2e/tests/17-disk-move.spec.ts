@@ -27,7 +27,7 @@ test.describe.serial("disk move", () => {
 
   test("move the disk of the running VM, deleting the old volume", async ({ page, api }) => {
     const before = (await disk(api)).source as string;
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     await expectBadge(page.locator(".head"), "running");
     await page.locator("section.card").filter({ has: page.getByRole("heading", { name: "Disks", exact: true }) }).getByRole("row", { name: /vda/ }).getByRole("button", { name: "Move", exact: true }).click();
     const dlg = dialog(page, /^Move vda/);
@@ -51,7 +51,7 @@ test.describe.serial("disk move", () => {
 
   test("move it back while shut off; the old volume is deleted too", async ({ page, api }) => {
     await api.post(`/nodes/${vm.node}/vms/${vm.uuid}/action`, { action: "poweroff" });
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     await page.locator("section.card").filter({ has: page.getByRole("heading", { name: "Disks", exact: true }) }).getByRole("row", { name: /vda/ }).getByRole("button", { name: "Move", exact: true }).click();
     const dlg = dialog(page, /^Move vda/);
     await pickPool(dlg, "Target pool", "default");
@@ -70,7 +70,7 @@ test.describe.serial("disk move", () => {
     // the disk keeps its name, so a volume of that name in the target blocks the move
     const name = ((await disk(api)).source as string).split("/").pop()!;
     await api.post(`/nodes/${vm.node}/pools/${POOL}/volumes`, { name, capacity: 2 ** 20 * 64, format: "qcow2" });
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     await page.locator("section.card").filter({ has: page.getByRole("heading", { name: "Disks", exact: true }) }).getByRole("row", { name: /vda/ }).getByRole("button", { name: "Move", exact: true }).click();
     const dlg = dialog(page, /^Move vda/);
     await pickPool(dlg, "Target pool", POOL);

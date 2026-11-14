@@ -260,15 +260,24 @@ test.describe.serial("visual pass", () => {
       await page.getByRole("menuitem", { name: "Halt (Force Shutdown)", exact: true }).click();
       await shot("confirm-dialog", () => expect(page.getByRole("dialog", { name: "Halt (Force Shutdown)" })).toBeVisible());
       await page.getByRole("button", { name: "Cancel", exact: true }).click();
-      for (const [tab, check] of [
-        ["hardware", "Boot order"],
-        ["console", "Connected"],
-        ["snapshots", "Scheduled snapshots"],
-        ["backups", "Backups"],
-        ["xml", "Revert"],
+      // Every sub page of the tabs that have a sub page column, then the tabs without one.
+      for (const [tab, sec, check] of [
+        ["hardware", "cpu", "vCPUs"],
+        ["hardware", "disks", "CD-ROM"],
+        ["hardware", "nics", "Add interface"],
+        ["hardware", "boot", "Firmware and TPM"],
+        ["hardware", "advanced", "ordinary pages"],
+        ["hardware", "passthrough", "Passthrough devices"],
+        ["snapshots", "snapshots", "Take snapshot"],
+        ["snapshots", "schedule", "Scheduled snapshots"],
+        ["backups", "backups", "Back up now"],
+        ["backups", "schedule", "Scheduled backups"],
+        ["console", "", "Connected"],
+        ["xml", "", "Revert"],
       ] as const) {
-        await page.goto(`${vmUrl}?tab=${tab}`);
-        await shot("vm-" + tab, () => expect(page.locator("main").getByText(check).first()).toBeVisible({ timeout: 30_000 }), { wide: tab === "xml" });
+        await page.goto(`${vmUrl}?tab=${tab}${sec ? "&sec=" + sec : ""}`);
+        await shot("vm-" + tab + (sec ? "-" + sec : ""), () => expect(page.locator("main").getByText(check).first()).toBeVisible({ timeout: 30_000 }), { wide: tab === "xml" });
+        if (sec) await expect(page.locator(".subnav").getByRole("tab", { selected: true })).toBeVisible();
       }
       // console preview card, inline console, standalone console page, paste dialog
       await page.goto(vmUrl);
@@ -301,10 +310,11 @@ test.describe.serial("visual pass", () => {
         await page.goto(path);
         await shot(name, () => expect(heading(h)).toBeVisible());
       }
-      for (const tab of ["summary", "vms", "storage", "network", "updates", "settings"]) {
-        await page.goto(`/node/${vm.node}/${tab}`);
-        await shot("node-" + tab, async () => {
+      for (const [tab, sec] of [["summary", ""], ["vms", ""], ["storage", ""], ["network", ""], ["updates", ""], ["settings", "connection"], ["settings", "migration"]] as const) {
+        await page.goto(`/node/${vm.node}/${tab}${sec ? "?sec=" + sec : ""}`);
+        await shot("node-" + tab + (sec ? "-" + sec : ""), async () => {
           await expect(page.locator("main .tabs")).toBeVisible();
+          if (sec) await expect(page.locator(".subnav").getByRole("tab", { selected: true })).toBeVisible();
           await page.waitForLoadState("networkidle");
         });
       }
@@ -368,7 +378,7 @@ test.describe.serial("visual pass", () => {
       await page.getByRole("button", { name: "New profile" }).click();
       await shot("new-profile-dialog", () => expect(page.getByRole("dialog")).toBeVisible());
       await page.keyboard.press("Escape");
-      await page.goto(vmUrl + "?tab=hardware");
+      await page.goto(vmUrl + "?tab=hardware&sec=disks");
       await page.getByRole("button", { name: "Add disk" }).click();
       await shot("add-disk-dialog", () => expect(page.getByRole("dialog")).toBeVisible());
       await page.getByRole("combobox", { name: "Storage pool" }).click();
@@ -382,19 +392,22 @@ test.describe.serial("visual pass", () => {
       await page.getByRole("button", { name: "Delete b", exact: true }).click();
       await shot("snapshot-delete-dialog", () => expect(page.getByRole("dialog", { name: "Delete b" }).getByRole("treeitem").first()).toBeVisible());
       await page.keyboard.press("Escape");
+      await page.locator(".subnav").getByRole("tab", { name: "Schedule", exact: true }).click();
       await page.getByRole("button", { name: "Set up schedule" }).click();
       await shot("snapshot-schedule-form", () => expect(page.locator("#snap-schedule").getByRole("button", { name: "Save schedule" })).toBeVisible());
       // the bridge picker
-      await page.goto(vmUrl + "?tab=hardware");
+      await page.goto(vmUrl + "?tab=hardware&sec=nics");
       await page.getByRole("button", { name: "Add interface" }).click();
       await page.getByRole("dialog").getByRole("combobox", { name: "Network", exact: true }).click();
       await shot("bridge-picker", () => expect(page.getByRole("listbox").getByRole("option").first()).toBeVisible({ timeout: 30_000 }), { viewportOnly: true });
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");
-      await page.goto(vmUrl + "?tab=hardware");
+      await page.goto(vmUrl + "?tab=hardware&sec=advanced");
       await page.getByRole("button", { name: /^Advanced/ }).first().click();
+      await shot("vm-hardware-advanced-open", () => expect(page.locator("#hw-advanced-body")).toBeVisible({ timeout: 30_000 }));
+      await page.locator(".subnav").getByRole("tab", { name: "Passthrough", exact: true }).click();
       await page.getByRole("button", { name: /^Passthrough devices/ }).click();
-      await shot("vm-hardware-sections-open", () => expect(page.locator("#hw-advanced-body")).toBeVisible({ timeout: 30_000 }));
+      await shot("vm-hardware-passthrough-open", () => expect(page.locator("#hw-passthrough-body")).toBeVisible({ timeout: 30_000 }));
       await page.evaluate(() => localStorage.removeItem("virticle.hw.open.hw-advanced"));
       await page.evaluate(() => localStorage.removeItem("virticle.hw.open.hw-passthrough"));
       await page.goto(vmUrl);
@@ -408,7 +421,7 @@ test.describe.serial("visual pass", () => {
       await page.getByRole("menuitem", { name: "Take snapshot", exact: true }).click();
       await shot("snapshot-dialog", () => expect(page.getByRole("dialog", { name: "Take snapshot" })).toBeVisible(), { viewportOnly: true });
       await page.keyboard.press("Escape");
-      await page.goto(vmUrl + "?tab=hardware");
+      await page.goto(vmUrl + "?tab=hardware&sec=disks");
       await page.locator("section.card").filter({ has: page.getByRole("heading", { name: "Disks", exact: true }) }).getByRole("row", { name: /vda/ }).getByRole("button", { name: "Move", exact: true }).click();
       await shot("disk-move-dialog", () => expect(page.getByRole("dialog").locator("ul.checklist li").first()).toBeVisible({ timeout: 60_000 }));
       await page.keyboard.press("Escape");

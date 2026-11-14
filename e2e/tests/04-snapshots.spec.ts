@@ -102,7 +102,7 @@ test.describe.serial("snapshots", () => {
 
   test("schedule: save, shown in words, edit, remove", async ({ page, api }) => {
     autoDialogs(page);
-    await openVM(page, vm, "snapshots");
+    await openVM(page, vm, "snapshots", "schedule");
     const sec = page.locator("section.card", { hasText: "Scheduled snapshots" });
     await sec.getByRole("button", { name: "Set up schedule" }).click();
     await field(sec, "Time").fill("03:30");

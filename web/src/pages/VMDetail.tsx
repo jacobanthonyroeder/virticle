@@ -3,13 +3,14 @@ import { ArrowLeft } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { get, post, put, VMDetail } from "../api";
 import { useLive } from "../live";
+import { secOfCard } from "../SubNav";
 import { atLeast, useRole } from "../auth";
 import { ErrorBox, StateBadge, useAction } from "../ui";
 import { SerialConsole, VNCConsole } from "./Console";
-import Hardware from "./Hardware";
-import SnapshotsTab from "./Snapshots";
+import Hardware, { HW_PAGES } from "./Hardware";
+import SnapshotsTab, { SNAP_PAGES } from "./Snapshots";
 import { PerformanceTab } from "./Performance";
-import BackupsTab from "./Backups";
+import BackupsTab, { BACKUP_PAGES } from "./Backups";
 import VMActions from "./VMActions";
 import Overview from "./VMOverview";
 import { TagEditor } from "./Tags";
@@ -60,8 +61,11 @@ export default function VMDetailPage() {
       </>
     );
   }
+  // A card of a tab with sub pages: open that sub page, then bring the card into view.
+  const subPages: Record<string, typeof HW_PAGES> = { hardware: HW_PAGES, snapshots: SNAP_PAGES, backups: BACKUP_PAGES };
   const goto = (t: string, card?: string) => {
-    setParams(t === "overview" ? {} : { tab: t });
+    const sec = secOfCard(subPages[t] ?? [], card);
+    setParams(t === "overview" ? {} : sec ? { tab: t, sec } : { tab: t });
     setJump(card);
   };
   const tabs = [

@@ -8,6 +8,7 @@ import PoolSelect from "../PoolSelect";
 import Select from "../Select";
 import { ErrorBox, Field, Modal, NodePicker, Progress, useAction, useConfirm } from "../ui";
 import { StatusLine } from "../Checks";
+import SubNav, { SubPage } from "../SubNav";
 
 interface Manifest {
   vm: string;
@@ -428,7 +429,7 @@ function SchedulePanel({ d }: { d: VMDetail }) {
   };
   const canEdit = role !== "viewer";
   return (
-    <section className="card" style={{ marginTop: 20 }} id="backup-schedule">
+    <section className="card" id="backup-schedule">
       {confirm.dialog}
       <h3>Scheduled backups</h3>
       <ErrorBox error={cur.error} />
@@ -481,26 +482,40 @@ function SchedulePanel({ d }: { d: VMDetail }) {
 
 const taskDone = (e: { type: string; task?: Task }) => e.type === "task" && e.task?.status !== "running";
 
+export const BACKUP_PAGES: SubPage[] = [
+  { id: "backups", label: "Backups" },
+  { id: "schedule", label: "Schedule", cards: ["backup-schedule"] },
+];
+
 /** The Backups tab of a VM. */
 export default function BackupsTab({ d }: { d: VMDetail; base: string }) {
   const list = useLive(() => get<BackupEntry[]>(`/backups?uuid=${d.uuid}`), "backups/" + d.uuid, taskDone);
   const [making, setMaking] = useState(false);
   return (
     <>
-      <div className="head">
-        <h3>Backups</h3>
-        <div className="actions">
-          <button className="primary" onClick={() => setMaking(true)}>
-            Back up now
-          </button>
-        </div>
-      </div>
-      <p className="muted">Backups of this VM on all nodes. {notIncluded}</p>
-      <ErrorBox error={list.error} />
-      {!list.data && !list.error && <div className="empty">Looking for backups on all nodes</div>}
-      {list.data && list.data.length === 0 && <div className="empty">No backups of this VM yet.</div>}
-      {list.data && list.data.length > 0 && <BackupTable list={list.data} reload={list.reload} />}
-      <SchedulePanel d={d} />
+      <SubNav pages={BACKUP_PAGES} label="Backups">
+        {(sec) =>
+          sec === "schedule" ? (
+            <SchedulePanel d={d} />
+          ) : (
+            <>
+              <div className="head" style={{ marginTop: 0 }}>
+                <h3>Backups</h3>
+                <div className="actions">
+                  <button className="primary" onClick={() => setMaking(true)}>
+                    Back up now
+                  </button>
+                </div>
+              </div>
+              <p className="muted">Backups of this VM on all nodes. {notIncluded}</p>
+              <ErrorBox error={list.error} />
+              {!list.data && !list.error && <div className="empty">Looking for backups on all nodes</div>}
+              {list.data && list.data.length === 0 && <div className="empty">No backups of this VM yet.</div>}
+              {list.data && list.data.length > 0 && <BackupTable list={list.data} reload={list.reload} />}
+            </>
+          )
+        }
+      </SubNav>
       {making && <BackupNow d={d} onClose={() => setMaking(false)} onDone={list.reload} />}
     </>
   );

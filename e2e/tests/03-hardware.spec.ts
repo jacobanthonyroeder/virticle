@@ -27,7 +27,7 @@ test.describe.serial("hardware editing", () => {
   });
 
   test("edit vCPUs and memory of the stopped VM", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "cpu");
     const c = card(page, "CPU and memory");
     await c.getByRole("button", { name: "Edit" }).click();
     await field(c, "vCPUs").fill("2");
@@ -44,7 +44,7 @@ test.describe.serial("hardware editing", () => {
   });
 
   test("Apply is disabled for an impossible combination", async ({ page }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "cpu");
     const c = card(page, "CPU and memory");
     await c.getByRole("button", { name: "Edit" }).click();
     await c.getByRole("button", { name: "Advanced" }).click();
@@ -56,7 +56,7 @@ test.describe.serial("hardware editing", () => {
   });
 
   test("CD-ROM: add a drive, insert the uploaded ISO, eject it", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     const c = card(page, "CD-ROM");
     await c.getByRole("button", { name: "Add CD-ROM drive" }).click();
     await expect(c.getByText("(no media)")).toBeVisible();
@@ -81,7 +81,7 @@ test.describe.serial("hardware editing", () => {
   });
 
   test("hot-add a new disk volume, resize it, detach and delete it", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     const c = card(page, "Disks");
     await c.getByRole("button", { name: "Add disk" }).click();
     const dlg = dialog(page, "Add disk");
@@ -121,7 +121,7 @@ test.describe.serial("hardware editing", () => {
   test("detach on the stopped VM applies at once and deletes the volume", async ({ page, api }) => {
     await api.post(`/nodes/${vm.node}/vms/${vm.uuid}/action`, { action: "poweroff" });
     await api.waitFor("off", async () => (await api.vmDetail(vm.node, vm.uuid)).state === "shutoff");
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     const c = card(page, "Disks");
     // the pending detach of the previous test took effect with the power-off
     await expect(row(c, `${NAME}-disk1.qcow2`)).toHaveCount(0);
@@ -152,7 +152,7 @@ test.describe.serial("hardware editing", () => {
   });
 
   test("hot-add and remove a network interface", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "nics");
     const c = card(page, "Network interfaces");
     await expect(c.locator("tbody tr")).toHaveCount(1);
     await c.getByRole("button", { name: "Add interface" }).click();
@@ -177,7 +177,7 @@ test.describe.serial("hardware editing", () => {
   });
 
   test("boot order: boot from the network", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "boot");
     const c = card(page, "Boot order");
     await pick(c, "Boot from", "Network");
     await expect.poll(async () => (await api.vmDetail(vm.node, vm.uuid)).nics[0].bootOrder).toBe(1);

@@ -1,0 +1,17 @@
+/* Sub pages of a long tab: a narrow list at the left, the selected page at the right. Same look as the resource tree:
+   the hover colour, and the selected entry marked by the accent bar on its left. No animation. */
+.subwrap { container-type: inline-size; }
+.sublayout { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; align-items: start; }
+.subnav { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--chrome, var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); }
+.subnav button { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px; background: none; padding: 5px 10px; min-height: 28px; font-weight: 400; white-space: normal; color: var(--muted); transition: color 100ms, background-color 100ms; }
+.subnav button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.subnav button.on { background: var(--hover); color: var(--text); font-weight: 500; box-shadow: inset 3px 0 0 var(--accent), 0 0 0 1px var(--glow, transparent); }
+.subnav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.subpage { min-width: 0; }
+/* The area is narrow (a phone, or a window with the tree open): one wrapping row above the page. */
+@container (max-width: 639px) {
+  .sublayout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .subnav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; padding: 0; background: none; border: 0; }
+  .subnav button { width: auto; border: 1px solid var(--line); background: var(--panel); }
+  .subnav button.on { border-color: var(--accent); box-shadow: none; }
+}

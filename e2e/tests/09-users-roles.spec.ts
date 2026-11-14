@@ -1,6 +1,6 @@
 // Users page, roles as seen by each role, password change, API tokens, audit log.
 import { Browser, expect as pwExpect, request } from "@playwright/test";
-import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
+import { cleanVMs, createCirros, expect, openVM, subPage, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
 import { Api } from "../lib/api";
 import { autoDialogs, dialog, field, row, confirm, pick } from "../lib/ui";
@@ -97,12 +97,16 @@ test.describe.serial("users and roles", () => {
 
     // Hardware: every input and select is disabled, no action button is shown
     await page.locator(".tabs").getByRole("button", { name: "Hardware" }).click();
-    await expect(page.getByRole("heading", { name: "Boot order" })).toBeVisible();
-    const hw = page.locator("fieldset.plain");
-    const inputs = hw.locator("input, textarea, button.cb-btn");
-    const n = await inputs.count();
-    for (let i = 0; i < n; i++) await expect(inputs.nth(i)).toBeDisabled();
-    for (const b of ["Edit", "Add disk", "Add interface"]) await expect(hw.getByRole("button", { name: b }).first()).toBeHidden();
+    // the sub page column is there for a viewer too, and every sub page is read-only
+    for (const [label, heading] of [["CPU and memory", "CPU and memory"], ["Disks", "Disks"], ["Network interfaces", "Network interfaces"], ["Boot and firmware", "Boot order"]]) {
+      await subPage(page, label);
+      await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+      const hw = page.locator("fieldset.plain");
+      const inputs = hw.locator("input, textarea, button.cb-btn");
+      const n = await inputs.count();
+      for (let i = 0; i < n; i++) await expect(inputs.nth(i)).toBeDisabled();
+      for (const b of ["Edit", "Add disk", "Add interface"]) await expect(hw.getByRole("button", { name: b }).first()).toBeHidden();
+    }
 
     await page.goto(`/vm/${vm.node}/${vm.uuid}?tab=xml`); // the XML editor is reached from Actions, More, Edit XML; the link keeps working
     await expect(page.getByLabel("Domain XML")).toHaveAttribute("readonly", "");
