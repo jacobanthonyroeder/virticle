@@ -1016,7 +1016,7 @@ func (s *Server) launchReplica(req *http.Request, r *replRun) (int64, <-chan err
 	if err := claimRepl(r); err != nil {
 		return 0, nil, err
 	}
-	id, done, err := s.startBackgroundWait(req, "replicate", replTarget2(r.name, r.dst.Name), r.src.Name, func(progress func(float64)) error {
+	id, done, err := s.startBackgroundStop(req, "replicate", replTarget2(r.name, r.dst.Name), r.src.Name, taskStop{operator, r.cancel}, func(progress func(float64)) error {
 		defer releaseRepl(r)
 		r.progress = progress
 		err := r.run()

@@ -310,6 +310,12 @@ backup) or `false` (never). Replication copies are automatic; scheduled backups 
 systems frozen" or "not frozen: REASON", and `manifest.frozen` is `true` or `false` for a live backup (absent for older backups
 and shut-off VMs). Tasks that ended well carry such a note as `note` in `GET /api/tasks`.
 
+`POST /api/tasks/{id}/cancel` asks a running task to stop. It works for backups, replication copies, migrations, disk
+moves, image downloads, evacuations and rolling updates, and does the same as the cancel call of that action. A running
+task that can be stopped carries `cancel` in `GET /api/tasks`: the role needed to stop it (`operator`; `admin` for an
+evacuation and a rolling update). The Tasks panel and the Tasks page show an **x** on such a task. An evacuation and a
+rolling update finish the step they are in first.
+
 ### Incremental backups
 
 - Each backup of a running VM with qcow2 disks leaves a libvirt checkpoint (a QEMU dirty bitmap per disk), named

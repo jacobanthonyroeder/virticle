@@ -489,7 +489,8 @@ func (s *Server) startRoll(run *rollRun) (*rollExec, error) {
 	if nn == 1 {
 		target = "1 node"
 	}
-	taskID, _, err := s.startBackgroundWait(userRequest(run.User), "rolling-update", target, "", func(progress func(float64)) error {
+	stop := taskStop{admin, func() { e.mutate(func(r *rollRun) { r.Cancel = true }) }}
+	taskID, _, err := s.startBackgroundStop(userRequest(run.User), "rolling-update", target, "", stop, func(progress func(float64)) error {
 		e.progress = progress
 		return e.execute()
 	})

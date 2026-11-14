@@ -1,7 +1,11 @@
 // Pieces of a task row shared by the Tasks page and the Tasks dock.
+import { X } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { Task } from "./api";
+import { post, Task } from "./api";
+import { atLeast, useRole } from "./auth";
 import { Inventory, taskLinks } from "./inventory";
+import { ErrorBox, Modal, useConfirm } from "./ui";
 
 export const absTime = (unix: number) => new Date(unix * 1000).toLocaleString();
 
@@ -49,4 +53,55 @@ export function TaskNode({ task, inv }: { task: Task; inv: Inventory }) {
 /** Running first, then newest first. */
 export function orderTasks(list: Iterable<Task>): Task[] {
   return [...list].sort((a, b) => Number(b.status === "running") - Number(a.status === "running") || b.started - a.started || b.id - a.id);
+}
+
+/**
+ * Stopping a running task: `const stopper = useStopTask()`, render `{stopper.dialog}` once and a
+ * `<StopTask>` per row. `stop` keeps its identity, so memoised rows are not redrawn.
+ */
+export function useStopTask() {
+  const confirm = useConfirm();
+  const ask = useRef(confirm.ask);
+  ask.current = confirm.ask;
+  const [asked, setAsked] = useState<ReadonlySet<number>>(new Set());
+  const [error, setError] = useState("");
+  const stop = useCallback(async (t: Task) => {
+    if (!(await ask.current({ title: "Stop task", message: `${t.kind} ${t.target} is asked to stop. It can take a moment to end.`, confirm: "Stop task" }))) return;
+    setAsked((s) => new Set(s).add(t.id));
+    try {
+      await post(`/tasks/${t.id}/cancel`);
+    } catch (e: any) {
+      setAsked((s) => {
+        const n = new Set(s);
+        n.delete(t.id);
+        return n;
+      });
+      setError(String(e?.message ?? e));
+    }
+  }, []);
+  const dialog = error ? (
+    <Modal title="Stop task" onClose={() => setError("")}>
+      <ErrorBox error={error} />
+      <footer>
+        <button autoFocus onClick={() => setError("")}>
+          Close
+        </button>
+      </footer>
+    </Modal>
+  ) : (
+    confirm.dialog
+  );
+  return { stop, asked, dialog };
+}
+
+/** The "x" of a running task that can be stopped by this user; nothing otherwise. */
+export function StopTask({ task, asked, onStop }: { task: Task; asked: boolean; onStop: (t: Task) => void }) {
+  const role = useRole();
+  if (task.status !== "running" || !task.cancel || !atLeast(role, task.cancel)) return null;
+  const label = asked ? "Stopping" : "Stop";
+  return (
+    <button type="button" className="tstop" disabled={asked} title={label} aria-label={`${label} ${task.kind} ${task.target}`} onClick={() => onStop(task)}>
+      <X size={14} aria-hidden />
+    </button>
+  );
 }

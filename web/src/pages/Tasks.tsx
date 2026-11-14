@@ -1,13 +1,14 @@
 import { get, Task } from "../api";
 import { useLive } from "../live";
 import { useInventory } from "../inventory";
-import { absTime, orderTasks, TaskNode, TaskStatus, TaskTarget } from "../taskView";
+import { absTime, orderTasks, StopTask, TaskNode, TaskStatus, TaskTarget, useStopTask } from "../taskView";
 import { ErrorBox, PageTitle } from "../ui";
 import "../tasksdock.css";
 import { StatusLine } from "../Checks";
 
 export default function Tasks() {
   const inv = useInventory();
+  const stopper = useStopTask();
   const tasks = useLive(() => get<Task[]>("/tasks"), "tasks", (e) => e.type === "task" || e.detail === "resync");
   return (
     <>
@@ -49,6 +50,7 @@ export default function Tasks() {
                         <span style={{ width: `${Math.round(Math.min(1, t.progress) * 100)}%` }} />
                       </span>
                       <span className="num">{t.progress > 0 ? `${(t.progress * 100).toFixed(0)}%` : ""}</span>
+                      <StopTask task={t} asked={stopper.asked.has(t.id)} onStop={stopper.stop} />
                     </span>
                   )}
                   {t.error && <StatusLine status="error">{t.error}</StatusLine>}
@@ -59,6 +61,7 @@ export default function Tasks() {
           </tbody>
         </table>
       )}
+      {stopper.dialog}
     </>
   );
 }

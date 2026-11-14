@@ -348,7 +348,7 @@ func (s *Server) launchBackup(r *http.Request, h *hostconn.Host, m *bkRun) (int6
 	}
 	bkRuns.m[m.uuid] = m
 	bkRuns.Unlock()
-	id, done, err := s.startBackgroundWait(r, "backup", backupTarget(m.name, m.dst.Name, m.dstPool), h.Name, func(progress func(float64)) error {
+	id, done, err := s.startBackgroundStop(r, "backup", backupTarget(m.name, m.dst.Name, m.dstPool), h.Name, taskStop{operator, m.cancel}, func(progress func(float64)) error {
 		defer func() {
 			bkRuns.Lock()
 			delete(bkRuns.m, m.uuid)

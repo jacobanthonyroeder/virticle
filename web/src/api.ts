@@ -243,6 +243,7 @@ export interface Task {
   progress: number;
   started: number;
   finished?: number;
+  cancel?: Role; // set while the task runs and can be stopped: the role that may stop it
 }
 export interface ServerEvent {
   type: "node" | "domain" | "network" | "pool" | "task" | "alert" | "tags" | "cpubaseline" | "rolling";

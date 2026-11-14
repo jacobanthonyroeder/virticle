@@ -29,6 +29,8 @@
 .dk-prog { display: flex; align-items: center; gap: 8px; }
 .dk-bar { flex: 0 1 160px; min-width: 60px; height: 6px; border-radius: 3px; background: var(--hover); border: 1px solid var(--line); overflow: hidden; }
 .dk-bar > span { display: block; height: 100%; background: var(--accent); }
+.tstop { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 16px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 4px; }
+.tstop:hover:not(:disabled) { background: var(--hover); color: var(--danger, var(--text)); }
 .dk-err { display: block; max-width: 100%; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 400; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .dk-err .cdot { margin: 0 6px 0 0; vertical-align: middle; }
 .dk-err:hover:not(:disabled) { background: none; text-decoration: underline; }

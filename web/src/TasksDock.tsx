@@ -10,7 +10,7 @@ import { get, Task } from "./api";
 import { Inventory, useInventory } from "./inventory";
 import { useEvents } from "./live";
 import { setPref, usePref } from "./prefs";
-import { absTime, duration, orderTasks, relTime, TaskNode, TaskStatus, TaskTarget } from "./taskView";
+import { absTime, duration, orderTasks, relTime, StopTask, TaskNode, TaskStatus, TaskTarget, useStopTask } from "./taskView";
 import "./tasksdock.css";
 import { StatusDot, StatusLine } from "./Checks";
 
@@ -34,9 +34,11 @@ interface RowProps {
   now: number;
   expanded: boolean;
   toggle: (id: number) => void;
+  stopping: boolean;
+  stop: (t: Task) => void;
 }
 
-const Row = memo(function Row({ t, inv, now, expanded, toggle }: RowProps) {
+const Row = memo(function Row({ t, inv, now, expanded, toggle, stopping, stop }: RowProps) {
   return (
     <div className="dk-row" role="row" data-status={t.status}>
       <div className="dk-cell" role="cell">
@@ -61,6 +63,7 @@ const Row = memo(function Row({ t, inv, now, expanded, toggle }: RowProps) {
               <span style={{ width: `${Math.round(Math.min(1, t.progress) * 100)}%` }} />
             </span>
             <span className="num">{t.progress > 0 ? `${(t.progress * 100).toFixed(0)}%` : ""}</span>
+            <StopTask task={t} asked={stopping} onStop={stop} />
           </span>
         ) : t.error || t.note ? (
           <button type="button" className={"dk-err" + (expanded ? " open" : "")} title={t.error || t.note} aria-expanded={expanded} onClick={() => toggle(t.id)}>
@@ -76,6 +79,7 @@ const Row = memo(function Row({ t, inv, now, expanded, toggle }: RowProps) {
 export default function TasksDock() {
   const open = useDockOpen();
   const inv = useInventory();
+  const stopper = useStopTask();
   const tasks = useRef(new Map<number, Task>());
   const [tick, setTick] = useState(0);
   const [loaded, setLoaded] = useState(false);
@@ -222,13 +226,14 @@ export default function TasksDock() {
               </div>
               <div className="dk-rows" role="rowgroup">
                 {rows.map((t) => (
-                  <Row key={t.id} t={t} inv={inv} now={now} expanded={expanded.has(t.id)} toggle={toggle} />
+                  <Row key={t.id} t={t} inv={inv} now={now} expanded={expanded.has(t.id)} toggle={toggle} stopping={stopper.asked.has(t.id)} stop={stopper.stop} />
                 ))}
               </div>
             </div>
           )}
         </div>
       )}
+      {stopper.dialog}
     </section>
   );
 }

@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -29,6 +30,7 @@ import (
 const cookieName = "virt_session"
 
 type Server struct {
+	stops  sync.Map // running tasks that can be stopped: task id → taskStop
 	Store  *store.Store
 	Nodes  *cluster.Manager
 	PubKey string // controller's SSH public key, shown when adding a node
@@ -156,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 	auth("POST /api/rolling-update", s.rollingStart)
 	auth("GET /api/rolling-update", s.rollingStatus)
 	auth("POST /api/rolling-update/cancel", s.rollingCancel)
+	auth("POST /api/tasks/{id}/cancel", s.taskCancel)
 	auth("POST /api/rolling-update/continue", s.rollingResume(false))
 	auth("POST /api/rolling-update/restore", s.rollingResume(true))
 	auth("POST /api/rolling-update/dismiss", s.rollingDismiss)
@@ -441,10 +444,16 @@ func readsDiskFiles(r *http.Request) bool {
 // task runs fn, recording it in the task log and announcing start and finish
 // to connected UIs. fn may report progress in the range 0..1.
 func (s *Server) task(r *http.Request, kind, target, node string, fn func(progress func(float64)) error) error {
+	return s.taskStop(r, kind, target, node, taskStop{}, fn)
+}
+
+// taskStop is s.task for work that can be stopped while it runs (POST /api/tasks/{id}/cancel).
+func (s *Server) taskStop(r *http.Request, kind, target, node string, stop taskStop, fn func(progress func(float64)) error) error {
 	t, err := s.Store.StartTask(kind, target, node, userOf(r))
 	if err != nil {
 		return err
 	}
+	s.stoppable(&t, stop)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 	last := 0.0
 	err = fn(func(p float64) {
@@ -455,9 +464,51 @@ func (s *Server) task(r *http.Request, kind, target, node string, fn func(progre
 			s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 		}
 	})
+	s.unstoppable(&t)
 	s.Store.FinishTask(&t, err)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 	return err
+}
+
+// taskStop is how a running task is stopped and the role that may do it. The zero value is a task that
+// cannot be stopped. stop only asks: the task's own function notices, cleans up and ends the task.
+type taskStop struct {
+	level string
+	stop  func()
+}
+
+func (s *Server) stoppable(t *store.Task, stop taskStop) {
+	if stop.stop == nil {
+		return
+	}
+	t.Cancel = stop.level
+	s.stops.Store(t.ID, stop)
+}
+
+func (s *Server) unstoppable(t *store.Task) {
+	t.Cancel = ""
+	s.stops.Delete(t.ID)
+}
+
+// taskCancel asks a running task to stop. It is what the per-action cancel routes do, found by task id.
+func (s *Server) taskCancel(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		fail(w, badRequest("invalid task"))
+		return
+	}
+	c, ok := s.stops.Load(id)
+	if !ok {
+		fail(w, badRequest("this task is not running or cannot be stopped"))
+		return
+	}
+	stop := c.(taskStop)
+	if have := principalOf(r).Role; store.RoleRank(have) < store.RoleRank(stop.level) {
+		deny(w, http.StatusForbidden, fmt.Sprintf("forbidden: stopping this task needs the %s role, you are %s", stop.level, have))
+		return
+	}
+	stop.stop()
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 // accepted is returned by taskAsync when the work was started in the background; fail answers it with 202.
@@ -543,6 +594,11 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, err)
 		return
+	}
+	for i := range t {
+		if c, ok := s.stops.Load(t[i].ID); ok && t[i].Status == "running" {
+			t[i].Cancel = c.(taskStop).level
+		}
 	}
 	writeJSON(w, t)
 }

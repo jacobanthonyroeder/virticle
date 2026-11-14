@@ -233,7 +233,7 @@ func (s *Server) downloadImage(w http.ResponseWriter, r *http.Request) {
 	// The download takes minutes: answer now, the task log shows progress and the result.
 	go func() {
 		defer imageRuns.remove(key)
-		err := s.task(r, "image", pool.Name+"/"+name, h.Name, func(progress func(float64)) error {
+		err := s.taskStop(r, "image", pool.Name+"/"+name, h.Name, taskStop{operator, run.cancel}, func(progress func(float64)) error {
 			err := s.fetchImage(run, img, pool.Name, part, dest, progress)
 			if err != nil && !errors.Is(err, errImageCancelled) {
 				return err

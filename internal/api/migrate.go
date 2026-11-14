@@ -934,7 +934,7 @@ func (s *Server) launchMigration(r *http.Request, srcID int64, h *hostconn.Host,
 	migRuns.m[plan.UUID] = m
 	migRuns.Unlock()
 
-	id, done, err := s.startBackgroundWait(r, "migrate", plan.Name+" → "+dst.Name, h.Name, func(progress func(float64)) error {
+	id, done, err := s.startBackgroundStop(r, "migrate", plan.Name+" → "+dst.Name, h.Name, taskStop{operator, m.cancel}, func(progress func(float64)) error {
 		defer func() {
 			migRuns.Lock()
 			if migRuns.m[plan.UUID] == m {
@@ -987,10 +987,16 @@ func (s *Server) startBackground(r *http.Request, kind, target, node string, fn 
 // startBackgroundWait is startBackground plus a channel that receives the
 // task's result when it has finished.
 func (s *Server) startBackgroundWait(r *http.Request, kind, target, node string, fn func(progress func(float64)) error) (int64, <-chan error, error) {
+	return s.startBackgroundStop(r, kind, target, node, taskStop{}, fn)
+}
+
+// startBackgroundStop is startBackgroundWait for work that can be stopped while it runs.
+func (s *Server) startBackgroundStop(r *http.Request, kind, target, node string, stop taskStop, fn func(progress func(float64)) error) (int64, <-chan error, error) {
 	t, err := s.Store.StartTask(kind, target, node, userOf(r))
 	if err != nil {
 		return 0, nil, err
 	}
+	s.stoppable(&t, stop)
 	done := make(chan error, 1)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 	go func() {
@@ -1016,6 +1022,7 @@ func (s *Server) startBackgroundWait(r *http.Request, kind, target, node string,
 		if errors.As(err, &dn) {
 			err = nil
 		}
+		s.unstoppable(&t)
 		s.Store.FinishTaskNote(&t, err, string(dn))
 		s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 		done <- err
@@ -1042,6 +1049,11 @@ func (s *Server) migrateCancel(w http.ResponseWriter, r *http.Request) {
 		fail(w, badRequest("no migration of this VM is in progress"))
 		return
 	}
+	m.cancel()
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (m *migRun) cancel() {
 	m.cancelled.Store(true)
 	m.cancelCopy()
 	if m.inJob.Load() {
@@ -1050,7 +1062,6 @@ func (s *Server) migrateCancel(w http.ResponseWriter, r *http.Request) {
 			log.Printf("abort job: %v", err)
 		}
 	}
-	writeJSON(w, map[string]bool{"ok": true})
 }
 
 // --- the migration itself ---

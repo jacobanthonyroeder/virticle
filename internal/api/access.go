@@ -53,7 +53,9 @@ var routeLevels = map[string]string{
 	"GET /api/version": viewer,
 	"GET /api/events":  viewer,
 	"GET /api/tasks":   viewer,
-	"GET /api/alerts":  viewer,
+	// Stopping needs what the task's own cancel route needs; the handler checks it per task.
+	"POST /api/tasks/{id}/cancel": operator,
+	"GET /api/alerts":             viewer,
 
 	"GET /api/notify/destinations":            admin,
 	"POST /api/notify/destinations":           admin,

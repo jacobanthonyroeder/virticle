@@ -252,7 +252,8 @@ func (s *Server) evacuate(w http.ResponseWriter, r *http.Request) {
 
 	user := userOf(r)
 	total := len(plan.Assignments)
-	taskID, _, err := s.startBackgroundWait(r, "evacuate", h.Name, h.Name, func(progress func(float64)) error {
+	stop := taskStop{admin, func() { run.cancel.Store(true) }}
+	taskID, _, err := s.startBackgroundStop(r, "evacuate", h.Name, h.Name, stop, func(progress func(float64)) error {
 		defer release()
 		return s.runEvacuation(user, id, h, doms, run, total, req.Concurrency, progress)
 	})

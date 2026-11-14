@@ -94,8 +94,20 @@ test.describe.serial("tasks dock", () => {
     await expect(big.first()).toContainText("Running", { timeout: 30_000 });
     await expect(big.first().locator(".dk-bar")).toBeVisible();
     await expect(dock.locator(".dock-count")).toContainText(/[1-9]\d* running/);
-    await api.post(`/nodes/${n1}/pools/default/images/cancel`, { name: BIG });
+    // the row's "x" stops it after a confirmation; the button is lower than a line of text, so no row grows for it
+    const x = big.first().getByRole("button", { name: `Stop image default/${BIG}` });
+    await expect(x).toBeVisible();
+    expect((await x.boundingBox())!.height).toBeLessThanOrEqual(16);
+    await x.click();
+    const dlg = page.getByRole("dialog", { name: "Stop task" });
+    await dlg.getByRole("button", { name: "Cancel" }).click();
+    await expect(big.first()).toContainText("Running");
+    await x.click();
+    await dlg.getByRole("button", { name: "Stop task" }).click();
     await expect(big.first()).toContainText("Error", { timeout: 30_000 });
+    await expect(big.first().locator(".tstop")).toHaveCount(0);
+    // a finished task, and one that cannot be stopped, have no "x"
+    await expect(started.first().locator(".tstop")).toHaveCount(0);
     const err = big.first().locator(".dk-err");
     await expect(err).toContainText("cancelled");
     await expect(err).toHaveAttribute("title", /cancelled/);
@@ -125,6 +137,37 @@ test.describe.serial("tasks dock", () => {
     await page.waitForTimeout(30_000);
     expect(n, "GET /api/tasks requests in 30 s").toBe(1);
     await api.post(`/nodes/${n1}/pools/default/images/cancel`, { name: BIG }).catch(() => {});
+  });
+
+  test("the Tasks page stops a running task too; a viewer gets no x and is refused", async ({ page, api, browser, n1 }) => {
+    test.setTimeout(120_000);
+    const VIEW = `${P}dockview`;
+    if (!(await api.get("/users")).some((u: any) => u.username === VIEW)) await api.post("/users", { username: VIEW, password: PASS, role: "viewer" });
+    await api.post(`/nodes/${n1}/pools/default/images`, { id: "debian-13", name: BIG });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/datacenter/tasks");
+    const row = page.locator("main table tbody tr", { hasText: BIG }).first();
+    await expect(row).toContainText("Running", { timeout: 30_000 });
+    const task = (await api.get("/tasks")).find((t: any) => t.status === "running" && t.target.endsWith(BIG));
+    expect(task.cancel).toBe("operator");
+
+    const viewer = await signInAs(browser, VIEW, PASS);
+    await viewer.page.goto("/datacenter/tasks");
+    await expect(viewer.page.locator("main table tbody tr", { hasText: BIG }).first()).toContainText("Running");
+    await expect(viewer.page.locator(".tstop")).toHaveCount(0);
+    expect((await viewer.page.request.post(`/api/tasks/${task.id}/cancel`, { data: {} })).status()).toBe(403);
+    await viewer.ctx.close();
+
+    await row.getByRole("button", { name: `Stop image default/${BIG}` }).click();
+    await page.getByRole("dialog", { name: "Stop task" }).getByRole("button", { name: "Stop task" }).click();
+    await expect(row).toContainText("Error", { timeout: 30_000 });
+    await expect(row).toContainText("cancelled");
+    await expect(row.locator(".tstop")).toHaveCount(0);
+    // stopping it again is refused with a plain message
+    const again = await page.request.post(`/api/tasks/${task.id}/cancel`, { data: {} });
+    expect(again.status()).toBe(400);
+    expect((await again.json()).error).toContain("not running");
+    for (const u of await api.get("/users")) if (u.username === VIEW) await api.del(`/users/${u.id}`).catch(() => {});
   });
 
   test("collapse keeps only the bar, grows the main area, survives a reload and follows the user to another browser", async ({ page, browser }) => {

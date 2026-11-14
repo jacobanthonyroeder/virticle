@@ -574,7 +574,8 @@ func (s *Server) diskMove(w http.ResponseWriter, r *http.Request) {
 	moveRuns.m[key] = m
 	moveRuns.Unlock()
 
-	id, err := s.startBackground(r, "move disk", dom.Name+"/"+target+" → "+req.Pool, h.Name, func(progress func(float64)) error {
+	stop := taskStop{operator, func() { m.cancelled.Store(true) }}
+	id, _, err := s.startBackgroundStop(r, "move disk", dom.Name+"/"+target+" → "+req.Pool, h.Name, stop, func(progress func(float64)) error {
 		defer func() {
 			moveRuns.Lock()
 			delete(moveRuns.m, key)

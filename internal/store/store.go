@@ -66,6 +66,9 @@ type Task struct {
 	Progress float64 `json:"progress"`
 	Started  int64   `json:"started"`
 	Finished int64   `json:"finished,omitempty"`
+	// Cancel is the role needed to stop the task while it runs; empty when it cannot be stopped.
+	// The controller fills it in for running tasks, it is not stored.
+	Cancel string `json:"cancel,omitempty"`
 }
 
 func Open(path string) (*Store, error) {
