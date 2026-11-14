@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -679,6 +680,8 @@ func (s *Server) importDisk(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := req.Pool + "/" + req.Name
+	st := newStopper(context.Background())
+	defer st.done()
 	var result map[string]any
 	if ovfName == "" {
 		name := req.Name
@@ -693,12 +696,20 @@ func (s *Server) importDisk(w http.ResponseWriter, r *http.Request) {
 			fail(w, badRequest("a volume named "+name+" already exists in "+req.Pool))
 			return
 		}
-		err = s.task(r, "import", target, h.Name, func(progress func(float64)) error {
+		err = s.taskStop(r, "import", target, h.Name, taskStop{operator, st.stop}, func(progress func(float64)) (rerr error) {
+			defer func() { rerr = st.cancelled("import", rerr) }()
+			if st.Stopped() {
+				return stoppedErr("import")
+			}
 			wd, err := newWorkDir(h, pd.Dir)
 			if err != nil {
 				return err
 			}
 			defer wd.remove()
+			// A stop ends qemu-img and deletes the work directory; the result is moved into the pool only
+			// when the conversion has finished, so the pool never holds a partial volume.
+			wd.stop = st.Stopped
+			defer st.onStop(func() { wd.remove() })()
 			if err := wd.convert(file, info.Format, pd.Dir+"/"+name, progress); err != nil {
 				return err
 			}
@@ -706,7 +717,7 @@ func (s *Server) importDisk(w http.ResponseWriter, r *http.Request) {
 		})
 		result = map[string]any{"kind": "disk", "pool": req.Pool, "volume": name, "sourceFormat": info.Format}
 	} else {
-		result, err = s.importOVA(r, h, pool, pd, file, ovfName, entries, req)
+		result, err = s.importOVA(r, st, h, pool, pd, file, ovfName, entries, req)
 	}
 	if err != nil {
 		fail(w, err)
@@ -715,7 +726,7 @@ func (s *Server) importDisk(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
-func (s *Server) importOVA(r *http.Request, h *hostconn.Host, pool libvirt.StoragePool, pd poolDir, file, ovfName string, entries []tarEntry, req importRequest) (map[string]any, error) {
+func (s *Server) importOVA(r *http.Request, st *stopper, h *hostconn.Host, pool libvirt.StoragePool, pd poolDir, file, ovfName string, entries []tarEntry, req importRequest) (map[string]any, error) {
 	if !vmNameRE.MatchString(req.Name) {
 		return nil, badRequest("for an OVA the name is the VM name: letters, digits, dot, dash and underscore")
 	}
@@ -727,15 +738,23 @@ func (s *Server) importOVA(r *http.Request, h *hostconn.Host, pool libvirt.Stora
 		sizes[e.Name] = e.Size
 	}
 	var result map[string]any
-	err := s.task(r, "import OVA", req.Pool+"/"+req.Name, h.Name, func(progress func(float64)) error {
+	err := s.taskStop(r, "import OVA", req.Pool+"/"+req.Name, h.Name, taskStop{operator, st.stop}, func(progress func(float64)) (rerr error) {
+		defer func() { rerr = st.cancelled("import", rerr) }()
+		if st.Stopped() {
+			return stoppedErr("import")
+		}
 		wd, err := newWorkDir(h, pd.Dir)
 		if err != nil {
 			return err
 		}
 		defer wd.remove()
+		// A stop hangs up the extraction, ends qemu-img and deletes the work directory; volumes that were
+		// finished already are deleted by undo below.
+		wd.stop = st.Stopped
+		defer st.onStop(func() { wd.remove() })()
 		// Members are extracted by their vetted plain names only, never by pattern.
 		untar := func(names ...string) error {
-			out, err := h.TarExtract(file, wd.path, names...)
+			out, err := h.TarExtractCtx(st.Ctx(), file, wd.path, names...)
 			if err != nil {
 				return fmt.Errorf("extracting the archive: %s", impFirstLine(out))
 			}
@@ -778,6 +797,10 @@ func (s *Server) importOVA(r *http.Request, h *hostconn.Host, pool libvirt.Stora
 			}
 		}
 		for i, d := range ovf.Disks {
+			if st.Stopped() {
+				undo()
+				return stoppedErr("import")
+			}
 			local := wd.file(d.File)
 			info, err := qemuInfo(h, local)
 			if err != nil {
@@ -791,6 +814,10 @@ func (s *Server) importOVA(r *http.Request, h *hostconn.Host, pool libvirt.Stora
 			}
 			created = append(created, vols[i])
 			h.Remove(local) // free the space before the next disk
+		}
+		if !st.commit() {
+			undo()
+			return stoppedErr("import")
 		}
 		if err := h.StoragePoolRefresh(pool, 0); err != nil {
 			return err

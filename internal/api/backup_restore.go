@@ -52,6 +52,7 @@ type restorePlan struct {
 	nvram   string            // where the UEFI variables go
 	old     *libvirt.Domain   // VM replaced by this restore
 	ep      migEndpoint       // how the source reaches the target node
+	st      *stopper          // a stop request from the task list (nil: the restore cannot be stopped)
 	warn    []string
 }
 
@@ -391,7 +392,8 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		fail(w, badRequest("cannot prepare the VM definition: "+err.Error()))
 		return
 	}
-	id, err := s.startBackground(r, "restore", p.name+" ← "+src.name, p.dst.Name, func(progress func(float64)) error {
+	p.st = newStopper(context.Background())
+	id, _, err := s.startBackgroundStop(r, "restore", p.name+" ← "+src.name, p.dst.Name, taskStop{operator, p.st.stop}, func(progress func(float64)) error {
 		_, err := p.run(progress)
 		return err
 	})
@@ -405,11 +407,23 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 // run performs the restore and returns the UUID of the defined VM.
 func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 	dst, src := p.dst, p.src.h
+	st := p.st
+	if st == nil {
+		st = newStopper(context.Background())
+	}
+	defer st.done()
 	progress(0.01)
+	if st.Stopped() {
+		return "", stoppedErr("restore")
+	}
 	wd, err := newWork(dst, p.pd.Dir, "rs")
 	if err != nil {
 		return "", err
 	}
+	// A stop ends qemu-img or the transfer and deletes the work directory, which holds everything staged so
+	// far; the backup is only read. From the moment the disks are moved into place (commit) it changes nothing.
+	wd.stop = st.Stopped
+	defer st.onStop(func() { wd.remove() })()
 	var moved []string
 	nvramPlaced := false
 	var defined *libvirt.Domain
@@ -418,6 +432,9 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 		if err == nil || kept {
 			wd.remove()
 			return
+		}
+		if st.Stopped() {
+			err = stoppedErr("restore") // what failed is only the consequence of the stop
 		}
 		var left []string
 		if defined != nil {
@@ -465,15 +482,20 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 			return "", err
 		}
 		defer srcWd.remove()
+		srcWd.stop = st.Stopped
+		defer st.onStop(func() { srcWd.remove() })()
 	}
 	for _, d := range p.man.Disks {
+		if st.Stopped() {
+			return "", stoppedErr("restore")
+		}
 		stage := wd.file(p.vols[d.Target])
 		var files []string
 		for _, l := range p.chain {
 			ld, _ := l.diskOf(d.Target)
 			f := l.path(p.src) + "/" + ld.File
 			if ld.SHA256 != "" {
-				sum, serr := src.SHA256(f)
+				sum, serr := src.SHA256Ctx(st.Ctx(), f)
 				if serr != nil {
 					return "", serr
 				}
@@ -487,7 +509,7 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 		prog := func(f float64) { progress(0.02 + 0.8*(float64(base)+f*float64(span))/float64(total)) }
 		switch {
 		case p.remote && len(p.chain) == 1:
-			if cerr := copyToNode(context.Background(), src, dst, p.ep, files[0], stage, "600", func(sent uint64) {
+			if cerr := copyToNode(st.Ctx(), src, dst, p.ep, files[0], stage, "600", func(sent uint64) {
 				progress(0.02 + 0.8*(float64(base)+float64(sent))/float64(total))
 			}); cerr != nil {
 				return "", fmt.Errorf("copying %s to %s failed: %w", d.File, dst.Name, cerr)
@@ -497,7 +519,7 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 			if cerr := srcWd.convertChain(files, flat, func(f float64) { prog(f * 0.5) }); cerr != nil {
 				return "", fmt.Errorf("putting %s together: %w", d.File, cerr)
 			}
-			if cerr := copyToNode(context.Background(), src, dst, p.ep, flat, stage, "600", func(sent uint64) {
+			if cerr := copyToNode(st.Ctx(), src, dst, p.ep, flat, stage, "600", func(sent uint64) {
 				prog(0.5 + 0.5*float64(sent)/float64(span))
 			}); cerr != nil {
 				return "", fmt.Errorf("copying %s to %s failed: %w", d.File, dst.Name, cerr)
@@ -521,7 +543,7 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 		srcFile := p.src.dir + "/" + p.man.NVRAM
 		var cerr error
 		if p.remote {
-			cerr = copyToNode(context.Background(), src, dst, p.ep, srcFile, nvramStage, "600", nil)
+			cerr = copyToNode(st.Ctx(), src, dst, p.ep, srcFile, nvramStage, "600", nil)
 		} else {
 			cerr = dst.Copy(srcFile, nvramStage)
 		}
@@ -532,6 +554,10 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 	xmlText, err := p.definition()
 	if err != nil {
 		return "", err
+	}
+	// Point of no return: from here on the VM that is replaced goes away and the disks are moved into place.
+	if !st.commit() {
+		return "", stoppedErr("restore")
 	}
 
 	// Replace: only now, with everything staged, remove the old VM. Its replication setting is carried over (the

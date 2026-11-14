@@ -1,6 +1,6 @@
 // Storage page: directory pool, volumes (create, upload, download from URL, import, clone, resize, delete), remove pool.
 import { Page } from "@playwright/test";
-import { expect, test } from "../lib/fixtures";
+import { expect, stopTask, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
 import { dialog, expectBadge, field, row, confirm, pick } from "../lib/ui";
 
@@ -146,6 +146,46 @@ test.describe.serial("storage", () => {
     await confirm(page, /^Delete volume/);
     await expect(row(page, `${P}vol1-copy.qcow2`)).toHaveCount(0);
     expect(await vol(api, n1, `${P}vol1-copy.qcow2`)).toBeUndefined();
+  });
+
+  // A running task is stopped through POST /api/tasks/{id}/cancel; nothing half-made stays in the pool.
+  test("stopping a download, an upload and a volume clone leaves no volume behind", async ({ api, n1 }) => {
+    test.setTimeout(240_000);
+    const path = (name: string) => `/nodes/${n1}/pools/${POOL}/volumes/${encodeURIComponent(name)}`;
+    const names = async () => (await vols(api, n1)).map((v) => v.name);
+
+    // 350 MB from the Debian mirror
+    const url = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2";
+    let r = await stopTask(api, "download", () => api.post(`/nodes/${n1}/pools/${POOL}/volumes/download`, { name: `${P}stop-dl.qcow2`, url }), 1500);
+    expect(r.seconds).toBeLessThan(10);
+    expect(await names()).not.toContain(`${P}stop-dl.qcow2`);
+
+    // 768 MB through the controller
+    const body = Buffer.alloc(768 * 2 ** 20);
+    r = await stopTask(api, "upload", () => api.ctx.fetch(`/api${path(`${P}stop-up.img`)}`, { method: "PUT", data: body }), 700);
+    expect(r.seconds).toBeLessThan(10);
+    expect(await names()).not.toContain(`${P}stop-up.img`);
+
+    // A copy of the Debian image from pool default (read only) into this pool: first put a big volume here.
+    const big = `${P}stop-big.qcow2`;
+    await api.post(`/nodes/${n1}/pools/default/volumes/${encodeURIComponent(env.debian)}/action`, { action: "clone", name: `${P}stop-src.qcow2` });
+    try {
+      r = await stopTask(api, "clone volume", () => api.post(`/nodes/${n1}/pools/default/volumes/${encodeURIComponent(`${P}stop-src.qcow2`)}/action`, { action: "clone", name: big }), 400);
+      expect(r.seconds).toBeLessThan(10);
+      const inDefault = (await api.get(`/nodes/${n1}/pools/default/volumes`)).map((v: any) => v.name);
+      expect(inDefault).not.toContain(big);
+      expect(inDefault).toContain(`${P}stop-src.qcow2`); // the source is untouched
+
+      // The import of a disk: qemu-img ends and the work directory goes.
+      const imp = () => api.post(`/nodes/${n1}/import`, { source: { pool: "default", volume: `${P}stop-src.qcow2` }, pool: POOL, name: `${P}stop-imp` });
+      r = await stopTask(api, "import", imp, 300);
+      expect(r.seconds).toBeLessThan(10);
+      expect(await names()).not.toContain(`${P}stop-imp.qcow2`);
+      await imp(); // and it works when it is not stopped
+      expect(await names()).toContain(`${P}stop-imp.qcow2`);
+    } finally {
+      await api.del(`/nodes/${n1}/pools/default/volumes/${encodeURIComponent(`${P}stop-src.qcow2`)}`).catch(() => {});
+    }
   });
 
   test("stop and start the pool, then remove it", async ({ page, api, n1 }) => {

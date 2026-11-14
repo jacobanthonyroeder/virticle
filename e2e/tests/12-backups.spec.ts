@@ -1,6 +1,6 @@
 // Backups tab: back up now, restore as a new VM, export download, delete; global Backups page.
-import { cleanVMs, createCirros, expect, openVM, tab, test } from "../lib/fixtures";
-import { P } from "../lib/env";
+import { cleanVMs, createCirros, expect, openVM, stopTask, tab, test } from "../lib/fixtures";
+import { env, P } from "../lib/env";
 import { dialog, expectBadge, row } from "../lib/ui";
 import { readFileSync, statSync } from "fs";
 
@@ -91,5 +91,66 @@ test.describe.serial("backups", () => {
     await expect(dlg).toBeHidden();
     await expect(page.getByText("No backups of this VM yet.")).toBeVisible();
     expect(await api.get(`/backups?uuid=${vm.uuid}`)).toHaveLength(0);
+  });
+});
+
+// Stopping a running task (POST /api/tasks/{id}/cancel) ends the work on the node and leaves nothing half-made. The Debian
+// image makes the VM big enough (about 1 GiB of backup) to be stopped in the middle.
+test.describe.serial("stopping restore, export and clone", () => {
+  const SRC = `${P}bak2`;
+  const RS = `${P}bak2-restored`;
+  const CL = `${P}bak2-clone`;
+  let vm: { node: number; uuid: string; name: string };
+  let dir: string;
+
+  const poolVolumes = async (api: any, n: number): Promise<string[]> => (await api.get(`/nodes/${n}/pools/default/volumes`)).map((v: any) => v.name);
+  const backups = (api: any) => api.get(`/backups?uuid=${vm.uuid}`) as Promise<any[]>;
+
+  test.afterAll(async ({ api, n1 }) => {
+    await cleanVMs(api, CL, RS, SRC);
+    for (const b of (await api.get("/backups").catch(() => [])) as any[]) {
+      if ((b.manifest?.vm ?? "").startsWith(SRC)) await api.del(`/nodes/${b.node}/backups/${encodeURIComponent(b.pool)}/${encodeURIComponent(b.dir)}`).catch(() => {});
+    }
+  });
+
+  test("a backup of a Debian VM to work on", async ({ api, n1 }) => {
+    test.setTimeout(240_000);
+    const r = await api.post(`/nodes/${n1}/vms`, { name: SRC, vcpus: 1, memoryMiB: 128, firmware: "bios", pool: "default", diskGiB: 3, baseVolume: env.debian, network: "default", start: false });
+    vm = { node: n1, uuid: r.uuid, name: SRC };
+    await api.post(`/nodes/${n1}/vms/${vm.uuid}/backup`, { pool: "default" });
+    const b = await api.waitFor("the backup", async () => (await backups(api))[0], 200_000, 2000);
+    dir = b.dir;
+  });
+
+  test("stopping a restore removes the work directory and the new volumes", async ({ api, n1 }) => {
+    test.setTimeout(240_000);
+    const restore = () => api.post(`/nodes/${n1}/backups/default/${encodeURIComponent(dir)}/restore`, { mode: "new", name: RS, pool: "default", start: false });
+    const { seconds } = await stopTask(api, "restore", restore, 3000);
+    expect(seconds).toBeLessThan(10);
+    expect(await api.vmByName(RS)).toBeUndefined();
+    expect(await poolVolumes(api, n1)).not.toContain(`${RS}.qcow2`);
+    // The backup was only read: it restores for real afterwards.
+    await restore();
+    await api.waitFor("the restored VM", async () => api.vmByName(RS), 120_000, 2000);
+    await cleanVMs(api, RS);
+  });
+
+  test("stopping an export ends the stream", async ({ api, n1 }) => {
+    const { seconds } = await stopTask(api, "backup export", () => api.ctx.get(`/api/nodes/${n1}/backups/default/${encodeURIComponent(dir)}/export`), 1500);
+    expect(seconds).toBeLessThan(10);
+    expect(await backups(api)).toHaveLength(1);
+  });
+
+  test("stopping a full clone removes the half-made copy", async ({ api, n1 }) => {
+    test.setTimeout(240_000);
+    const clone = () => api.post(`/nodes/${n1}/vms/${vm.uuid}/clone`, { name: CL });
+    const { seconds } = await stopTask(api, "clone", clone, 500);
+    expect(seconds).toBeLessThan(10);
+    expect(await api.vmByName(CL)).toBeUndefined();
+    expect(await poolVolumes(api, n1)).not.toContain(`${CL}.qcow2`);
+    // The source is untouched: a clone still works.
+    await clone();
+    expect(await api.vmByName(CL)).toBeTruthy();
+    await cleanVMs(api, CL);
   });
 });

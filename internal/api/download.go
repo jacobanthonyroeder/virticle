@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/xml"
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -14,6 +15,8 @@ import (
 
 	"virticle/internal/hostconn"
 )
+
+var errDownloadCancelled = errors.New("download cancelled; the partial file was deleted")
 
 var volNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,200}$`)
 
@@ -72,9 +75,17 @@ func (s *Server) downloadVolume(w http.ResponseWriter, r *http.Request) {
 	dest := dir + "/" + req.Name
 	part := hostconn.DownloadPart(dest)
 
-	err = s.task(r, "download", pool.Name+"/"+req.Name, h.Name, func(progress func(float64)) error {
+	// A stop has the node end the download and delete the .part file, as for an image from the catalogue.
+	run := &imageRun{h: h, dest: dest}
+	err = s.taskStop(r, "download", pool.Name+"/"+req.Name, h.Name, taskStop{operator, run.cancel}, func(progress func(float64)) error {
 		defer watchPartSize(h, part, probeSize(h, req.URL), progress)()
-		if err := h.Download(hostconn.DownloadOpts{URL: req.URL, Dest: dest}); err != nil {
+		if run.isCancelled() {
+			return errDownloadCancelled
+		}
+		if err := h.Download(hostconn.DownloadOpts{URL: req.URL, Dest: dest, Cancelled: run.isCancelled}); err != nil {
+			if errors.Is(err, hostconn.ErrCancelled) {
+				return errDownloadCancelled
+			}
 			return err
 		}
 		return h.StoragePoolRefresh(pool, 0)
