@@ -64,7 +64,6 @@ const (
 	whyReplDamaged  = "The copy on the standby node was missing or damaged, so the disks were copied whole."
 	whyReplRefused  = "libvirt could not build on the earlier copy (the VM may have stopped unexpectedly), so the disks were copied whole."
 	whyReplNoCkpt   = "libvirt could not start tracking changes, so the disks were copied whole."
-	whyReplOldVirt  = "This node's libvirt is too old to track changes, so the disks were copied whole."
 	whyReplFormat   = "A disk is not in qcow2 format and cannot track changes, so the disks were copied whole."
 	whyReplGenAgain = "The standby holds no usable copy, so the disks were copied whole."
 )
@@ -201,7 +200,6 @@ func replVolName(vm, target string, i int) string {
 type replInput struct {
 	Backupable bool // the VM runs or can be started paused, so libvirt can run a backup job
 	AllQcow2   bool
-	Supported  bool         // libvirt on the source can do checkpoints
 	Layout     []diskLayout // the disks as they are now
 	// Checkpoints are the names of this program's checkpoints that libvirt holds for the VM.
 	Checkpoints map[string]bool
@@ -228,8 +226,6 @@ func decideReplica(in replInput) replPlan {
 		return full(whyReplShutOff, false)
 	case !in.AllQcow2:
 		return full(whyReplFormat, false)
-	case !in.Supported:
-		return full(whyReplOldVirt, false)
 	case in.Latest == nil:
 		return full(whyReplFirst, true)
 	case !in.Intact:

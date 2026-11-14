@@ -57,10 +57,11 @@ test.describe.serial("prepare node, check only", () => {
 
     const list = res.locator("ul.checklist");
     await expect(list).toContainText("Administrator access", { timeout: 60_000 });
-    for (const t of ["Architecture", "Distribution", "CPU virtualisation", "KVM device", "IOMMU", "Free space", "Security module", "Time sync", "libvirt", "Other controller", "Existing VMs", "Service account"]) {
+    for (const t of ["Architecture", "Distribution", "CPU virtualisation", "KVM device", "IOMMU", "Free space", "Security module", "Time sync", "libvirt and QEMU", "Other controller", "Existing VMs", "Service account"]) {
       await expect(list.locator("strong", { hasText: new RegExp(`^${t}$`) })).toBeVisible();
     }
     await expect(list).toContainText("Existing VMs are left alone");
+    await expect(list).toContainText(/libvirt \d+\.\d+\.\d+ and QEMU \d+\.\d+\.\d+/); // the minimum is libvirt 11.0 and QEMU 10.0
     await expect(list).toContainText(/Debian GNU\/Linux 13|Rocky Linux 10/);
     await expect(res.getByRole("button", { name: "Add node", exact: true })).toBeVisible(); // Add node is there, without retyping the key
     await expect(list.locator("strong", { hasText: /^Service account$/ })).toBeVisible();

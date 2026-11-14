@@ -55,8 +55,6 @@ export interface HostnetState {
   stack: string;
   supported: boolean;
   stackNote?: string;
-  libvirtVersion: string;
-  vlanCapable: boolean;
   controllerAddresses: string[];
   managementInterface?: string;
   interfaces: HostNic[];

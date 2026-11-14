@@ -5,13 +5,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/digitalocean/go-libvirt"
 
 	"virticle/internal/hostconn"
+	"virticle/internal/minver"
 	"virticle/internal/store"
 )
 
@@ -219,7 +219,7 @@ func (m *Manager) TestConnect(cfg store.Node, timeout time.Duration) (res TestRe
 		st.fail("libvirt", err.Error())
 		return res, err
 	}
-	res.LibvirtVersion = strconv.FormatUint(ver/1000000, 10) + "." + strconv.FormatUint(ver/1000%1000, 10) + "." + strconv.FormatUint(ver%1000, 10)
+	res.LibvirtVersion = minver.Format(ver)
 	if name, err := h.ConnectGetHostname(); err == nil {
 		res.Hostname = name
 	}
@@ -229,6 +229,13 @@ func (m *Manager) TestConnect(cfg store.Node, timeout time.Duration) (res TestRe
 	d := "libvirt " + res.LibvirtVersion
 	if res.Hostname != "" {
 		d += " on " + res.Hostname
+	}
+	if hv, herr := h.ConnectGetVersion(); herr == nil {
+		if verr := minver.Check(ver, hv); verr != nil { // a node below the minimum is not added
+			st.fail("libvirt", verr.Error())
+			return res, verr
+		}
+		d = "libvirt " + res.LibvirtVersion + " and QEMU " + minver.Format(hv) + d[len("libvirt "+res.LibvirtVersion):]
 	}
 	st.add("libvirt", StepOK, d)
 	p, note, err := h.DetectPrivilege()

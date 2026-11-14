@@ -248,6 +248,9 @@ func (m *Manager) session(ctx context.Context, n *node) error {
 		return err
 	}
 	defer h.Close()
+	if err := m.checkVersions(ctx, n, h); err != nil { // minversion.go: below libvirt 11.0 / QEMU 10.0 is not managed
+		return err
+	}
 	if name, err := h.ConnectGetHostname(); err == nil {
 		h.Name = name
 	}

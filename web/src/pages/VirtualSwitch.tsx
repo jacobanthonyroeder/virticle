@@ -265,7 +265,7 @@ export function SwitchDialog(props: { node: number; st: HostnetState; mode: Swit
   const [name, setName] = useState(st.nextBridgeName || "vsw0");
   const [chosen, setChosen] = useState<Set<string>>(() => new Set(mode === "uplinks" ? bridge?.uplinks ?? (bridge?.uplink ? [bridge.uplink] : []) : props.uplink ? [props.uplink] : firstFree ? [firstFree.name] : []));
   const [bondMode, setBondMode] = useState<string>(bridge?.bondMode || "failover");
-  const [vlanOn, setVlanOn] = useState(st.vlanCapable);
+  const [vlanOn, setVlanOn] = useState(true);
   const initialIds = bridge?.vlans && bridge.vlans !== "2-4094" ? bridge.vlans : "";
   const [ids, setIds] = useState(mode === "vlans" ? initialIds : "");
   const [mtu, setMtu] = useState(mode === "mtu" ? String(bridge?.mtu || 1500) : "");
@@ -401,14 +401,10 @@ export function SwitchDialog(props: { node: number; st: HostnetState; mode: Swit
               </Field>
               <UplinkPicker cards={free} chosen={chosen} onChoose={setChosen} showMode={showMode} bondMode={bondMode} onMode={setBondMode} />
               {free.length === 0 && <p className="muted">The new switch can only connect virtual machines on this node.</p>}
-              {st.vlanCapable ? (
-                <label className="check">
-                  <input type="checkbox" checked={vlanOn} onChange={(e) => setVlanOn(e.target.checked)} />
-                  VLANs
-                </label>
-              ) : (
-                <p className="muted">VLANs need libvirt 11 or later on this node.</p>
-              )}
+              <label className="check">
+                <input type="checkbox" checked={vlanOn} onChange={(e) => setVlanOn(e.target.checked)} />
+                VLANs
+              </label>
               {mover && (
                 <StatusLine status="info">
                   {mover.name === st.managementInterface
@@ -613,13 +609,12 @@ export function AddNetworkDialog(props: {
   /** An Open vSwitch bridge: the network is attached to it, with an access VLAN. */
   ovs?: boolean;
   info?: HostBridge;
-  vlanCapable: boolean;
   used: { network: string; vlan?: number }[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const { node, bridge, info } = props;
-  const withVlan = !!props.ovs || (props.vlanCapable && !!info?.vlanFiltering);
+  const withVlan = !!props.ovs || !!info?.vlanFiltering;
   const [name, setName] = useState("");
   const [vlan, setVlan] = useState("");
   const [peers, setPeers] = useState<{ node: number; name: string }[]>([]);

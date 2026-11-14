@@ -333,11 +333,12 @@ func TestNetRefusals(t *testing.T) {
 			t.Errorf("plan: %+v", p)
 		}
 	})
-	t.Run("libvirt too old", func(t *testing.T) {
+	t.Run("the libvirt version in the request is ignored", func(t *testing.T) {
+		// libvirt 11 is the minimum for every node, so the node command no longer judges it; controllers still send it
 		n := newNetNode(t, dhcpNetwork, true)
-		n.refusedPlan("old", mod(func(r *nodeproto.NetRequest) { r.VLANAware, r.LibvirtVersion = true, 10009000 }), "libvirt 11.0.0")
-		n.refusedPlan("unknown", mod(func(r *nodeproto.NetRequest) { r.VLANAware, r.LibvirtVersion = true, 0 }), "libvirt 11.0.0")
-		n.plan(mod(func(r *nodeproto.NetRequest) { r.LibvirtVersion = 10009000 })) // without VLANs the version does not matter
+		for _, v := range []uint64{0, 10009000, 11003000} {
+			n.plan(mod(func(r *nodeproto.NetRequest) { r.VLANAware, r.LibvirtVersion = true, v }))
+		}
 	})
 	t.Run("vlan options", func(t *testing.T) {
 		n := newNetNode(t, dhcpNetwork, true)

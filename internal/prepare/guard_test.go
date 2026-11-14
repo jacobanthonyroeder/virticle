@@ -23,11 +23,9 @@ func TestGuardRow(t *testing.T) {
 	cases := []struct {
 		name, version, hook, status, has string
 	}{
-		{"libvirt 10 (Ubuntu 24.04)", "10.0.0", "", Info, "Will be installed"},
 		{"libvirt 11.3 (Debian 13)", "11.3.0", "", Info, "Will be installed"},
 		{"libvirt 11.10 (Rocky 10)", "11.10.0", "", Info, "Will be installed"},
 		{"libvirt not installed yet", "", "", Info, "Will be installed"},
-		{"too old", "6.0.0", "", Warning, "no hook directory"},
 		{"current", "11.10.0", ours, OK, "Installed at " + nodeproto.HookPath},
 		{"an older script of ours", "11.10.0", "#!/bin/sh\n# " + nodeproto.HookMark + "\nold\n", Info, "will be updated"},
 		{"somebody else's file", "11.10.0", "#!/bin/sh\nexit 0\n", Warning, "left alone"},
@@ -112,11 +110,7 @@ func TestStepGuard(t *testing.T) {
 	if !asStatus(err, &se) || !strings.Contains(se.Detail, "was removed again") || !strings.Contains(strings.Join(log, "\n"), `rm -f "$h"`) {
 		t.Errorf("broken hook: %v\n%v", err, log)
 	}
-	// old libvirt and a file that is not ours: nothing installed
-	_, _, err, log = guardRun(true, good, Facts{Virsh: "/usr/bin/virsh", LibvirtVersion: "6.0.0"})
-	if !asStatus(err, &se) || se.Status != Warning || len(log) != 0 {
-		t.Errorf("old libvirt: %v %d", err, len(log))
-	}
+	// a file that is not ours: nothing installed
 	_, _, err, log = guardRun(true, good, Facts{GuardSHA: "abc"})
 	if !asStatus(err, &se) || len(log) != 0 {
 		t.Errorf("foreign file: %v %d", err, len(log))

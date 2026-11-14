@@ -35,11 +35,6 @@ import (
 // VIR_DOMAIN_CHECKPOINT_XML_SIZE, which go-libvirt does not name.
 const checkpointXMLSize = 4
 
-// minCheckpointLibvirt is the oldest libvirt (as it numbers versions) that is used for
-// incremental backups: backup and checkpoints exist since 6.0, but the first releases had
-// many bugs around bitmaps; 7.0 is the first with the interface in its final shape.
-const minCheckpointLibvirt = 7000000
-
 type ckXML struct {
 	Name         string `xml:"name"`
 	Description  string `xml:"description"`

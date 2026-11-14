@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"virticle/internal/hostconn"
+	"virticle/internal/minver"
 	"virticle/internal/nodebin"
 	"virticle/internal/nodeproto"
 )
@@ -417,7 +418,31 @@ func stepPackageInstall(r *Runner, p Plan, o Options) (string, bool, error) {
 	if err != nil {
 		return "", false, fmt.Errorf("installing %s failed: %w: %s", strings.Join(p.Missing, " "), err, firstLines(out, 12))
 	}
+	if err := checkInstalledVersions(r, p); err != nil {
+		return "", true, err
+	}
 	return "Installed " + strings.Join(p.Missing, " "), true, nil
+}
+
+// checkInstalledVersions reads the versions of libvirt and QEMU after the
+// install and refuses a host that is below the minimum. Before the install the
+// repositories' versions are known on most hosts (versionRow); this catches the
+// rest. What was installed stays, and the error says that the node cannot be used.
+func checkInstalledVersions(r *Runner, p Plan) error {
+	out, err := r.root(versionScript, "")
+	if err != nil {
+		return nil // the connection test at the end of the run finds a node that does not answer
+	}
+	f := ParseFacts(out)
+	lib, ok1 := minver.Parse(f.LibvirtVersion)
+	qemu, ok2 := minver.Parse(f.QEMUVersion)
+	if !ok1 || !ok2 {
+		return nil
+	}
+	if minver.Check(lib, qemu) != nil {
+		return fmt.Errorf("%s installed %s. %s This node cannot be used", p.Distro.Name, minver.Describe(lib, qemu), minver.Needs())
+	}
+	return nil
 }
 
 // statusError is returned by a step that did not fail but wants its row to

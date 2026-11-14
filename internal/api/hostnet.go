@@ -78,8 +78,6 @@ type hostnetState struct {
 	StackTested         bool                `json:"stackTested"`
 	Supported           bool                `json:"supported"`
 	StackNote           string              `json:"stackNote,omitempty"`
-	LibvirtVersion      string              `json:"libvirtVersion"`
-	VLANCapable         bool                `json:"vlanCapable"` // libvirt 11.0.0 or newer
 	ControllerAddresses []string            `json:"controllerAddresses"`
 	ManagementInterface string              `json:"managementInterface,omitempty"`
 	Interfaces          []hostNIC           `json:"interfaces"`
@@ -101,8 +99,6 @@ func nextSwitchName(taken []string) string {
 		}
 	}
 }
-
-func libvirtVer(v uint64) string { return fmt.Sprintf("%d.%d.%d", v/1000000, v/1000%1000, v%1000) }
 
 // controllerAddrs are the addresses the controller uses for the node itself.
 func (s *Server) controllerAddrs(id int64) []string {
@@ -189,8 +185,6 @@ func (s *Server) hostnetState(id int64, h *hostconn.Host) (hostnetState, error) 
 	}
 	st := hostnetState{Stack: info.Stack, StackTested: info.StackTested, Supported: info.Supported, StackNote: info.StackNote,
 		Interfaces: nics, Status: info.Status, ControllerAddresses: s.controllerAddrs(id), Bridges: []hostnetBridge{}}
-	ver, _ := h.ConnectGetLibVersion()
-	st.LibvirtVersion, st.VLANCapable = libvirtVer(ver), uint64(ver) >= nodeproto.LibvirtVLANMin
 	st.ManagementInterface = managementInterface(nics, st.ControllerAddresses)
 	nets, vms, uerr := bridgeUsers(h)
 	if uerr != nil {
@@ -265,7 +259,7 @@ func (s *Server) hostnetRequest(id int64, h *hostconn.Host, b hostnetBody) (node
 	if err != nil {
 		return req, err
 	}
-	req.LibvirtVersion = uint64(ver)
+	req.LibvirtVersion = uint64(ver) // ignored by the node command; an older one refuses VLANs without it
 	if err := checkHostnetRequest(req); err != nil {
 		return req, err
 	}
@@ -319,9 +313,6 @@ func checkHostnetRequest(req nodeproto.NetRequest) error {
 	}
 	if req.Bridge == "" {
 		return badRequest("the bridge name is required")
-	}
-	if req.VLANAware && req.Action != nodeproto.NetDelete && req.LibvirtVersion < nodeproto.LibvirtVLANMin {
-		return badRequest("VLANs on a Linux bridge need libvirt 11.0.0 or newer; this node has " + libvirtVer(req.LibvirtVersion))
 	}
 	if req.Action == nodeproto.NetSetVLAN && !req.VLANAware && req.VLANs != "" {
 		return badRequest("VLAN ids need a VLAN-aware bridge")
@@ -559,18 +550,14 @@ func findChange(st nodeproto.NetStatus, id string) (nodeproto.NetChange, bool) {
 
 // linuxVLAN is what is needed to decide whether a libvirt network may carry a VLAN tag on a Linux bridge.
 type linuxVLAN struct {
-	LibvirtVersion uint64
-	Found          bool   // the bridge is a Linux bridge of the node
-	Aware          bool   // VLAN filtering is on
-	VLANs          string // the ids its uplink allows
+	Found bool   // the bridge is a Linux bridge of the node
+	Aware bool   // VLAN filtering is on
+	VLANs string // the ids its uplink allows
 }
 
 // linuxVLANFor reads the facts for the bridge from the node.
 func linuxVLANFor(h *hostconn.Host, bridge string) *linuxVLAN {
 	v := &linuxVLAN{}
-	if ver, err := h.ConnectGetLibVersion(); err == nil {
-		v.LibvirtVersion = uint64(ver)
-	}
 	if info, err := h.NetInfo(); err == nil {
 		for _, b := range info.Bridges {
 			if b.Name == bridge {
@@ -589,8 +576,6 @@ func (v *linuxVLAN) vlanXML(bridge string, tag int) (string, error) {
 	switch {
 	case v == nil || !v.Found:
 		return "", badRequest("cannot tell whether " + bridge + " is a VLAN-aware Linux bridge of this node; the node's network state is not available (is it prepared?)")
-	case v.LibvirtVersion < nodeproto.LibvirtVLANMin:
-		return "", badRequest("a VLAN tag on a Linux bridge needs libvirt 11.0.0 or newer; this node has " + libvirtVer(v.LibvirtVersion))
 	case !v.Aware:
 		return "", badRequest("the bridge " + bridge + " is not VLAN-aware; turn on VLAN filtering for it first (host network)")
 	case !nodeproto.VLANAllowed(v.VLANs, tag):

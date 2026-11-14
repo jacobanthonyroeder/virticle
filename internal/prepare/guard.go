@@ -82,9 +82,6 @@ echo "AppArmor rule added for the start guard"; echo @@changed`
 // the hook may do there (run programs, read the node key, use the network).
 func stepGuard(r *Runner, p Plan, o Options) (string, bool, error) {
 	f := p.Facts
-	if f.Virsh != "" && f.LibvirtVersion != "" && libvirtMajor(f.LibvirtVersion) < guardMinLibvirt {
-		return "", false, &statusError{Warning, "libvirt " + f.LibvirtVersion + " has no hook directory, so the start guard is not installed"}
-	}
 	if f.GuardSHA != "" && !f.GuardOurs {
 		return "", false, &statusError{Warning, nodeproto.HookPath + " exists and was not written by Virticle; it is left alone, so there is no start guard"}
 	}

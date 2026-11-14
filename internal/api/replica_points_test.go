@@ -15,7 +15,7 @@ func testPoint(seq, gen int, ck string) *replPoint {
 
 func TestDecideReplica(t *testing.T) {
 	layout := []diskLayout{{Target: "vda", Source: "/p/vm.qcow2", Virt: 10 << 30}}
-	good := replInput{Backupable: true, AllQcow2: true, Supported: true, Layout: layout,
+	good := replInput{Backupable: true, AllQcow2: true, Layout: layout,
 		Checkpoints: map[string]bool{"virticle-a": true}, Latest: testPoint(3, 1, "virticle-a"), Intact: true}
 	with := func(f func(*replInput)) replInput {
 		in := good
@@ -34,7 +34,6 @@ func TestDecideReplica(t *testing.T) {
 		{"first", with(func(in *replInput) { in.Latest = nil }), kindFull, whyReplFirst, true},
 		{"shut off cannot be tracked", with(func(in *replInput) { in.Backupable = false }), kindFull, whyReplShutOff, false},
 		{"raw disk", with(func(in *replInput) { in.AllQcow2 = false }), kindFull, whyReplFormat, false},
-		{"old libvirt", with(func(in *replInput) { in.Supported = false }), kindFull, whyReplOldVirt, false},
 		{"damaged replica", with(func(in *replInput) { in.Intact = false }), kindFull, whyReplDamaged, true},
 		{"checkpoint gone", with(func(in *replInput) { in.Checkpoints = map[string]bool{} }), kindFull, whyReplNoBase, true},
 		{"point without checkpoint", with(func(in *replInput) { in.Latest = testPoint(3, 1, "") }), kindFull, whyReplNoBase, true},

@@ -54,6 +54,7 @@ selinux=Enforcing
 timesync=yes
 virsh=/usr/bin/virsh
 libvirt_version=11.10.0
+qemu_version=QEMU emulator version 10.1.0 (qemu-kvm-10.1.0-3.el10)
 domains=3
 snapdesc=Scheduled snapshot (virticle) [controller abc123]
 `
@@ -80,15 +81,15 @@ func TestClassify(t *testing.T) {
 	}{
 		{"debian", "13", "", FamilyDebian, true, true},
 		{"debian", "12", "", FamilyDebian, false, true},
-		{"debian", "11", "", FamilyDebian, false, false},
+		{"debian", "11", "", FamilyDebian, false, true}, // accepted; its libvirt is too old, see versions_test.go
 		{"ubuntu", "24.04", "debian", FamilyDebian, false, true},
 		{"ubuntu", "22.04", "debian", FamilyDebian, false, true},
-		{"ubuntu", "20.04", "debian", FamilyDebian, false, false},
+		{"ubuntu", "20.04", "debian", FamilyDebian, false, true},
 		{"rocky", "10.0", "rhel centos fedora", FamilyRHEL, true, true},
 		{"rocky", "9.5", "rhel centos fedora", FamilyRHEL, false, true},
 		{"almalinux", "10.0", "rhel centos fedora", FamilyRHEL, false, true},
 		{"rhel", "9.4", "fedora", FamilyRHEL, false, true},
-		{"rhel", "8.10", "fedora", FamilyRHEL, false, false},
+		{"rhel", "8.10", "fedora", FamilyRHEL, false, true},
 		{"fedora", "42", "", FamilyRHEL, false, true},
 		{"arch", "", "", FamilyOther, false, false},
 		{"alpine", "3.20", "", FamilyOther, false, false},

@@ -35,6 +35,8 @@ the connection. There are two ways for the controller to reach the node:
   Root (--root): the controller signs in as root and runs the node command directly. No account
     is created.
 Packages: libvirt, QEMU and the guest disk tools (virt-sysprep, used by "sysprep on clone").
+The node needs libvirt 11.0 and QEMU 10.0 or newer from its distribution. prepare refuses an
+older host (installed, or what the repositories would install) and changes nothing on it.
 --minimal leaves the guest disk tools out; clone with sysprep then needs a sealed template.
 --use-existing-user (with --confirm) is for an account you manage yourself.
 --check changes nothing. Running prepare again changes nothing. unprepare removes the account
