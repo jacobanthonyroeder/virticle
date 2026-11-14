@@ -45,6 +45,7 @@ import (
 //	import-convert-status WORKDIR            exit code (once finished), "---", the tail of the progress log
 //	import-convert-kill WORKDIR              stop the conversion started from WORKDIR
 //	sysprep DISK...                          virt-sysprep with a fixed option set on disk images
+//	copy-kill DEST                           stop the qemu-img that writes the pool file DEST (a volume copy by libvirt)
 
 func init() {
 	Register("download", verbDownload)
@@ -59,6 +60,7 @@ func init() {
 	Register("import-convert-status", verbImportConvertStatus)
 	Register("import-convert-kill", verbImportConvertKill)
 	Register("sysprep", verbSysprep)
+	Register("copy-kill", verbCopyKill)
 }
 
 // poolRunDir is where the state of running downloads is kept (root-owned

@@ -389,6 +389,7 @@ virticle-node ALL=(root) NOPASSWD: /usr/local/libexec/virticle-node
 | `convert-finish WORKDIR DEST` | moves `out.part` to the new file `DEST` (never replaces) and drops the state files |
 | `download URL DEST [sha256\|sha512 HEX]` | the node fetches an `http://` or `https://` URL into the new file `DEST` (see "Downloads and imports" below) |
 | `download-cancel DEST` | stops the running download of `DEST` |
+| `copy-kill DEST` | stops the `qemu-img` that is writing the pool file `DEST` (the copy libvirt makes for a cloned volume); fails when none runs |
 | `image-info PATH` | `qemu-img info` as JSON for an image to import; the format is recognised from the content |
 | `realpath file\|dir PATH`, `free-space DIR` | canonical path of an existing file or directory inside a root; free bytes of its file system |
 | `tar-list FILE`, `tar-extract FILE WORKDIR NAME...` | list an OVA; extract plain-named members of an archive that holds regular files only into a work directory |
