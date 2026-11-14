@@ -37,7 +37,7 @@ interface Result {
 }
 
 /** Host PCI and USB devices of the node, and those passed through to this VM. */
-export default function PassthroughCard({ d, base, onChanged, bare }: { d: VMDetail; base: string; onChanged: () => void; bare?: boolean }) {
+export default function PassthroughCard({ d, base, onChanged, bare, flat }: { d: VMDetail; base: string; onChanged: () => void; bare?: boolean; flat?: boolean }) {
   const [l, setL] = useState<Listing | undefined>();
   const [err, setErr] = useState<string | undefined>();
   const [picking, setPicking] = useState(false);
@@ -61,8 +61,9 @@ export default function PassthroughCard({ d, base, onChanged, bare }: { d: VMDet
   const n = l?.attached.length ?? 0;
   const summary = !l ? (err ? "Could not be read" : "Loading") : n === 0 ? "No host devices" : `${n} host device${n > 1 ? "s" : ""}: ${l.attached.map((a) => a.label).join(", ")}`;
   return (
-    <SectionFrame id="hw-passthrough" title="Passthrough devices (PCI, GPU, USB)" summary={summary} bare={bare}>
+    <SectionFrame id="hw-passthrough" title="Passthrough devices (PCI, GPU, USB)" summary={summary} bare={bare} flat={flat}>
       {confirm.dialog}
+      {!l && !err && <div className="muted">Loading</div>}
       <OneLine tone="note" text="A VM with a passed-through device cannot be live-migrated." details={l?.warning ?? "It is tied to this node until the device is removed."} />
       <ErrorBox error={err ?? act.error} />
       {msg && <div className="muted">{msg}</div>}

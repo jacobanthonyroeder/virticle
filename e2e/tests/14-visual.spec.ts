@@ -266,8 +266,8 @@ test.describe.serial("visual pass", () => {
         ["hardware", "disks", "CD-ROM"],
         ["hardware", "nics", "Add interface"],
         ["hardware", "boot", "Firmware and TPM"],
-        ["hardware", "advanced", "ordinary pages"],
-        ["hardware", "passthrough", "Passthrough devices"],
+        ["hardware", "advanced", "vCPU pinning"],
+        ["hardware", "passthrough", "No host devices"],
         ["snapshots", "snapshots", "Take snapshot"],
         ["snapshots", "schedule", "Scheduled snapshots"],
         ["backups", "backups", "Back up now"],
@@ -403,13 +403,9 @@ test.describe.serial("visual pass", () => {
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");
       await page.goto(vmUrl + "?tab=hardware&sec=advanced");
-      await page.getByRole("button", { name: /^Advanced/ }).first().click();
-      await shot("vm-hardware-advanced-open", () => expect(page.locator("#hw-advanced-body")).toBeVisible({ timeout: 30_000 }));
+      await shot("vm-hardware-advanced-open", () => expect(page.locator("#hw-advanced")).toContainText("vCPU pinning", { timeout: 30_000 }));
       await page.locator(".subnav").getByRole("tab", { name: "Passthrough", exact: true }).click();
-      await page.getByRole("button", { name: /^Passthrough devices/ }).click();
-      await shot("vm-hardware-passthrough-open", () => expect(page.locator("#hw-passthrough-body")).toBeVisible({ timeout: 30_000 }));
-      await page.evaluate(() => localStorage.removeItem("virticle.hw.open.hw-advanced"));
-      await page.evaluate(() => localStorage.removeItem("virticle.hw.open.hw-passthrough"));
+      await shot("vm-hardware-passthrough-open", () => expect(page.locator("#hw-passthrough")).toContainText("No host devices", { timeout: 30_000 }));
       await page.goto(vmUrl);
       await page.locator(".head").getByRole("button", { name: "Actions", exact: true }).click();
       await page.getByRole("menuitem", { name: "Edit Settings", exact: true }).click();

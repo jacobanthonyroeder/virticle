@@ -16,7 +16,7 @@ import { HostNIC, isBridge, shownAddresses } from "../BridgeSelect";
 import DialogAdvanced from "./DialogAdvanced";
 import "./hw.css";
 import { StatusLine } from "../Checks";
-import SubNav, { SubPage } from "../SubNav";
+import SubNav, { SubPage, useSubPage } from "../SubNav";
 
 interface HwResult {
   applied: "live+config" | "live" | "config";
@@ -50,7 +50,11 @@ function useHw(d: VMDetail, base: string, onChanged: () => void) {
     return r;
   };
   const run = (fn: () => Promise<unknown>) => act.run(fn);
-  return { send, run, busy: act.busy, error: act.error, outcome };
+  const clear = () => {
+    setOutcome(undefined);
+    act.clear();
+  };
+  return { send, run, busy: act.busy, error: act.error, outcome, clear };
 }
 
 export type HwArea = "cpu" | "disks" | "nics" | "cdrom" | "boot" | "firmware" | "advanced" | "passthrough";
@@ -81,9 +85,9 @@ function Section({ area, d, base, onChanged, hw, bare }: { area: HwArea; d: VMDe
     case "firmware":
       return <FirmwareCard d={d} base={base} onChanged={onChanged} bare={bare} />;
     case "advanced":
-      return <AdvancedCard d={d} base={base} onChanged={onChanged} bare={bare} />;
+      return <AdvancedCard d={d} base={base} onChanged={onChanged} bare={bare} flat={!bare} />;
     case "passthrough":
-      return <PassthroughCard d={d} base={base} onChanged={onChanged} bare={bare} />;
+      return <PassthroughCard d={d} base={base} onChanged={onChanged} bare={bare} flat={!bare} />;
   }
 }
 
@@ -130,6 +134,10 @@ const hwAreas: Record<string, HwArea[]> = {
 export default function Hardware({ d, base, onChanged }: { d: VMDetail; base: string; onChanged: () => void }) {
   const viewer = useRole() === "viewer";
   const hw = useHw(d, base, onChanged);
+  // The outcome line belongs to the sub page it was made on.
+  const [sec] = useSubPage(HW_PAGES);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => hw.clear(), [sec]);
   return (
     <SubNav pages={HW_PAGES} label="Hardware">
       {(sec) => (

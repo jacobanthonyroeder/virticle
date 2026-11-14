@@ -16,9 +16,11 @@ function readOpen(id: string): boolean {
   }
 }
 
-export function SectionFrame(props: { id: string; title: string; summary: string; bare?: boolean; children: ReactNode }) {
+export function SectionFrame(props: { id: string; title: string; summary: string; bare?: boolean; flat?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(() => readOpen(props.id));
   if (props.bare) return <section className="hwbare" aria-label={props.title}>{props.children}</section>;
+  // On its own sub page: open at once, no header (the sub page entry is the title).
+  if (props.flat) return <section className="hwbare" id={props.id} aria-label={props.title}>{props.children}</section>;
   const toggle = () => {
     const next = !open;
     setOpen(next);

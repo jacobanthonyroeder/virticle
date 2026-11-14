@@ -225,7 +225,7 @@ Sync guest clock is under **Power**.
 - The sub pages at the left of the tab: **CPU and memory**, **Disks** (disks and
   CD-ROM), **Network interfaces**, **Boot and firmware** (boot order, firmware and TPM),
   **Advanced** (CPU mode, pinning, huge pages) and **Passthrough**. Each sub page has
-  one card per area, and each card edits that area. **Actions > Edit Settings** opens the same cards
+  one card per area, and each card edits that area; **Advanced** and **Passthrough** show their content at once. **Actions > Edit Settings** opens the same cards
   in a dialog.
 - A change that cannot apply to a running VM is saved and marked as applying
   at the next start.

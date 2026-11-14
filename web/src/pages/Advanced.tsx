@@ -61,7 +61,7 @@ function tuningSummary(t: Tuning): string {
   ].join(", ");
 }
 
-export default function AdvancedCard({ d, base, onChanged, bare }: { d: VMDetail; base: string; onChanged: () => void; bare?: boolean }) {
+export default function AdvancedCard({ d, base, onChanged, bare, flat }: { d: VMDetail; base: string; onChanged: () => void; bare?: boolean; flat?: boolean }) {
   const [t, setT] = useState<Tuning | undefined>();
   const [loadErr, setLoadErr] = useState<string | undefined>();
   const [msg, setMsg] = useState<string | undefined>();
@@ -81,19 +81,19 @@ export default function AdvancedCard({ d, base, onChanged, bare }: { d: VMDetail
   const title = "Advanced";
   if (loadErr)
     return (
-      <SectionFrame id="hw-advanced" title={title} summary="Could not be read" bare={bare}>
+      <SectionFrame id="hw-advanced" title={title} summary="Could not be read" bare={bare} flat={flat}>
         <ErrorBox error={loadErr} />
       </SectionFrame>
     );
   if (!t)
     return (
-      <SectionFrame id="hw-advanced" title={title} summary="Loading" bare={bare}>
+      <SectionFrame id="hw-advanced" title={title} summary="Loading" bare={bare} flat={flat}>
         <div className="muted">Loading</div>
       </SectionFrame>
     );
   const s = t.saved;
   return (
-    <SectionFrame id="hw-advanced" title={title} summary={tuningSummary(t)} bare={bare}>
+    <SectionFrame id="hw-advanced" title={title} summary={tuningSummary(t)} bare={bare} flat={flat}>
       <div className="advanced">
       <OneLine
         tone="note"
