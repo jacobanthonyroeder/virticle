@@ -274,6 +274,45 @@ func (h *Host) SHA256(path string) (string, error) {
 	return f[0], nil
 }
 
+// SHA256Progress is SHA256 for a large file: progress receives the bytes read so far and the file size about once
+// a second. A node command from before the progress form refuses it, and the checksum is then taken without.
+func (h *Host) SHA256Progress(ctx context.Context, path string, progress func(done, total uint64)) (string, error) {
+	cmd, err := h.nodeCmd("sha256", path, "progress")
+	if err != nil {
+		return "", err
+	}
+	var last string
+	var tail []string
+	err = h.Stream(ctx, cmd, func(l string) {
+		if d, t, ok := parseProgress(l); ok {
+			if progress != nil {
+				progress(d, t)
+			}
+			return
+		}
+		if l = strings.TrimSpace(l); l != "" {
+			last = l
+			if tail = append(tail, l); len(tail) > 3 {
+				tail = tail[1:]
+			}
+		}
+	})
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if f := strings.Fields(last); err == nil && len(f) == 1 && len(f[0]) == 64 && strings.Trim(f[0], "0123456789abcdef") == "" {
+		return f[0], nil
+	}
+	if strings.Contains(strings.Join(tail, " "), "usage: sha256 PATH") {
+		return h.SHA256(path) // an older node command
+	}
+	msg := strings.Join(tail, "; ")
+	if msg == "" && err != nil {
+		msg = err.Error()
+	}
+	return "", fmt.Errorf("sha256 of %s: %s", path, firstLineOf(msg, errors.New("no checksum")))
+}
+
 // MissingTools returns those of names (qemu-img, ssh, scp, tar, sha256sum)
 // that are not installed on the node.
 func (h *Host) MissingTools(names ...string) ([]string, error) {

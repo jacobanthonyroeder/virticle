@@ -88,6 +88,8 @@ type bkRun struct {
 	thawErr  error         // set when a thaw failed on every try: the guest may be frozen
 	changed  uint64        // bytes libvirt expects an incremental backup to copy
 	progress func(float64)
+	ph       bkPhases        // where on the progress bar each phase ends
+	tpmNote  string          // why the TPM state of a VM with a TPM is not in the backup ("" when it is, or there is no TPM)
 	ctx      context.Context // cancelled by cancel(); ends a running node to node transfer
 	stopCtx  context.CancelFunc
 
@@ -354,7 +356,7 @@ func (s *Server) launchBackup(r *http.Request, h *hostconn.Host, m *bkRun) (int6
 			delete(bkRuns.m, m.uuid)
 			bkRuns.Unlock()
 		}()
-		m.progress = progress
+		m.progress = forwardOnly(progress)
 		return m.finishFreeze(m.run())
 	})
 	if err != nil {
@@ -480,16 +482,13 @@ func (m *bkRun) run() (err error) {
 		}
 	}()
 
-	copyHi := 0.97
-	if m.remote {
-		copyHi = 0.75
-	}
+	m.ph = bkPhasesFor(m.remote, m.hashing())
 	if m.live {
 		// QEMU's user must be able to enter the directory it writes into.
 		if err := m.src.ChmodWork(srcWork.path, "711"); err != nil {
 			return fmt.Errorf("chmod: %w", err)
 		}
-		if err = m.liveBackup(srcWork, stamp, 0.02, copyHi); err != nil {
+		if err = m.liveBackup(srcWork, stamp, m.ph.copyLo, m.ph.copyHi); err != nil {
 			return err
 		}
 		if m.plan.Kind == kindIncremental {
@@ -501,7 +500,7 @@ func (m *bkRun) run() (err error) {
 				}
 			}
 		}
-	} else if err = m.offlineBackup(srcWork, 0.02, copyHi); err != nil {
+	} else if err = m.offlineBackup(srcWork, m.ph.copyLo, m.ph.copyHi); err != nil {
 		return err
 	}
 	if err = m.checkCancel(); err != nil {
@@ -510,7 +509,7 @@ func (m *bkRun) run() (err error) {
 
 	man := &backupManifest{
 		Format: backupFormat, VM: m.name, UUID: m.uuid, Created: stamp.Format(time.RFC3339), SourceNode: m.src.Name,
-		AppVersion: backupAppVersion, Live: m.live, TPM: m.md.TPM, Notes: []string{noteSnapshots, noteTPM},
+		AppVersion: backupAppVersion, Live: m.live, TPM: m.md.TPM,
 		Kind: m.plan.Kind, Checkpoint: m.ckName, FullReason: m.plan.Reason,
 	}
 	if m.live && m.fz.Text != "" {
@@ -542,7 +541,13 @@ func (m *bkRun) run() (err error) {
 			}
 		}
 	}
-	if err = m.measure(srcWork); err != nil {
+	if m.md.TPM {
+		if err = m.saveTPM(srcWork, man); err != nil {
+			return err
+		}
+	}
+	man.Notes = append([]string{noteSnapshots}, tpmNotes(m.md.TPM, man.TPMState != "")...)
+	if err = m.measure(srcWork, m.ph.copyHi, m.ph.hashHi); err != nil {
 		return err
 	}
 	for _, d := range m.disks {
@@ -554,7 +559,7 @@ func (m *bkRun) run() (err error) {
 		if dstWork, err = newWork(m.dst, m.dstDir, "bk"); err != nil {
 			return err
 		}
-		if err = m.copyOver(srcWork, dstWork, man, 0.75, 0.97); err != nil {
+		if err = m.copyOver(srcWork, dstWork, man, m.ph.hashHi, m.ph.sendHi); err != nil {
 			return err
 		}
 		srcWork.remove() // staged copy; the target has the backup now
@@ -580,10 +585,11 @@ func (m *bkRun) run() (err error) {
 		err = fmt.Errorf("moving the backup into place: %w", err2)
 		return err
 	}
-	m.progress(0.98)
+	m.progress(m.ph.storedAt)
 	// From here on the backup exists; the work directories are gone.
 	srcWork, dstWork = nil, nil
 	m.cleanCheckpoints()
+	m.progress(m.ph.checkpointsAt)
 	if m.req.KeepLast > 0 {
 		if perr := m.s.pruneBackups(m.dst, m.dstPool, m.uuid, m.req.KeepLast, finalName); perr != nil {
 			return fmt.Errorf("backup %s was written, but pruning older backups failed: %w", finalName, perr)
@@ -775,8 +781,17 @@ func qemuTop(h *hostconn.Host, file string) (string, error) {
 	return in.Format, nil
 }
 
-// measure checks the written images and records their sizes (and checksums).
-func (m *bkRun) measure(wd *bkWork) error {
+// hashing says whether the run takes checksums of the disk copies.
+func (m *bkRun) hashing() bool {
+	// A backup that may become a link of a chain is always checksummed: a restore
+	// of an incremental backup checks every file it reads, not only the sizes.
+	return m.req.SHA256 == nil || *m.req.SHA256 || m.plan.Checkpoint
+}
+
+// measure checks the written images and records their sizes (and checksums). The checksums move the progress bar
+// from lo to hi by the bytes read.
+func (m *bkRun) measure(wd *bkWork, lo, hi float64) error {
+	var total uint64
 	for i := range m.disks {
 		d := &m.disks[i]
 		f := wd.file(d.File)
@@ -793,13 +808,27 @@ func (m *bkRun) measure(wd *bkWork) error {
 			return fmt.Errorf("stat %s: %v", f, err)
 		}
 		d.Size = st[0].Size
-		// A backup that may become a link of a chain is always checksummed: a restore
-		// of an incremental backup checks every file it reads, not only the sizes.
-		if m.req.SHA256 == nil || *m.req.SHA256 || m.plan.Checkpoint {
-			if d.SHA, err = m.src.SHA256(f); err != nil {
-				return err
+		total += d.Size
+	}
+	if !m.hashing() {
+		return nil
+	}
+	var done uint64
+	for i := range m.disks {
+		d := &m.disks[i]
+		base := done
+		sum, err := m.src.SHA256Progress(m.ctx, wd.file(d.File), func(n, _ uint64) {
+			m.progress(spreadBytes(lo, hi, base+n, total))
+		})
+		if err != nil {
+			if m.cancelled.Load() {
+				return errBackupCancelled
 			}
+			return err
 		}
+		d.SHA = sum
+		done += d.Size
+		m.progress(spreadBytes(lo, hi, done, total))
 	}
 	return nil
 }
@@ -817,6 +846,9 @@ func (m *bkRun) copyOver(from, to *bkWork, man *backupManifest, lo, hi float64) 
 	names := []string{}
 	if man.NVRAM != "" {
 		names = append(names, man.NVRAM)
+	}
+	if man.TPMState != "" {
+		names = append(names, man.TPMState)
 	}
 	for _, d := range man.Disks {
 		names = append(names, d.File)
@@ -1146,6 +1178,9 @@ func loadBackup(h *hostconn.Host, dir string) (*backupManifest, error) {
 			return nil, badRequest("the backup is damaged: " + d.File + " has " + bytesOf[d.File] + " bytes, the manifest says " + strconv.FormatUint(d.Bytes, 10))
 		}
 	}
+	if m.TPMState != "" && bytesOf[m.TPMState] != strconv.FormatUint(m.TPMBytes, 10) {
+		return nil, badRequest("the backup is damaged: " + m.TPMState + " has " + bytesOf[m.TPMState] + " bytes, the manifest says " + strconv.FormatUint(m.TPMBytes, 10))
+	}
 	return m, nil
 }
 
@@ -1293,8 +1328,50 @@ func (m *bkRun) finishFreeze(err error) error {
 		}
 		return fmt.Errorf("the backup was made, but %s", msg)
 	}
-	if err == nil && m.fz.Text != "" {
-		return doneNote(m.fz.Text)
+	if err == nil {
+		var notes []string
+		for _, n := range []string{m.fz.Text, m.tpmNote} {
+			if n != "" {
+				notes = append(notes, n)
+			}
+		}
+		if len(notes) > 0 {
+			return doneNote(strings.Join(notes, "; "))
+		}
 	}
 	return err
+}
+
+// saveTPM puts the state of the VM's emulated TPM 2.0 into the backup and records it in the manifest. A state that
+// cannot be had (TPM 1.2 or a passthrough TPM, a VM that never ran, a node that cannot read it) does not stop the
+// backup: the manifest and the task then say that the TPM is not included.
+func (m *bkRun) saveTPM(wd *bkWork, man *backupManifest) error {
+	why := ""
+	if !m.md.TPMState2 {
+		why = "it is not an emulated TPM 2.0"
+	} else {
+		f := wd.file(backupTPMFile)
+		saved, err := m.src.TPMSave(m.uuid, f)
+		switch {
+		case err != nil:
+			log.Printf("backup %s: saving the TPM state: %v", m.name, err)
+			why = "it could not be read (" + impFirstLine(err.Error()) + ")"
+			_ = m.src.Remove(f)
+		case !saved:
+			why = "the TPM has no state yet (the VM has not run with it)"
+		default:
+			st, serr := m.src.Stat(f)
+			if serr != nil || !st[0].Exists {
+				return fmt.Errorf("stat %s: %v", f, serr)
+			}
+			sum, serr := m.src.SHA256(f)
+			if serr != nil {
+				return serr
+			}
+			man.TPMState, man.TPMBytes, man.TPMSHA256 = backupTPMFile, st[0].Size, sum
+			return nil
+		}
+	}
+	m.tpmNote = "TPM state not included: " + why + "; a restored VM starts with an empty TPM"
+	return nil
 }

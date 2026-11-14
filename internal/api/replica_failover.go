@@ -290,7 +290,7 @@ func (s *Server) plannedFailover(req *http.Request, h *hostconn.Host, dom libvir
 	if err := claimRepl(run); err != nil {
 		return restart(err)
 	}
-	run.progress = func(f float64) { progress(0.1 + 0.5*f) }
+	run.progress = forwardOnly(func(f float64) { progress(0.1 + 0.5*f) })
 	err = run.run()
 	releaseRepl(run)
 	setReplError(run.uuid, err)

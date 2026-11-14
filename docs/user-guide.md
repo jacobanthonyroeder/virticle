@@ -249,7 +249,13 @@ When no snapshot can be taken, the dialog says why and what to delete first.
 ## Backups
 
 A backup is a copy of a VM's disks and definition in a directory pool, on this node or another. A running VM keeps
-running. Snapshots and TPM state are not part of a backup.
+running. Snapshots are not part of a backup.
+
+**Virtual TPM.** A backup holds the state of an emulated TPM 2.0 (what Virticle creates for a Windows VM), and a restore puts
+it back, so a disk locked to the TPM (BitLocker) opens without its recovery key. Such a backup holds the keys that unlock
+the disk: keep it as safe as the VM itself. A TPM of another kind (TPM 1.2, a passthrough TPM), or one whose state cannot be
+read, is not included: the backup is made all the same, the task and the backup's notes say "TPM state not included", and the
+restored VM starts with an empty TPM. Backups made before Virticle saved TPM state restore that way too.
 
 1. Open the VM's **Backups** tab.
 2. Choose **Back up now**, pick the target node and pool, and set **Keep the newest** (older backups of this VM in that pool
@@ -295,6 +301,7 @@ Good to know:
   that number can stay for a while.
 - **Delete** on a backup that later incremental backups need deletes them too. The dialog names how many.
 - **Export** of an incremental backup puts the whole chain together into one full backup file.
+- Every backup holds the whole TPM state (a few KiB), incremental ones too.
 - If the controller stops in the middle of a backup, that backup is lost. A later backup removes the half-written files.
 
 ![Delete backup dialog](img/backup-delete.png)
