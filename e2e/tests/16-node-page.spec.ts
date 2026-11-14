@@ -45,6 +45,27 @@ test.describe.serial("node page", () => {
     expect(await page.locator(".nicbox tbody tr").count()).toBeGreaterThan(0);
   });
 
+  test("updates tab lists every available package in a table without a click", async ({ page, api, n1 }) => {
+    const u = await api.get(`/nodes/${n1}/updates`);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(`/node/${n1}/updates`);
+    const box = page.locator(".hostupdates");
+    if (u.updates.length === 0) {
+      await expect(box.locator(".upd-count")).toHaveText("Up to date");
+      await expect(box.locator(".empty")).toBeVisible();
+    } else {
+      await expect(box.locator(".upd-count")).toHaveText(new RegExp(`^${u.updates.length} updates? available$`));
+      await expect(box.locator(".upd-table thead th")).toContainText(["Package", "Installed", "Available"]);
+      await expect(box.locator(".upd-table tbody tr")).toHaveCount(u.updates.length);
+      await expect(box.locator(".upd-table tbody tr").first()).toContainText(u.updates[0].name);
+      // the table uses the width of the page, not a narrow column
+      expect((await box.locator(".upd-table").boundingBox())!.width).toBeGreaterThan(600);
+    }
+    await expect(box.getByRole("button", { name: "Check again" })).toBeVisible();
+    await expect(box.getByRole("button", { name: "Update this node" })).toBeVisible();
+    await page.screenshot({ path: "test-results/visual/node-updates.png", fullPage: true });
+  });
+
   test("an unknown node shows the empty state", async ({ page }) => {
     await page.goto("/node/99999");
     await expect(page.getByText("There is nothing at this address")).toBeVisible();

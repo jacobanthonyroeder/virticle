@@ -31,7 +31,10 @@ How to do the everyday things in the web UI. To install, see
   to resize.
 - **Tasks** (bottom): the last actions with progress and result. Running tasks
   stay on top. Drag the top edge to resize, or collapse it with the arrow.
-  **All tasks** opens the full log.
+  **All tasks** opens the full log. A running task that can be stopped (backup,
+  replication copy, migration, disk move, image download, evacuation, rolling
+  update) has an **x** next to its progress: click it and confirm to stop the
+  task. It then ends with the error "cancelled".
 - **Status** is always a dot and a word: green Ok, yellow Warning, red Error.
 
 Long actions (snapshots, migration, backups, downloads) run in the background.
@@ -89,7 +92,8 @@ What you can do with a node:
 
 **Nodes > Update all nodes** installs the system updates on every node, one node at a time, and moves the virtual machines
 out of the way first. **Update this node** on a node's **Updates** tab does the same for that node alone. Administrators
-only.
+only. The **Updates** tab lists every package update available for the node (package, installed version, available
+version, source); **Check again** reads the list anew.
 
 ![Rolling update plan](img/rolling-update-plan.png)
 
@@ -792,8 +796,8 @@ metric groups on and off: CPU, Memory, Disk and Network for both, plus Storage (
 data. When a VM has several disks or network cards, or a node has several, a select appears for one device; the default
 is *All (sum)*. For a node, the sum counts physical cards, not bridges.
 
-**Reading the charts.** All charts share one time axis. Hover over a chart (or tap it) to read the values of every chart
-at that time in the box above the charts. Drag across a chart to zoom into that time span; *Back* returns to the
+**Reading the charts.** All charts share one time axis. Hover over a chart (or tap it): a box next to the pointer
+shows the time and the value of each line of that chart, and a line marks the same time in every chart. Drag across a chart to zoom into that time span; *Back* returns to the
 previous range. A gap is a gap: the VM was not running, or the node or the controller could not be read; nothing is
 drawn as zero. Small markers on the axis show that a VM started (triangle), stopped (square) or moved to another node
 (diamond). *Download CSV* saves the current view for a spreadsheet.

@@ -8,7 +8,6 @@ import RollingUpdate from "./RollingUpdate";
 export default function HostUpdates({ node, online }: { node: number; online: boolean }) {
   const [u, setU] = useState<Updates | undefined>();
   const [err, setErr] = useState<string | undefined>();
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [updating, setUpdating] = useState(false);
   const admin = useRole() === "admin";
@@ -30,41 +29,56 @@ export default function HostUpdates({ node, online }: { node: number; online: bo
   if (err) return <StatusLine status="error">Updates: {err}</StatusLine>;
   if (!u) return <span className="muted">{busy ? "Checking updates" : ""}</span>;
   if (u.family === "unsupported") return <span className="muted" title={u.note}>Updates not checked ({u.distro || "unknown system"})</span>;
+  const n = u.updates.length;
+  const hasSource = u.updates.some((p) => p.source);
   return (
     <div className="hostupdates">
-      <button className="link" onClick={() => setOpen(!open)} aria-expanded={open}>
-        {u.updates.length === 0 ? "Up to date" : `${u.updates.length} update${u.updates.length === 1 ? "" : "s"} pending`}
-      </button>
-      {admin && (
-        <button onClick={() => setUpdating(true)} title="Put this node in maintenance, move its virtual machines away, install the updates, restart if needed, then move them back">
-          Update this node
+      <div className="upd-head">
+        <span className="upd-count">{n === 0 ? "Up to date" : `${n} update${n === 1 ? "" : "s"} available`}</span>
+        {u.rebootRequired && (
+          <span className="badge s-paused" title={u.rebootReason}>
+            reboot required
+          </span>
+        )}
+        <span className="upd-spacer" />
+        <button disabled={busy} onClick={() => load(true)}>
+          Check again
         </button>
-      )}
+        {admin && (
+          <button className="primary" onClick={() => setUpdating(true)} title="Put this node in maintenance, move its virtual machines away, install the updates, restart if needed, then move them back">
+            Update this node
+          </button>
+        )}
+      </div>
       {updating && <RollingUpdate nodes={[node]} title="Update this node" onClose={() => { setUpdating(false); load(true); }} />}
-      {u.rebootRequired && (
-        <span className="badge s-paused" title={u.rebootReason}>
-          reboot required
-        </span>
-      )}
-      {open && (
-        <div className="updlist">
-          {u.rebootRequired && <div className="muted">{u.rebootReason}</div>}
-          <ul>
+      {u.rebootRequired && u.rebootReason && <StatusLine status="warning">{u.rebootReason}</StatusLine>}
+      {n === 0 ? (
+        <div className="empty">No package updates are available for this node.</div>
+      ) : (
+        <table className="upd-table">
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Installed</th>
+              <th>Available</th>
+              {hasSource && <th className="upd-src">Source</th>}
+            </tr>
+          </thead>
+          <tbody>
             {u.updates.map((p) => (
-              <li key={p.name}>
-                <code>{p.name}</code> {p.from ? `${p.from} → ` : ""}
-                {p.version} {p.source && <span className="muted">({p.source})</span>}
-              </li>
+              <tr key={p.name}>
+                <td className="mono">{p.name}</td>
+                <td className="mono muted">{p.from || ""}</td>
+                <td className="mono">{p.version}</td>
+                {hasSource && <td className="upd-src muted">{p.source || ""}</td>}
+              </tr>
             ))}
-          </ul>
-          <small>
-            {u.note} {u.metadataAt ? `Package lists last refreshed ${new Date(u.metadataAt * 1000).toLocaleString()}. ` : ""}Checked {new Date(u.checkedAt * 1000).toLocaleTimeString()}.{" "}
-            <button className="link" disabled={busy} onClick={() => load(true)}>
-              Check again
-            </button>
-          </small>
-        </div>
+          </tbody>
+        </table>
       )}
+      <p className="upd-note muted">
+        {u.note} {u.metadataAt ? `Package lists last refreshed ${new Date(u.metadataAt * 1000).toLocaleString()}. ` : ""}Checked {new Date(u.checkedAt * 1000).toLocaleTimeString()}.
+      </p>
     </div>
   );
 }
