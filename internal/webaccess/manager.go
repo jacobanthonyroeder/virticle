@@ -586,6 +586,17 @@ func (m *Manager) pendingInfo(host string) *Pending {
 	return &Pending{Gen: p.gen, Deadline: p.deadline, SecondsLeft: secondsUntil(p.deadline), PrevMode: p.prev.Mode, URL: m.urlFor(m.cur, host)}
 }
 
+// PendingDeadline is the time a change that waits for confirmation is undone,
+// and false when none waits (or its time is over).
+func (m *Manager) PendingDeadline() (time.Time, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pend == nil || !m.pend.deadline.After(time.Now()) {
+		return time.Time{}, false
+	}
+	return m.pend.deadline, true
+}
+
 // secondsUntil rounds up, and is never negative.
 func secondsUntil(t time.Time) int {
 	d := time.Until(t)

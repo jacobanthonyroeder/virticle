@@ -6,6 +6,7 @@ import "./shell.css";
 import { get, post, Role, setUnauthorizedHandler, Task } from "./api";
 import { startEvents, stopEvents, useEvents } from "./live";
 import { ErrorBox, Field, useAction } from "./ui";
+import { StatusLine } from "./Checks";
 import Datacenter from "./pages/Datacenter";
 import VMDetailPage from "./pages/VMDetail";
 import NodeDetail from "./pages/NodeDetail";
@@ -44,7 +45,7 @@ const SETTINGS = [
   { label: "Audit", to: "/audit" },
 ];
 
-type Session = { needsSetup: boolean; user: string; role: Role; source?: string; twoStepSetup?: boolean; oidc?: string };
+type Session = { needsSetup: boolean; user: string; role: Role; source?: string; twoStepSetup?: boolean; oidc?: string; webChangeUntil?: string };
 
 export default function App() {
   const [session, setSession] = useState<Session | undefined>();
@@ -87,7 +88,7 @@ export default function App() {
     if (session?.user) void loadPrefs();
   }, [session?.user]);
   if (!session) return null;
-  if (!session.user) return <SignIn setup={session.needsSetup} oidc={session.oidc} signedOut={signedOut} onDone={() => { setSignedOut(undefined); refresh(); }} />;
+  if (!session.user) return <SignIn setup={session.needsSetup} oidc={session.oidc} webChangeUntil={session.webChangeUntil} signedOut={signedOut} onDone={() => { setSignedOut(undefined); refresh(); }} />;
   if (session.twoStepSetup) return <TwoStepRequired user={session.user} onDone={refresh} onSignOut={() => post("/logout").then(refresh)} />;
   if (loc.pathname.startsWith("/console/"))
     return (
@@ -108,7 +109,6 @@ export default function App() {
         <div className="toplinks" role="navigation" aria-label="Main">
         <NavLink to="/datacenter/vms">Virtual machines</NavLink>
         <NavLink to="/datacenter/storage">Storage</NavLink>
-        <NavLink to="/datacenter/network">Networks</NavLink>
         <NavLink to="/datacenter/backups">Backups</NavLink>
         <NavLink to="/datacenter/nodes">Nodes</NavLink>
         <NavLink to="/datacenter/tasks">Tasks</NavLink>
@@ -136,7 +136,6 @@ export default function App() {
         <div className="drawer-links" role="navigation" aria-label="Main menu">
         <NavLink to="/datacenter/vms">Virtual machines</NavLink>
         <NavLink to="/datacenter/storage">Storage</NavLink>
-        <NavLink to="/datacenter/network">Networks</NavLink>
         <NavLink to="/datacenter/backups">Backups</NavLink>
         <NavLink to="/datacenter/nodes">Nodes</NavLink>
         <NavLink to="/datacenter/tasks">Tasks</NavLink>
@@ -197,7 +196,7 @@ function NodeTopologyRedirect() {
   return <Navigate to={`/node/${id}/network`} replace />;
 }
 
-function SignIn({ setup, oidc, signedOut, onDone }: { setup: boolean; oidc?: string; signedOut?: { url: string; provider: string }; onDone: () => void }) {
+function SignIn({ setup, oidc, webChangeUntil, signedOut, onDone }: { setup: boolean; oidc?: string; webChangeUntil?: string; signedOut?: { url: string; provider: string }; onDone: () => void }) {
   const [username, setUsername] = useState(setup ? "admin" : "");
   const [password, setPassword] = useState("");
   const [challenge, setChallenge] = useState<string | undefined>();
@@ -249,6 +248,11 @@ function SignIn({ setup, oidc, signedOut, onDone }: { setup: boolean; oidc?: str
           <p className="notice muted">
             You are signed out of Virticle. <a href={signedOut.url}>{`Also sign out of ${signedOut.provider}`}</a>
           </p>
+        )}
+        {webChangeUntil && !setup && (
+          <StatusLine status="warning">
+            {`A web access change is waiting for confirmation. Sign in and confirm it before ${new Date(webChangeUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, or it is undone.`}
+          </StatusLine>
         )}
         {providerError && <ErrorBox error={providerError} />}
         {oidc && !setup && (

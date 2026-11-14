@@ -23,7 +23,7 @@ How to do the everyday things in the web UI. To install, see
 
 ![Datacenter summary](img/datacenter.png)
 
-- **Top bar**: the main pages (**Virtual machines**, **Storage**, **Networks**, **Backups**, **Nodes**, **Tasks**), the
+- **Top bar**: the main pages (**Virtual machines**, **Storage**, **Backups**, **Nodes**, **Tasks**), the
   **Settings** menu (administrators), alerts, theme, your account. **Backups** lists the backups of VMs;
   **Settings > Controller backup** is the backup of the controller itself.
 - **Tree** (left): nodes with their VMs, storage and networks. Type in
@@ -576,7 +576,7 @@ Technical facts and the API: [reference.md](reference.md#shared-storage-nfs).
 ## Networks
 
 Everything about a node's networking is in one place: the **Network** tab. The node page shows that node; the
-**Datacenter** page (and **Networks** in the top bar) shows all nodes, each with the same buttons. The tab draws how
+**Datacenter** page shows all nodes, each with the same buttons. The tab draws how
 virtual machines reach the network, like a VMware standard switch. **Refresh** reloads it; it also reloads by itself
 when networks or virtual machines change. In the Datacenter view the first three nodes are open and the others open
 on a click, and a network that has the same name on several nodes gets the same coloured edge. On a node with many
@@ -849,7 +849,7 @@ API tokens are described in [reference.md](reference.md#api-tokens). To read the
 | A virtual switch change did not stay | The node did not come back in time and restored its previous settings. Read the line in the node's **Network** tab, check the cable and address, and try again. From the node's console: [reference.md](reference.md#host-bridges-virtual-switches). |
 | Charts have gaps | The VM was not running, or the node or the controller could not be read. Nothing is drawn as zero. |
 | Locked out after a web access change | Wait 60 seconds for the automatic revert, or run `virticle web reset` and restart. |
-| A web access change is waiting | Any page asks "Keep the new web access setting?" for an administrator, also right after signing in at the new address. Choose **Keep this setting**, or it is undone after 60 seconds. |
+| A web access change is waiting | Any page asks "Keep the new web access setting?" for an administrator, also right after signing in at the new address. The sign-in page says that a change is waiting and when it is undone. Choose **Keep this setting**, or it is undone after 60 seconds. |
 | Lost the phone with the authenticator | An administrator chooses **Reset two-step sign-in** for you. If you are the only administrator: `virticle user reset-2fa USER` on the controller. See [sign-in.md](sign-in.md#two-step-sign-in-authenticator-app). |
 | "No ISO images on this node" | Upload one under **Storage**. |
 | A task failed | **Tasks** shows the error in the Result column. |

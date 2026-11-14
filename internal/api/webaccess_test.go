@@ -158,3 +158,42 @@ func TestWebEndpoints(t *testing.T) {
 		t.Errorf("snippets: %s", w.Body)
 	}
 }
+
+// The sign-in page may learn that a web access change waits and until when, and nothing else about it.
+func TestStatusShowsPendingWebChange(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", "admin")
+	m := &webaccess.Manager{Store: e.srv.Store, DataDir: t.TempDir(), Handler: e.h, Window: 1500 * time.Millisecond, OnChange: e.srv.UseWebSettings}
+	e.srv.Web = m
+	if err := m.Start(webaccess.Settings{Mode: "off", Listen: "127.0.0.1:0"}.Normalize()); err != nil {
+		t.Fatal(err)
+	}
+	status := func() (map[string]any, string) {
+		w := e.do("GET", "/api/status", nil) // signed out
+		var st map[string]any
+		decode(t, w, &st)
+		return st, w.Body.String()
+	}
+	if st, _ := status(); st["webChangeUntil"] != nil {
+		t.Fatalf("nothing pending, yet: %v", st)
+	}
+	w := e.do("PUT", "/api/web", map[string]any{"settings": proxyMode("127.0.0.1")}, cookieOf(e, "root"))
+	if w.Code != 200 {
+		t.Fatalf("apply: %d %s", w.Code, w.Body)
+	}
+	st, body := status()
+	until, _ := st["webChangeUntil"].(string)
+	d, err := time.Parse(time.RFC3339, until)
+	if err != nil || time.Until(d) <= 0 || time.Until(d) > 2*time.Second {
+		t.Fatalf("deadline %q: %v", until, err)
+	}
+	for _, leak := range []string{"vm.example.org", "127.0.0.1"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("status leaks %q: %s", leak, body)
+		}
+	}
+	time.Sleep(2200 * time.Millisecond) // the window ends and the change is undone
+	if st, _ := status(); st["webChangeUntil"] != nil {
+		t.Errorf("still shown after the window: %v", st)
+	}
+}

@@ -46,7 +46,6 @@ test.describe.serial("datacenter", () => {
     for (const [link, slug, tab] of [
       ["Virtual machines", "vms", "Virtual machines"],
       ["Storage", "storage", "Storage"],
-      ["Networks", "network", "Network"],
       ["Backups", "backups", "Backups"],
       ["Nodes", "nodes", "Nodes"],
       ["Tasks", "tasks", "Tasks"],
@@ -56,6 +55,8 @@ test.describe.serial("datacenter", () => {
       await expect(page.getByRole("tab", { name: tab, exact: true })).toHaveAttribute("aria-selected", "true");
       await expect(top.getByRole("link", { name: link, exact: true })).toHaveClass(/active/);
     }
+    // the Network tab has no top bar entry of its own
+    await expect(top.getByRole("link", { name: "Networks", exact: true })).toHaveCount(0);
     await page.getByRole("tab", { name: "Summary", exact: true }).click();
     await expect(page).toHaveURL(/\/datacenter$/);
     await page.locator(".trow", { hasText: "Datacenter" }).first().getByRole("link").click();

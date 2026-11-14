@@ -188,13 +188,22 @@ test.describe.serial("web access", () => {
     expect((await status(api)).settings.mode).toBe("off");
   });
 
-  test("not confirmed: the listener goes back to plain HTTP by itself", async ({ api, playwright }) => {
+  test("not confirmed: the listener goes back to plain HTTP by itself", async ({ api, playwright, browser }) => {
     test.setTimeout(150_000);
     const win: number = (await status(api)).windowSeconds;
     await api.put("/web", { settings: { mode: "selfsigned", httpsListen: `${u.hostname}:${HTTPS_PORT}`, names: [u.hostname, "localhost"] } });
     const tls = await playwright.request.newContext({ ignoreHTTPSErrors: true });
     expect((await tls.get(HTTPS + "/api/status")).status(), "the new listener answers during the window").toBe(200);
     expect((await api.get("/web")).status.pending).toBeTruthy();
+    // Signed out, the sign-in page says that a change waits and when it is undone, and shows nothing else about it.
+    const anon = await browser.newContext({ baseURL: env.base, storageState: { cookies: [], origins: [] } });
+    const sp = await anon.newPage();
+    await sp.goto("/");
+    await expect(sp.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expect(sp.getByRole("status").filter({ hasText: "A web access change is waiting for confirmation" })).toContainText(/before \d{1,2}[:.]\d{2}/);
+    const pub = JSON.stringify(await (await sp.request.get("/api/status")).json());
+    expect(pub).not.toContain(HTTPS_PORT);
+    await sp.screenshot({ path: `${OUT}/signin-pending.png` });
     // A second change is refused while one waits.
     const again = await api.ctx.fetch("/api/web", { method: "PUT", data: { settings: plainSettings } });
     expect(again.status()).toBe(400);
@@ -209,6 +218,12 @@ test.describe.serial("web access", () => {
     expect(s.settings.mode).toBe("off");
     expect(s.pending).toBeFalsy();
     expect((await api.ctx.get("/api/status")).status()).toBe(200);
+    // Undone: the sign-in page has no such line any more.
+    await sp.reload();
+    await expect(sp.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expect(sp.getByText("A web access change is waiting")).toHaveCount(0);
+    expect(await (await sp.request.get("/api/status")).json()).not.toHaveProperty("webChangeUntil");
+    await anon.close();
     await tls.dispose();
   });
 
