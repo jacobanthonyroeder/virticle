@@ -1,24 +1,13 @@
-/* Hardware tab: a two-column grid whose rows share their height, full-width table cards, collapsed sections.
-   The grid follows the width of the page area (container query), not of the window, because the tree takes a part of it. */
-.hwwrap { container-type: inline-size; }
-.hw { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 12px; align-items: stretch; }
+/* Hardware tab: the cards of the selected sub page, one under the other (the sub page column is in SubNav). */
+.hw { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 0; }
 .hw > * { min-width: 0; }
-@container (min-width: 760px) {
-  .hw { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hw > .full { grid-column: 1 / -1; }
+.hwwrap { min-width: 0; }
+/* Boot order and firmware are short: side by side when the sub page is wide enough (the container is SubNav's). */
+@container (min-width: 900px) {
+  .hw.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.hw > .card, .hwcol > .card { display: flex; flex-direction: column; }
-/* Left stack of the top block: its cards end level with the Boot order card beside it. */
-.hwcol { display: flex; flex-direction: column; gap: 14px; }
-.hwcol > .card:last-child { flex: 1; }
-.hw > .hwcol { min-width: 0; }
-/* One column: the stack dissolves and the cards follow the order of use. */
-@container (max-width: 759px) {
-  .hwcol { display: contents; }
-  #hw-cpu { order: 1; } #hw-boot { order: 2; } #hw-disks { order: 3; } #hw-nics { order: 4; } #hw-cdrom { order: 5; } #hw-firmware { order: 6; } #hw-serial { order: 6; } #hw-clock { order: 6; }
-  .hw > .hwcol { display: contents; }
-  #hw-advanced, #hw-passthrough { order: 7; }
-}
+.hw > .card { display: flex; flex-direction: column; }
+.subpage > .error:first-child, .subpage > .statusline:first-child { margin-top: 0; }
 
 .chead { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 30px; }
 .chead:empty { display: none; }
@@ -49,7 +38,7 @@
 .disc-head svg { flex: none; color: var(--muted); }
 .disc-title { font-weight: 700; flex: none; }
 .disc-sum { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
-.disc-body { margin-top: 12px; }
+.disc-body { margin-top: 0; }
 .hw > .card.disc-card { display: block; }
 
 /* A compact note: one line, details on demand. */

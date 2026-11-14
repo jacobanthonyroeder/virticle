@@ -16,6 +16,7 @@ import { HostNIC, isBridge, shownAddresses } from "../BridgeSelect";
 import DialogAdvanced from "./DialogAdvanced";
 import "./hw.css";
 import { StatusLine } from "../Checks";
+import SubNav, { SubPage } from "../SubNav";
 
 interface HwResult {
   applied: "live+config" | "live" | "config";
@@ -108,29 +109,42 @@ export function HardwareDialog({ area, title, d, base, onChanged, onClose }: { a
   );
 }
 
+/** The sub pages of the Hardware tab. Disks and CD-ROM share one page, boot order and firmware another. */
+export const HW_PAGES: SubPage[] = [
+  { id: "cpu", label: "CPU and memory", cards: ["hw-cpu"] },
+  { id: "disks", label: "Disks", cards: ["hw-disks", "hw-cdrom"] },
+  { id: "nics", label: "Network interfaces", cards: ["hw-nics"] },
+  { id: "boot", label: "Boot and firmware", cards: ["hw-boot", "hw-firmware"] },
+  { id: "advanced", label: "Advanced", cards: ["hw-advanced"] },
+  { id: "passthrough", label: "Passthrough", cards: ["hw-passthrough"] },
+];
+const hwAreas: Record<string, HwArea[]> = {
+  cpu: ["cpu"],
+  disks: ["disks", "cdrom"],
+  nics: ["nics"],
+  boot: ["boot", "firmware"],
+  advanced: ["advanced"],
+  passthrough: ["passthrough"],
+};
+
 export default function Hardware({ d, base, onChanged }: { d: VMDetail; base: string; onChanged: () => void }) {
   const viewer = useRole() === "viewer";
   const hw = useHw(d, base, onChanged);
-  const S = (area: HwArea) => <Section area={area} d={d} base={base} onChanged={onChanged} hw={hw} />;
   return (
-    // A viewer sees the hardware but every control is disabled, not just its buttons hidden.
-    <fieldset className="plain hwwrap" disabled={viewer}>
-      <Outcome hw={hw} />
-      <div className="hw">
-        <div className="hwcol">
-          {S("cpu")}
-          {S("firmware")}
-        </div>
-        <div className="hwcol">
-          {S("boot")}
-          {S("cdrom")}
-        </div>
-        {S("disks")}
-        {S("nics")}
-        {S("advanced")}
-        {S("passthrough")}
-      </div>
-    </fieldset>
+    <SubNav pages={HW_PAGES} label="Hardware">
+      {(sec) => (
+        // A viewer sees the hardware but every control is disabled, not just its buttons hidden. The sub page column
+        // stays outside the fieldset: a viewer can still choose a sub page.
+        <fieldset className="plain hwwrap" disabled={viewer}>
+          <Outcome hw={hw} />
+          <div className={sec === "boot" ? "hw two" : "hw"}>
+            {(hwAreas[sec] ?? []).map((area) => (
+              <Section key={area} area={area} d={d} base={base} onChanged={onChanged} hw={hw} />
+            ))}
+          </div>
+        </fieldset>
+      )}
+    </SubNav>
   );
 }
 

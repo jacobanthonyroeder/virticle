@@ -15,6 +15,7 @@ import Storage from "./Storage";
 import Topology from "./Topology";
 import { PerformanceTab } from "./Performance";
 import VMs from "./VMs";
+import SubNav, { SubPage } from "../SubNav";
 import "../node.css";
 import { StatusLine } from "../Checks";
 
@@ -189,15 +190,25 @@ function Summary({ n, alerts }: { n: NodeStatus; alerts: ReturnType<typeof useAl
   );
 }
 
+const SETTINGS_PAGES: SubPage[] = [
+  { id: "connection", label: "Connection" },
+  { id: "migration", label: "Encrypted migration" },
+];
+
 function Settings({ n, admin }: { n: NodeStatus; admin: boolean }) {
   const online = n.state === "online";
   return (
-    <div className="cards">
-      <ConnectionCard n={n} admin={admin} />
-      <div className="card">
-        <h3>Encrypted migration</h3>
-        {online ? <MigrationTLS node={n.id} online={online} admin={admin} /> : <p className="muted">Needs a connection to the node.</p>}
-      </div>
-    </div>
+    <SubNav pages={SETTINGS_PAGES} label="Settings">
+      {(sec) =>
+        sec === "migration" ? (
+          <div className="card">
+            <h3>Encrypted migration</h3>
+            {online ? <MigrationTLS node={n.id} online={online} admin={admin} /> : <p className="muted">Needs a connection to the node.</p>}
+          </div>
+        ) : (
+          <ConnectionCard n={n} admin={admin} />
+        )
+      }
+    </SubNav>
   );
 }

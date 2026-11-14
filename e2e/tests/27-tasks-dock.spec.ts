@@ -55,7 +55,7 @@ test.describe.serial("tasks dock", () => {
 
     // a long page in a short window: only the main area scrolls
     await page.setViewportSize({ width: 1280, height: 560 });
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     const m = await page.evaluate(() => {
       const c = document.querySelector(".content-scroll")!;
       const before = c.scrollTop;

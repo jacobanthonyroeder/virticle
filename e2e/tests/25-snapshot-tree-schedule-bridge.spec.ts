@@ -234,7 +234,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
       test(`${zone}: 08:00 local is stored as UTC and shown as 08:00 again`, async ({ browser, api }) => {
         const ctx = await browser.newContext({ storageState: ".auth/admin.json", timezoneId: zone });
         const page = await ctx.newPage();
-        await openVM(page, vm, "snapshots");
+        await openVM(page, vm, "snapshots", "schedule");
         const sec = page.locator("#snap-schedule");
         await sec.getByRole("button", { name: "Set up schedule" }).click();
         await expect(field(sec, "Time")).toHaveValue("03:00");
@@ -253,7 +253,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
       const ctx = await browser.newContext({ storageState: ".auth/admin.json", timezoneId: "Pacific/Auckland" });
       const page = await ctx.newPage();
       await page.clock.install({ time: new Date("2026-04-04T12:00:00Z") });
-      await openVM(page, vm, "snapshots");
+      await openVM(page, vm, "snapshots", "schedule");
       const sec = page.locator("#snap-schedule");
       await sec.getByRole("button", { name: "Set up schedule" }).click();
       await field(sec, "Time").fill("08:00");
@@ -266,7 +266,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
     });
     test("an interval is entered in hours; an old minutes value is rounded and the form says so", async ({ page, api }) => {
       await api.put(`${base()}/snapshot-schedule`, { enabled: true, mode: "interval", everyMinutes: 90, keep: 3, prefix: "auto", memory: false, quiesce: false });
-      await openVM(page, vm, "snapshots");
+      await openVM(page, vm, "snapshots", "schedule");
       const sec = page.locator("#snap-schedule");
       await expect(sec).toContainText("Every 90 minutes");
       await sec.getByRole("button", { name: "Edit schedule" }).click();
@@ -292,7 +292,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
     expect(got.nextRun - Date.now() / 1000).toBeLessThanOrEqual(86400 + 60);
     expect(new Date(got.nextRun * 1000).toISOString().slice(11, 16)).toBe("03:30");
     expect(["this", "disabled"]).toContain(got.runner); // "disabled" when the server runs with -no-scheduler
-    await openVM(page, vm, "snapshots");
+    await openVM(page, vm, "snapshots", "schedule");
     const line = page.locator("#snap-schedule .nextrun").first();
     await expect(line).toContainText("Next Run:");
     if (got.runner === "disabled") await expect(line).toContainText("-no-scheduler");
@@ -312,7 +312,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
       const r = { schedule: { enabled: true, mode: "daily", at: "03:00", keep: 3, prefix: "x", memory: false, quiesce: false }, runner: "this", tick: 20, nextRun: requests === 1 ? soon : soon + 86400 };
       await route.fulfill({ json: r });
     });
-    await openVM(page, vm, "snapshots");
+    await openVM(page, vm, "snapshots", "schedule");
     const line = page.locator("#snap-schedule .nextrun").first();
     await expect(line).toContainText("Next Run:");
     await expect(line).toContainText(/E[SD]T/);
@@ -334,7 +334,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
     // no backup exists yet, so the schedule is due at once (the scheduler's own rule)
     expect(Math.abs(got.nextRun - Date.now() / 1000)).toBeLessThan(10);
     expect(got.runner).toBe("disabled");
-    await openVM(page, vm, "backups");
+    await openVM(page, vm, "backups", "schedule");
     const sec = page.locator("#backup-schedule");
     await expect(sec.locator(".nextrun").first()).toContainText("Next Run:");
     await expect(sec.locator(".nextrun").first()).toContainText("-no-scheduler");
@@ -346,7 +346,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
 
   test.describe("bridge in the Network select", () => {
     const addInterface = async (page: Page) => {
-      await openVM(page, vm, "hardware");
+      await openVM(page, vm, "hardware", "nics");
       await page.getByRole("button", { name: "Add interface" }).click();
       return dialog(page, "Add network interface");
     };

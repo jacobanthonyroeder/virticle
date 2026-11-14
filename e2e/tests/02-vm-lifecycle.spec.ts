@@ -1,5 +1,5 @@
 // Creating a VM through the form, its consoles, and every lifecycle button.
-import { cleanVMs, expect, openVM, stateOf, tab, test } from "../lib/fixtures";
+import { cleanVMs, expect, openVM, stateOf, subPage, tab, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
 import { autoDialogs, dialog, expectBadge, field, row, vmAction, confirm, cancelConfirm, pick } from "../lib/ui";
 
@@ -59,6 +59,7 @@ test.describe.serial("create from a disk image and drive the lifecycle", () => {
     await expect(summary).toContainText("128 MiB");
     await expect(summary).toContainText(vm.uuid);
     await tab(page, "Hardware");
+    await subPage(page, "Disks");
     await expect(page.locator(".card", { hasText: "Disks" }).first()).toContainText(`${NAME}.qcow2`);
   });
 

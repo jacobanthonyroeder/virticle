@@ -6,6 +6,7 @@ import { buildSnapRows } from "../snapTree";
 import SnapTree from "./SnapTree";
 import { describeWhen, NextRunLine, ScheduleWhen, When, whenBody, whenFrom } from "../ScheduleTime";
 import { CheckList, StatusLine } from "../Checks";
+import SubNav, { SubPage } from "../SubNav";
 
 interface Snap {
   name: string;
@@ -56,6 +57,11 @@ interface Schedule {
 
 const when = (d: Date) => d.toLocaleString();
 
+export const SNAP_PAGES: SubPage[] = [
+  { id: "snapshots", label: "Snapshots" },
+  { id: "schedule", label: "Schedule", cards: ["snap-schedule"] },
+];
+
 export default function SnapshotsTab({ d, base }: { d: VMDetail; base: string }) {
   const snaps = useLive(
     () => get<Snap[]>(`${base}/snapshots`),
@@ -71,25 +77,34 @@ export default function SnapshotsTab({ d, base }: { d: VMDetail; base: string })
 
   return (
     <>
-      <div className="head">
-        <h3>Snapshots</h3>
-        <div className="actions">
-          <button disabled={!list || list.length === 0} onClick={() => setDeleting({})}>
-            Delete snapshots
-          </button>
-          <button className="primary" disabled={!!blocked} onClick={() => setTaking(true)}>
-            Take snapshot
-          </button>
-        </div>
-      </div>
-      {blocked && <p className="muted">{blocked}</p>}
-      {opts?.mixed && <StatusLine status="warning">{opts.mixed}</StatusLine>}
-      <ErrorBox error={snaps.error} />
-      {list && list.length === 0 && <div className="empty">No snapshots yet.</div>}
-      {list && list.length > 0 && (
-        <SnapTree list={list} vmState={d.state} mode="view" ariaLabel="Snapshots" onRevert={setReverting} onDelete={(x) => setDeleting({ initial: x.name })} />
-      )}
-      <SchedulePanel d={d} base={base} />
+      <SubNav pages={SNAP_PAGES} label="Snapshots">
+        {(sec) =>
+          sec === "schedule" ? (
+            <SchedulePanel d={d} base={base} />
+          ) : (
+            <>
+              <div className="head" style={{ marginTop: 0 }}>
+                <h3>Snapshots</h3>
+                <div className="actions">
+                  <button disabled={!list || list.length === 0} onClick={() => setDeleting({})}>
+                    Delete snapshots
+                  </button>
+                  <button className="primary" disabled={!!blocked} onClick={() => setTaking(true)}>
+                    Take snapshot
+                  </button>
+                </div>
+              </div>
+              {blocked && <p className="muted">{blocked}</p>}
+              {opts?.mixed && <StatusLine status="warning">{opts.mixed}</StatusLine>}
+              <ErrorBox error={snaps.error} />
+              {list && list.length === 0 && <div className="empty">No snapshots yet.</div>}
+              {list && list.length > 0 && (
+                <SnapTree list={list} vmState={d.state} mode="view" ariaLabel="Snapshots" onRevert={setReverting} onDelete={(x) => setDeleting({ initial: x.name })} />
+              )}
+            </>
+          )
+        }
+      </SubNav>
       {taking && <TakeSnapshot d={d} base={base} onClose={() => setTaking(false)} onDone={snaps.reload} />}
       {reverting && <Revert snap={reverting} base={base} onClose={() => setReverting(undefined)} onDone={snaps.reload} />}
       {deleting && list && <DeleteSnapshots list={list} initial={deleting.initial} base={base} vmState={d.state} onClose={() => setDeleting(undefined)} onDone={snaps.reload} />}
@@ -301,7 +316,7 @@ function SchedulePanel({ d, base }: { d: VMDetail; base: string }) {
   };
 
   return (
-    <section className="card" id="snap-schedule" style={{ marginTop: 20 }}>
+    <section className="card" id="snap-schedule">
       {confirm.dialog}
       <h3>Scheduled snapshots</h3>
       <ErrorBox error={cur.error} />

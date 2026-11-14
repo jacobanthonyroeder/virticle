@@ -92,6 +92,7 @@ last, under [Planned](#planned).
 - [x] Browser suite (`make e2e`, 52 spec files with 294 `test(` declarations counted from the source; last full runs: see the release notes) including a no-ellipsis check and a fit check: no element cut off or spilling out of its card at 1280 and 1440 px, both themes, plus phone width
 - [x] Move a disk to another pool: live (block copy and pivot) or offline, with pre-flight checks, progress and cancel. Verified on Debian and Rocky; not tested under guest writes; dir pools only tested
 - [x] Image catalogue: ten built-in cloud images, downloaded by the node and verified by checksum (same-origin checksum: catches corruption, not a compromised mirror); `<data>/images.json` adds or overrides entries
+- [x] Sub pages inside the long tabs (VM Hardware, Snapshots and Backups; node Settings): a list at the left, one sub page at a time, the choice kept in the address (`sec=`)
 - [x] Cloud-init profiles (stored in the controller database, passwords as hashes only), selectable when creating and cloning
 - [x] Console preview card on the VM overview (still image, refreshed only while visible), standalone console page, console toolbar (Ctrl+Alt+Del, key combos, paste text, screenshot, full screen)
 - [x] go-libvirt could wedge a node connection when a stream ended abruptly: fixed with a small patch kept in `third_party/go-libvirt`, plus a per-node watchdog that reconnects an unresponsive connection. Screenshots still use virsh (a separate library bug)

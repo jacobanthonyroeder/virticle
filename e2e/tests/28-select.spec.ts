@@ -89,7 +89,7 @@ test.describe.serial("themed select", () => {
   });
 
   test("a disabled option is shown but cannot be chosen", async ({ page }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "nics");
     await page.getByRole("button", { name: "Add interface" }).click();
     const dlg = dialog(page, "Add network interface");
     const net = dlg.getByRole("combobox", { name: "Network", exact: true });
@@ -107,7 +107,7 @@ test.describe.serial("themed select", () => {
   });
 
   test("a long list has a search box that filters; Enter takes the active match", async ({ page }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "advanced");
     await page.getByRole("button", { name: /^Advanced/ }).first().click();
     await pick(page, "CPU mode", "custom model");
     const model = page.getByRole("combobox", { name: "Model", exact: true });

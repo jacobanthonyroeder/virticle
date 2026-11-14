@@ -60,6 +60,7 @@ test.describe.serial("serial console", () => {
     await expect(card(page, "CPU and memory")).toBeVisible();
     await expect(card(page, "Serial console")).toHaveCount(0);
     await expect(card(page, "Clock")).toHaveCount(0);
+    await expect(page.locator(".subnav").getByRole("tab", { name: /Serial|Clock/ })).toHaveCount(0);
     await page.locator(".head").getByRole("button", { name: "Actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "Edit Settings", exact: true }).click();
     await expect(page.getByRole("menuitem", { name: "Serial console", exact: true })).toHaveCount(0);

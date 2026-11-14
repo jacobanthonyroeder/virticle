@@ -142,7 +142,7 @@ test.describe.serial("overview and actions", () => {
     await page.keyboard.press("Escape");
     await expect(dialog(page)).toHaveCount(0);
     await vmActionOnPage(page, "Snapshots", "Schedule");
-    await expect(page).toHaveURL(/tab=snapshots/);
+    await expect(page).toHaveURL(/tab=snapshots&sec=schedule/);
     await expect(page.locator("#snap-schedule")).toBeInViewport();
     await vmActionOnPage(page, "Snapshots", "Take snapshot");
     await expect(dialog(page)).toBeVisible();

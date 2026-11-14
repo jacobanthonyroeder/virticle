@@ -55,12 +55,20 @@ export async function cleanVMs(api: Api, ...names: string[]) {
   }
 }
 
-export const vmUrl = (node: number, uuid: string, tab?: string) => `/vm/${node}/${uuid}${tab ? "?tab=" + tab : ""}`;
+export const vmUrl = (node: number, uuid: string, tab?: string, sec?: string) =>
+  `/vm/${node}/${uuid}${tab ? "?tab=" + tab + (sec ? "&sec=" + sec : "") : ""}`;
 
-/** Opens a VM detail page and waits for its header. */
-export async function openVM(page: Page, vm: { node: number; uuid: string; name: string }, tab?: string) {
-  await page.goto(vmUrl(vm.node, vm.uuid, tab));
+/** Opens a VM detail page and waits for its header. `sec` is the sub page of the tab (id in the URL, e.g. "disks"). */
+export async function openVM(page: Page, vm: { node: number; uuid: string; name: string }, tab?: string, sec?: string) {
+  await page.goto(vmUrl(vm.node, vm.uuid, tab, sec));
   await expect(page.getByRole("heading", { level: 1, name: vm.name })).toBeVisible();
+}
+
+/** Shows a sub page of the open tab (VM Hardware, Snapshots, Backups; node Settings) by its label in the sub page column. */
+export async function subPage(page: Page, label: string) {
+  const entry = page.locator(".subnav").getByRole("tab", { name: label, exact: true });
+  if ((await entry.getAttribute("aria-selected")) !== "true") await entry.click();
+  await expect(entry).toHaveAttribute("aria-selected", "true");
 }
 
 export async function tab(page: Page, name: string) {

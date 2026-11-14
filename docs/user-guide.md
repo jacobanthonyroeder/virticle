@@ -37,6 +37,20 @@ How to do the everyday things in the web UI. To install, see
   its progress: click it and confirm to stop the task. It then ends with the
   error "cancelled", and what it had made so far is removed.
 - **Status** is always a dot and a word: green Ok, yellow Warning, red Error.
+- **Sub pages**: some tabs hold several separate areas. They show a short list of sub pages at the left of the
+  tab (like the tree at the left of the screen). Choose an entry to see only that sub page. The list stays in view
+  when the page is long. The choice is part of the address, so reload, back and links keep it. On a narrow screen the
+  list becomes a row above the page.
+
+| Tab | Sub pages |
+| --- | --- |
+| VM **Hardware** | CPU and memory, Disks (with CD-ROM), Network interfaces, Boot and firmware, Advanced, Passthrough |
+| VM **Snapshots** | Snapshots, Schedule |
+| VM **Backups** | Backups, Schedule |
+| Node **Settings** | Connection, Encrypted migration |
+
+The other tabs (Overview, Performance, Console, a node's Summary, Virtual machines, Storage, Network and Updates) are
+one page each.
 
 Long actions (snapshots, migration, backups, downloads) run in the background.
 You can leave the page; the task keeps going.
@@ -208,9 +222,11 @@ Sync guest clock is under **Power**.
 
 ![Hardware](img/vm-hardware.png)
 
-- Each card edits one area: CPU and memory, firmware and TPM, boot order,
-  CD-ROM, disks, network interfaces, passthrough and **Advanced** (CPU mode,
-  pinning, huge pages).
+- The sub pages at the left of the tab: **CPU and memory**, **Disks** (disks and
+  CD-ROM), **Network interfaces**, **Boot and firmware** (boot order, firmware and TPM),
+  **Advanced** (CPU mode, pinning, huge pages) and **Passthrough**. Each sub page has
+  one card per area, and each card edits that area. **Actions > Edit Settings** opens the same cards
+  in a dialog.
 - A change that cannot apply to a running VM is saved and marked as applying
   at the next start.
 - **Passthrough** lists the host's PCI devices. A device shares its IOMMU
@@ -231,7 +247,8 @@ Sync guest clock is under **Power**.
 - **Take snapshot** runs as a task with a progress bar.
 - The tree shows which snapshot the VM is based on (**You are here**).
 - The round arrow reverts; the bin deletes. **Delete snapshots** deletes several.
-- **Set up schedule**: interval or daily, keep the newest N.
+- **Schedule** (sub page at the left): **Set up schedule** takes snapshots by itself, every so many hours or daily,
+  and keeps the newest N. **Actions > Snapshots > Schedule** opens it.
 
 **You do not choose the kind of snapshot.** Virticle picks the one that works on the node (internal, in the disk
 file, or external, in extra files). A running VM can save its running state with the snapshot, which pauses the guest
@@ -261,11 +278,12 @@ the disk: keep it as safe as the VM itself. A TPM of another kind (TPM 1.2, a pa
 read, is not included: the backup is made all the same, the task and the backup's notes say "TPM state not included", and the
 restored VM starts with an empty TPM. Backups made before Virticle saved TPM state restore that way too.
 
-1. Open the VM's **Backups** tab.
+1. Open the VM's **Backups** tab. Its **Schedule** sub page is at the left.
 2. Choose **Back up now**, pick the target node and pool, and set **Keep the newest** (older backups of this VM in that pool
    are deleted; 0 keeps all).
 3. **Restore** puts a backup back as a new VM or over the original (the original must be shut off).
-4. **Set up schedule** and **Save schedule** make backups run by themselves: every so many minutes or hours, or daily.
+4. On the **Schedule** sub page, **Set up schedule** and **Save schedule** make backups run by themselves: every so many
+   minutes or hours, or daily.
 
 **Frozen file systems.** For a running VM with the QEMU guest agent connected, Virticle freezes the guest's file systems
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
@@ -455,8 +473,8 @@ Good to know:
   | **Migration ports** | Whether the target's firewall lets the migration data through. |
 
 - The streams are encrypted when both nodes are set up. The controller sets
-  this up by itself on every prepared node; see **Settings > Encrypted
-  migration** on the node. If another controller installed the certificates, it
+  this up by itself on every prepared node; see the **Encrypted migration**
+  sub page of the node's **Settings** tab. If another controller installed the certificates, it
   says **Set up by another controller**; **Fix** replaces them after you
   confirm. Virticle never replaces them by itself.
 - A Debian node and a RHEL-family node cannot exchange VMs.
@@ -468,7 +486,7 @@ the controller uses. When a node has more than one network card, choose which
 one carries the data, so that management traffic is not held up by a big
 transfer:
 
-1. Open the node, **Settings**, and choose **Change** next to **Migration
+1. Open the node, **Settings** (the **Connection** sub page), and choose **Change** next to **Migration
    network**. The row appears only when the node has more than one address.
    (The same list is under **Advanced** in **Edit connection**. In the
    **Network** tab, **Use for migration** next to an address does the same,

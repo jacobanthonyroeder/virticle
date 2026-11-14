@@ -1,6 +1,6 @@
 // VM page polish: Edit Settings dialogs that share state with the Hardware tab, the Power submenu order, the
 // the plain Take snapshot dialog, the aligned Hardware tab with collapsed sections, the pool picker, the autostart box.
-import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
+import { cleanVMs, createCirros, expect, openVM, subPage, test } from "../lib/fixtures";
 import { P } from "../lib/env";
 import { dialog, expectBadge, field } from "../lib/ui";
 import { poolLevel } from "../../web/src/poolLevel";
@@ -97,7 +97,7 @@ test.describe.serial("VM page polish", () => {
   });
 
   test("Disks dialog: nested Add disk, Escape closes only the top dialog, the new disk shows in both", async ({ page, api, n1 }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     await edit(page, "Disks");
     const disks = dialog(page, "Disks");
     await disks.getByRole("button", { name: "Add disk" }).click();
@@ -119,7 +119,7 @@ test.describe.serial("VM page polish", () => {
   });
 
   test("pool picker: percent, used of size and a bar per pool; keyboard choice is what the request sends", async ({ page }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     await page.getByRole("button", { name: "Add disk" }).click();
     const dlg = dialog(page, "Add disk");
     const combo = dlg.getByRole("combobox", { name: "Storage pool" });
@@ -196,57 +196,61 @@ test.describe.serial("VM page polish", () => {
     await expect.poll(async () => (await api.vmDetail(vm.node, vm.uuid)).autostart).toBe(false);
   });
 
-  test("Hardware tab: cards do not overlap, columns line up, gaps are equal, the stacks end level", async ({ page }) => {
+  test("Hardware tab: one sub page at a time, cards do not overlap, edges line up, gaps are equal", async ({ page }) => {
     await page.setViewportSize({ width: 1360, height: 900 });
     await openVM(page, vm, "hardware");
-    await expect(page.locator("#hw-advanced")).toBeVisible();
-    const boxes = await page.locator(".hw .card").evaluateAll((els) => els.map((e) => ({ id: e.id, ...e.getBoundingClientRect().toJSON() })));
-    expect(boxes.length).toBe(8);
-    for (let i = 0; i < boxes.length; i++)
-      for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i], b = boxes[j];
-        const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
-        expect(overlap, `${a.id} overlaps ${b.id}`).toBe(false);
+    // the sub page column lists every area; only the selected sub page is in the page
+    await expect(page.locator(".subnav").getByRole("tab")).toHaveText(["CPU and memory", "Disks", "Network interfaces", "Boot and firmware", "Advanced", "Passthrough"]);
+    const cards = { "CPU and memory": ["hw-cpu"], Disks: ["hw-disks", "hw-cdrom"], "Network interfaces": ["hw-nics"], "Boot and firmware": ["hw-boot", "hw-firmware"], Advanced: ["hw-advanced"], Passthrough: ["hw-passthrough"] };
+    for (const [label, ids] of Object.entries(cards)) {
+      await subPage(page, label);
+      await expect(page.locator(`#${ids[0]}`)).toBeVisible();
+      const boxes = await page.locator(".hw .card").evaluateAll((els) => els.map((e) => ({ id: e.id, ...e.getBoundingClientRect().toJSON() })));
+      expect(boxes.map((b) => b.id).sort(), label).toEqual([...ids].sort());
+      for (let i = 0; i < boxes.length; i++)
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i], b = boxes[j];
+          const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+          expect(overlap, `${a.id} overlaps ${b.id}`).toBe(false);
+        }
+      // the cards start at the top of the sub page column and end at the right edge of the page area
+      const nav = await page.locator(".subnav").boundingBox();
+      const page_ = await page.locator(".subpage").boundingBox();
+      expect(Math.abs(Math.max(...boxes.map((b) => b.right)) - (page_!.x + page_!.width)), `${label} right edge`).toBeLessThan(2);
+      expect(Math.abs(Math.min(...boxes.map((b) => b.top)) - nav!.y), `${label} top`).toBeLessThan(2);
+      if (label === "Boot and firmware") {
+        // side by side, the two cards end level: no hole under the shorter one
+        expect(Math.abs(boxes[0].top - boxes[1].top)).toBeLessThan(2);
+        expect(Math.abs(boxes[0].bottom - boxes[1].bottom)).toBeLessThan(2);
+      } else {
+        // one under the other, with the same gap everywhere
+        const sorted = [...boxes].sort((a, b) => a.top - b.top);
+        for (let i = 1; i < sorted.length; i++) expect(Math.abs(sorted[i].top - sorted[i - 1].bottom - 14), `${label} gap`).toBeLessThanOrEqual(1);
+        for (const b of boxes) {
+          expect(Math.abs(b.left - sorted[0].left)).toBeLessThan(2);
+          expect(Math.abs(b.right - (page_!.x + page_!.width)), `${b.id} right edge`).toBeLessThan(2);
+        }
       }
-    const lefts = [...new Set(boxes.map((b) => Math.round(b.left)))];
-    expect(lefts.length, `left edges ${lefts}`).toBeLessThanOrEqual(2);
-    const left = Math.min(...lefts);
-    const right = Math.max(...boxes.map((b) => b.right));
-    // full-width cards start at the first column and end at the same right edge
-    for (const id of ["hw-disks", "hw-nics", "hw-advanced", "hw-passthrough"]) {
-      const b = boxes.find((x) => x.id === id)!;
-      expect(Math.abs(b.left - left)).toBeLessThan(2);
-      expect(Math.abs(b.right - right)).toBeLessThan(2);
     }
-    // equal gaps between cards that are above each other
-    const gaps: number[] = [];
-    const sorted = [...boxes].sort((a, b) => a.top - b.top);
-    for (const b of sorted) {
-      const above = sorted.filter((a) => a !== b && a.bottom <= b.top + 1 && Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1);
-      if (above.length) gaps.push(Math.round(b.top - Math.max(...above.map((a) => a.bottom))));
-    }
-    expect(gaps.length).toBeGreaterThan(4);
-    for (const g of gaps) expect(Math.abs(g - gaps[0]), `gaps ${gaps}`).toBeLessThanOrEqual(1);
-    // the two stacks of the top block end level: no hole under the shorter one
-    const bottoms = ["hw-firmware", "hw-cdrom"].map((id) => boxes.find((x) => x.id === id)!.bottom);
-    expect(Math.abs(bottoms[0] - bottoms[1])).toBeLessThan(2);
     // no card spills out of the page area
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 
   test("collapsed sections show a summary, expand, and remember their state", async ({ page }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "advanced");
     const adv = page.locator("#hw-advanced");
-    const pass = page.locator("#hw-passthrough");
     await expect(adv).toContainText("No pinning, ordinary pages");
-    await expect(pass).toContainText("No host devices");
     await expect(page.locator("#hw-advanced-body")).toHaveCount(0);
     await adv.getByRole("button").first().click();
     await expect(page.locator("#hw-advanced-body")).toBeVisible();
     await expect(page.locator("#hw-advanced-body")).toContainText("vCPU pinning");
     await page.reload();
     await expect(page.locator("#hw-advanced-body")).toBeVisible();
+    // the other collapsed section keeps its own state, on its own sub page
+    await subPage(page, "Passthrough");
+    await expect(page.locator("#hw-passthrough")).toContainText("No host devices");
     await expect(page.locator("#hw-passthrough-body")).toHaveCount(0);
+    await subPage(page, "Advanced");
     await adv.getByRole("button").first().click();
     await expect(page.locator("#hw-advanced-body")).toHaveCount(0);
     await page.reload();
@@ -268,7 +272,7 @@ test.describe.serial("VM page polish", () => {
 
   test("Add CD-ROM drive stays available up to four drives", async ({ page, api }) => {
     for (let i = 0; i < 2; i++) await api.post(`${"/nodes/" + vm.node}/vms/${vm.uuid}/cdrom`);
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "disks");
     const c = card(page, "CD-ROM");
     await expect(c.locator("tbody tr")).toHaveCount(2);
     await c.getByRole("button", { name: "Add CD-ROM drive" }).click();
@@ -302,7 +306,7 @@ test.describe.serial("VM page polish", () => {
       const dev = (id: string, category: string) => ({ kind: "pci", id, nodedev: "pci_" + id, category, vendor: "Vendor", product: category, vendorId: "10de", productId: "1234", iommuGroup: 1, usedBy: [], unsafe: false });
       await route.fulfill({ json: { devices: [dev("0000:0a:00.0", "gpu"), dev("0000:0b:00.0", "storage")], attached: [], iommu: true, factsKnown: true, vm: vm.uuid, warning: "" } });
     });
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "passthrough");
     await page.getByRole("button", { name: /^Passthrough devices/ }).click();
     await page.getByRole("button", { name: "Add host device" }).click();
     const dlg = dialog(page, "Host devices of this node");

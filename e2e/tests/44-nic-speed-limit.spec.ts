@@ -16,14 +16,14 @@ test.describe.serial("network card speed limit", () => {
 
   test("a new card has no limit and the table says nothing about it", async ({ page, api, n1 }) => {
     vm = await createCirros(api, n1, NAME);
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "nics");
     await expect(card(page).locator("tbody tr")).toHaveCount(1);
     await expect(card(page)).not.toContainText("limited to");
     expect((await api.vmDetail(vm.node, vm.uuid)).xml).not.toContain("<bandwidth");
   });
 
   test("50 Mbit/s with the one field", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "nics");
     const c = card(page);
     await c.locator("tbody tr").first().getByRole("button", { name: "Edit" }).click();
     const dlg = dialog(page);
@@ -40,7 +40,7 @@ test.describe.serial("network card speed limit", () => {
   });
 
   test("download and upload apart, under Advanced", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "nics");
     const c = card(page);
     await c.locator("tbody tr").first().getByRole("button", { name: "Edit" }).click();
     const dlg = dialog(page);
@@ -56,7 +56,7 @@ test.describe.serial("network card speed limit", () => {
   });
 
   test("an invalid limit is refused before anything is sent", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "nics");
     const c = card(page);
     await c.locator("tbody tr").first().getByRole("button", { name: "Edit" }).click();
     const dlg = dialog(page);
@@ -71,7 +71,7 @@ test.describe.serial("network card speed limit", () => {
   });
 
   test("empty fields remove the limit and the element", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "nics");
     const c = card(page);
     await c.locator("tbody tr").first().getByRole("button", { name: "Edit" }).click();
     const dlg = dialog(page);
@@ -87,7 +87,7 @@ test.describe.serial("network card speed limit", () => {
   });
 
   test("a card can be added with a limit under Advanced", async ({ page, api }) => {
-    await openVM(page, vm, "hardware");
+    await openVM(page, vm, "hardware", "nics");
     const c = card(page);
     await c.getByRole("button", { name: "Add interface" }).click();
     const dlg = dialog(page, "Add network interface");
