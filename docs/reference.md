@@ -252,7 +252,7 @@ Rules:
   Ask limit 5 seconds, hard limit 7. Libvirt reads the hook directory at start and on SIGHUP, so prepare reloads
   `virtqemud`/`libvirtd` (running VMs are not touched). Prepare starts a probe VM `virticle-guard-selftest` that the hook
   refuses with a line naming what it may do (`exec`, `ssh`, `key`, `net`); a hook that libvirt cannot run is removed
-  again. The hook directory form needs libvirt 7 or newer. On Rocky 10 `virtqemud_t` is a permissive SELinux domain: the
+  again. On Rocky 10 `virtqemud_t` is a permissive SELinux domain: the
   hook runs, and denials (execute of the hook file, TCP connect to port 22) are only logged.
 - Checks before an unplanned failover (`replica_checks.go`; the decision is the pure `decideFailoverChecks`): node verb
   `peer-ask HOST PORT USER vm-state UUID` (run on the standby; answers from the source node's libvirt, over the standby's
@@ -342,8 +342,7 @@ task is stopped afterwards (run `virticle node prepare` again). A linked clone t
 - The manifest of an incremental backup is format 2 (an older Virticle refuses it instead of restoring part of a disk) and adds
   `kind`, `parent` (a backup in the same pool) and `checkpoint`. A full backup stays format 1, with `kind`, `checkpoint`,
   `fullReason` and the disks' `source` added; backups from before have none of these and count as full.
-- A backup is full when: the VM is shut off (copied with qemu-img, no checkpoint); a disk is not qcow2; libvirt is older
-  than 7.0; no earlier backup of the VM in the target has its checkpoint any more (restart after a killed QEMU, migration,
+- A backup is full when: the VM is shut off (copied with qemu-img, no checkpoint); a disk is not qcow2; no earlier backup of the VM in the target has its checkpoint any more (restart after a killed QEMU, migration,
   restore, snapshot revert, disk move); the disks (target, size, and the base image at the bottom of the backing chain) differ from the parent's; a backup in the chain is
   missing or its files differ from the manifest; the chain already has 7 backups; or libvirt refuses the incremental
   backup (then the VM's checkpoints are dropped and a full backup is made).
@@ -372,6 +371,14 @@ A node is reached in one of two ways. Both run the same program as root: the nod
 | --- | --- | --- |
 | **Service account** (recommended) | `virticle node prepare` | Signs in as `virticle-node` (`virticle` on a node that 0.2.0 prepared) and runs the node command with `sudo -n`. The sudo rule allows that program and nothing else. |
 | **Root** | `virticle node prepare --root` | Signs in as root and runs the node command directly. A Service account is safer. |
+
+**Minimum versions.** A node needs libvirt 11.0 or newer and QEMU 10.0 or newer (the numbers are in
+`internal/minver`; there is no setting to change them). The check is made in three places, with the same sentence: `node
+prepare` and the Add node dialog (installed versions, or the versions the repositories would install, before anything is
+installed), the connection test, and every connection the controller makes to a node. A node below the minimum is not
+managed: its state is Offline, its error is "This node has libvirt 10.0.0 and QEMU 8.2.2. Virticle needs libvirt 11.0 and
+QEMU 10.0 or newer.", and every action on it is refused as for any offline node. The controller connects again after five
+minutes, so an upgraded node comes back by itself; saving the node's connection settings does it at once.
 
 A node that has neither is "Not prepared": the features that need root are off. A node whose account has general
 passwordless sudo but no node command is also not prepared.
@@ -468,12 +475,12 @@ networks on a host bridge cannot carry it; a guest needs the MTU in its own sett
 **What it refuses.** Ports of a bond (or of a bridge) as uplinks, and cards that are already in another bond; an uplink that is already a port; wireless, virtual and
 libvirt-managed (`virbr*`, `vnet*`) interfaces; changing an interface that carries the controller's connection without
 moving its addresses; a second change while one is pending; deleting a bridge that VMs or libvirt networks use; changing
-or deleting bridges that virticle did not create (they are only listed); VLANs when the node's libvirt is older than 11.0.
+or deleting bridges that virticle did not create (they are only listed).
 Only bridges this feature created are changed: it keeps a record of them (`/var/lib/virticle-node/net/managed/`).
 
 **VLANs.** A VLAN-aware bridge has VLAN filtering on; its uplink allows the chosen VLAN ids (2-4094 by default, tagged),
 and the bridge's own address stays untagged (VLAN 1). A libvirt network with `forward mode='bridge'` on such a bridge can
-carry a VLAN tag (`vlan` in the network request, libvirt 11.0 or newer): the tag must be one the uplink allows.
+carry a VLAN tag (`vlan` in the network request): the tag must be one the uplink allows.
 The node's own addresses on a VLAN are described below.
 
 **Configuration systems.** Detected at run time, never by distribution name:
@@ -551,6 +558,8 @@ The update log is `/var/lib/virticle-update/update.log` on the node. dnf: `check
 
 ## Known limits
 
+- Nodes need libvirt 11.0 or newer and QEMU 10.0 or newer from the distribution's repositories. A node below that is
+  refused when it is added and is not managed when it is already added (see [Node access](#node-access)).
 - A Debian node and a Rocky Linux node cannot migrate VMs to each other
   (emulator path and machine type differ).
 - Snapshots and TPM state are not part of a backup.

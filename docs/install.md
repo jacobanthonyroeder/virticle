@@ -22,10 +22,10 @@ Releases are at <https://github.com/jacobanthonyroeder/virticle/releases>. Below
 | Controller | Linux amd64 | Tested |
 | Controller | Linux arm64 | Built, not tested |
 | Controller | Other operating systems or architectures | Not built |
-| Node | Debian 13 | Tested |
-| Node | Rocky Linux 10 | Tested |
-| Controller and node on one machine | Fedora 43 (firewalld, SELinux enforcing), Ubuntu 24.04 (ufw, AppArmor, libvirt 10.0) | Tested |
-| Node | Any other distribution with libvirt and SSH | Not tested |
+| Node | Debian 13 (libvirt 11.3, QEMU 10.0) | Tested |
+| Node | Rocky Linux 10 (libvirt 11.10, QEMU 10.1) | Tested |
+| Node | Any other distribution that ships libvirt 11.0 and QEMU 10.0 or newer | Accepted, not tested |
+| Node | Older releases, for example Debian 12 and Ubuntu 24.04 LTS (libvirt 10.0, QEMU 8.2) | Refused |
 
 | Install type | Notes |
 | --- | --- |
