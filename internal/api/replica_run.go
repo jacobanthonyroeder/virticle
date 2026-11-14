@@ -207,6 +207,8 @@ var reMetadataEl = regexp.MustCompile(`(?s)<metadata>.*?</metadata>|<metadata\s*
 // refused here, before a task exists.
 func (s *Server) planReplica(srcID int64, src *hostconn.Host, dom libvirt.Domain, cfg replConfig, final bool) (*replRun, error) {
 	sweepWork()
+	s.sweepWorkDirs(srcID)
+	s.sweepWorkDirs(cfg.TargetNode)
 	s.sweepReplicaOrphans(srcID, src)
 	if pers, err := src.DomainIsPersistent(dom); err != nil || pers == 0 {
 		return nil, badRequest("this VM is transient (only running, not defined); define it first")
@@ -349,16 +351,23 @@ func (r *replRun) ensureStandby() error {
 			}
 		}
 	}
-	if dir == "" {
+	made := dir == ""
+	if made {
 		w, err := r.dst.MkWorkDir(r.pd.Dir, "rp")
 		if err != nil {
 			return err
 		}
 		dir = w
+		// Recorded until the setting names it: a run cut short before that leaves an empty directory (workdirs.go).
+		r.s.holdWork(r.dst, dir, workKindReplica)
 	}
 	r.cfg.Dir = dir
 	r.st = replStore{h: r.dst, dir: dir}
-	if err := r.setSourceConfig(nil); err != nil {
+	err := r.setSourceConfig(nil)
+	if made {
+		r.s.releaseWork(dir, err == nil)
+	}
+	if err != nil {
 		return err
 	}
 	if _, ok := r.standbyDomain(); !ok && !r.cfg.ReplaceStale {
@@ -566,6 +575,8 @@ func (r *replRun) run() (err error) {
 	if err := r.ensureStandby(); err != nil {
 		return err
 	}
+	r.s.holdWork(r.dst, r.cfg.Dir, "") // the replica directory, while this run works in it
+	defer r.s.releaseWork(r.cfg.Dir, false)
 	kept, names, err := r.st.settle()
 	if err != nil && isReplicaDamaged(err) {
 		// A base image that cannot be made clean again is not repaired further: the copy is started over, whole.
@@ -649,6 +660,7 @@ func (r *replRun) run() (err error) {
 	if err != nil {
 		return err
 	}
+	r.s.holdWork(r.src, srcWork.path, workKindStage)
 	srcWork.stop = m.cancelled.Load
 	m.mu.Lock()
 	m.srcWork = srcWork
@@ -659,9 +671,12 @@ func (r *replRun) run() (err error) {
 			m.removeNewCheckpoint()
 			r.cleanIncoming(seq)
 		}
-		if rerr := srcWork.remove(); rerr != nil {
+		rerr := srcWork.remove()
+		if rerr != nil {
 			keepWork(srcWork)
 		}
+		// Not removed (the node is gone): the record stays and the sweep removes it when the node is back.
+		r.s.releaseWork(srcWork.path, rerr == nil)
 	}()
 
 	// Produce the files on the source.

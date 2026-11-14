@@ -73,6 +73,8 @@ type Server struct {
 	notifyOnce sync.Once // notify.go
 	notify     *notifier
 	takeOvers  sync.Map // node id -> true: taken over from another controller, see markTakeOver
+
+	workSweepOnce sync.Once // workdirs.go
 }
 
 type ctxKey struct{}
@@ -84,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 	s.startAlerts()
 	s.resumeRolling()
 	s.startMigAuto()
+	s.startWorkSweep()
 	s.startCPUBaseline()
 	s.routes = nil
 	pub := func(pattern string, h http.HandlerFunc) {
