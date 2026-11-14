@@ -55,6 +55,32 @@ const (
 // HomeFor is the home directory of a service account that prepare creates.
 func HomeFor(user string) string { return "/var/lib/" + user }
 
+// qemuProbe prints the version line of the installed QEMU, if there is one.
+const qemuProbe = `for c in qemu-system-x86_64 qemu-system-aarch64 /usr/libexec/qemu-kvm; do q=$(command -v "$c" 2>/dev/null) && [ -n "$q" ] && break; q=; done
+if [ -n "$q" ]; then echo "qemu_version=$("$q" --version 2>/dev/null | head -n 1)"; fi`
+
+// candidateProbe prints the libvirt and QEMU versions the distribution's
+// repositories would install, but only while one of the two is not installed.
+// Nothing is installed and no package index is updated: apt answers from the
+// lists it has (none: the versions are then checked after the install), dnf
+// may refresh its own metadata cache.
+const candidateProbe = `if ! command -v virsh >/dev/null 2>&1 || [ -z "$q" ]; then
+  if command -v apt-cache >/dev/null 2>&1; then
+    cand() { apt-cache policy "$1" 2>/dev/null | sed -n 's/^ *Candidate: //p'; }
+    echo "cand_libvirt=$(cand libvirt-daemon-system)"
+    echo "cand_qemu=$(cand qemu-system-x86)"
+  elif command -v dnf >/dev/null 2>&1; then
+    cand() { timeout 120 dnf -q repoquery --latest-limit 1 --queryformat '%{version}\n' "$1" 2>/dev/null | tail -n 1; }
+    echo "cand_libvirt=$(cand libvirt)"
+    echo "cand_qemu=$(cand qemu-kvm)"
+  fi
+fi`
+
+// versionScript prints the installed libvirt and QEMU versions; it runs
+// after the packages were installed.
+const versionScript = `echo "libvirt_version=$(virsh --version 2>/dev/null | head -n 1)"
+` + qemuProbe
+
 // FactsScript prints key=value lines describing the host. It changes nothing
 // and always succeeds. It runs as root (or through sudo) so that /dev/kvm,
 // libvirt and other users' files can be inspected.
@@ -92,6 +118,8 @@ if command -v virsh >/dev/null 2>&1; then
     done
   done
 fi
+` + qemuProbe + `
+` + candidateProbe + `
 echo "sudo_bin=$(command -v sudo 2>/dev/null)"
 echo "visudo_bin=$(command -v visudo 2>/dev/null)"
 echo "old_script=$([ -e ` + oldHelperPath + ` ] && echo yes)"
@@ -136,6 +164,8 @@ type Facts struct {
 	FreeBytes                                                  int64
 	SELinux, AppArmor, TimeSync                                string
 	Virsh, LibvirtVersion, LibvirtUnits                        string
+	QEMUVersion                                                string // first line of qemu --version; empty when QEMU is not installed
+	CandLibvirt, CandQEMU                                      string // versions the repositories would install, when not installed yet
 	Domains                                                    int
 	Controllers                                                []string // instance ids found in snapshot descriptions
 	SudoBin, VisudoBin, NodeCmdVersion, NodeCmdSHA, SudoersRaw string
@@ -196,6 +226,12 @@ func ParseFacts(out string) Facts {
 			f.Virsh = v
 		case "libvirt_version":
 			f.LibvirtVersion = v
+		case "qemu_version":
+			f.QEMUVersion = v
+		case "cand_libvirt":
+			f.CandLibvirt = v
+		case "cand_qemu":
+			f.CandQEMU = v
 		case "libvirt_units":
 			f.LibvirtUnits = v
 		case "domains":
@@ -297,8 +333,9 @@ type Distro struct {
 func major(v string) string { m, _, _ := strings.Cut(v, "."); return m }
 
 // Classify places a distribution in the matrix: Debian 13 and Rocky 10 are
-// tested; Debian 12, Ubuntu 22.04 and 24.04, RHEL, AlmaLinux and Rocky 9 and
-// 10, and Fedora are expected to work but are not tested; the rest is not
+// tested; Debian, Ubuntu, RHEL, AlmaLinux, Rocky and Fedora of any release are
+// accepted when the libvirt and QEMU they ship are new enough (the versions
+// decide, see internal/minver, not the release number); the rest is not
 // supported.
 func Classify(id, version, like, name string) Distro {
 	d := Distro{Name: name}
@@ -320,15 +357,11 @@ func Classify(id, version, like, name string) Distro {
 	maj := major(version)
 	switch id {
 	case "debian":
-		d.Tested, d.OK = maj == "13", maj == "13" || maj == "12"
-	case "ubuntu":
-		d.OK = version == "22.04" || version == "24.04"
-	case "rocky":
-		d.Tested, d.OK = maj == "10", maj == "10" || maj == "9"
-	case "rhel", "almalinux":
-		d.OK = maj == "9" || maj == "10"
-	case "fedora":
+		d.Tested, d.OK = maj == "13", true
+	case "ubuntu", "rhel", "almalinux", "fedora":
 		d.OK = true
+	case "rocky":
+		d.Tested, d.OK = maj == "10", true
 	}
 	return d
 }

@@ -147,13 +147,6 @@ func defaultGateway(snap *netSnap, dev string) string {
 	return ""
 }
 
-func libvirtVersionString(v uint64) string {
-	if v == 0 {
-		return "an unknown version"
-	}
-	return fmt.Sprintf("%d.%d.%d", v/1000000, v/1000%1000, v%1000)
-}
-
 // publicPlan turns the internal plan into the printed one.
 func (c *Ctx) publicPlan(in *planInput, pl *netPlanned, st stackInfo) nodeproto.NetPlan {
 	p := nodeproto.NetPlan{Stack: st.Name, StackTested: st.Tested, Summary: append([]string(nil), pl.Summary...), AddressMove: pl.Move,

@@ -10,13 +10,13 @@ const VIEWER = `${P}vswviewer`;
 const PASS = "e2e-vsw-pass-123";
 
 /** The first online node that can host a new virtual switch: supported, nothing pending, a free card. */
-async function nodeWithFreeCard(api: any): Promise<{ id: number; card: string; vlanCapable: boolean } | undefined> {
+async function nodeWithFreeCard(api: any): Promise<{ id: number; card: string } | undefined> {
   for (const n of await api.nodes()) {
     if (n.state !== "online") continue;
     const st = await api.get(`/nodes/${n.id}/hostnet`).catch(() => undefined);
     if (!st || !st.supported || st.status?.pending) continue;
     const card = (st.interfaces as any[]).find((i) => i.type === "physical" && !i.master);
-    if (card) return { id: n.id, card: card.name, vlanCapable: !!st.vlanCapable };
+    if (card) return { id: n.id, card: card.name };
   }
   return undefined;
 }
@@ -35,8 +35,7 @@ test.describe.serial("virtual switch dialog", () => {
     const dlg = page.getByRole("dialog", { name: "Add virtual switch" });
     await expect(dlg.getByLabel("Name")).toHaveValue(/^vsw\d+$/);
     await expect(dlg.getByRole("group", { name: "Uplinks" })).toBeVisible();
-    if (n!.vlanCapable) await expect(dlg.getByRole("checkbox", { name: "VLANs" })).toBeChecked();
-    else await expect(dlg.getByText("VLANs need libvirt 11 or later on this node.")).toBeVisible();
+    await expect(dlg.getByRole("checkbox", { name: "VLANs" })).toBeChecked();
     // one Advanced section, closed: the confirm time is inside it
     await expect(dlg.getByRole("button", { name: "Advanced" })).toHaveCount(1);
     await dlg.getByRole("button", { name: "Advanced" }).click();

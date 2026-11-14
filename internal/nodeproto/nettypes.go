@@ -52,10 +52,6 @@ const (
 	NetMaxTimeout     = 600
 )
 
-// LibvirtVLANMin is the libvirt version (as libvirt numbers it: 11.0.0) from
-// which a VLAN tag works on interfaces of a Linux bridge.
-const LibvirtVLANMin = 11000000
-
 // NetRequest is the change to make; it goes to stdin of net-plan and net-apply.
 type NetRequest struct {
 	Action string `json:"action"`
@@ -87,7 +83,9 @@ type NetRequest struct {
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
 	// ControllerAddrs are the addresses the controller reaches the node at.
 	ControllerAddrs []string `json:"controllerAddrs,omitempty"`
-	// LibvirtVersion is the node's libvirt version as libvirt numbers it (11.3.0 is 11003000).
+	// LibvirtVersion is the node's libvirt version as libvirt numbers it (11.3.0 is 11003000). The node command
+	// ignores it. The controller still sends it, because a node command from before libvirt 11 became the
+	// minimum refuses VLANs without it.
 	LibvirtVersion uint64 `json:"libvirtVersion,omitempty"`
 }
 

@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"strconv"
 	"strings"
 
+	"virticle/internal/minver"
 	"virticle/internal/nodeproto"
 )
 
@@ -125,12 +125,9 @@ func Evaluate(p Plan, o Options) []Row {
 		add("time", "Time sync", Warning, "Could not tell whether time sync is active (no timedatectl)")
 	}
 
-	// libvirt
-	if f.Virsh != "" {
-		add("libvirt", "libvirt", OK, "Installed, version "+f.LibvirtVersion)
-	} else {
-		add("libvirt", "libvirt", Info, "Not installed; the packages below would be installed")
-	}
+	// libvirt and QEMU: the minimum versions (internal/minver), for what is installed
+	// or, before anything is installed, for what the repositories would install.
+	rows = append(rows, versionRow(p))
 
 	// Another controller
 	other := []string{}
@@ -177,6 +174,48 @@ func Evaluate(p Plan, o Options) []Row {
 	// Start guard
 	rows = append(rows, guardRow(p, o))
 	return rows
+}
+
+// versionRow checks libvirt and QEMU against the minimum. What is installed
+// counts; what is not installed yet is judged by the version the
+// distribution's repositories offer. When a version cannot be told, the row
+// says so and goes on: the packages are checked again after they were installed.
+func versionRow(p Plan) Row {
+	f := p.Facts
+	row := Row{ID: "libvirt", Title: "libvirt and QEMU"}
+	pick := func(installed, candidate string, has bool) (v uint64, ok, fromRepo bool) {
+		if has {
+			v, ok = minver.Parse(installed)
+			return v, ok, false
+		}
+		v, ok = minver.Parse(candidate)
+		return v, ok, true
+	}
+	lib, libOK, libRepo := pick(f.LibvirtVersion, f.CandLibvirt, f.Virsh != "")
+	qemu, qemuOK, qemuRepo := pick(f.QEMUVersion, f.CandQEMU, f.QEMUVersion != "")
+	repo := libRepo || qemuRepo
+	switch {
+	case libOK && qemuOK && minver.Check(lib, qemu) != nil:
+		row.Status = Error
+		if repo {
+			row.Detail = p.Distro.Name + " would give this node " + minver.Describe(lib, qemu) + ". " + minver.Needs() + " Nothing was installed or changed"
+		} else {
+			row.Detail = minver.Check(lib, qemu).Error() + " Nothing was changed"
+		}
+	case libOK && qemuOK && repo:
+		row.Status = Info
+		row.Detail = "Not installed yet; the packages below would install " + minver.Describe(lib, qemu) + " from the repositories of " + p.Distro.Name
+	case libOK && qemuOK:
+		row.Status = OK
+		row.Detail = "Installed, " + minver.Describe(lib, qemu)
+	case f.Virsh != "":
+		row.Status = OK
+		row.Detail = "Installed, version " + f.LibvirtVersion + "; the version of QEMU could not be read. " + minver.Needs()
+	default:
+		row.Status = Info
+		row.Detail = "Not installed; the packages below would be installed. The versions the repositories offer could not be read, so they are checked after the install. " + minver.Needs()
+	}
+	return row
 }
 
 func gibText(b int64) string { return fmt.Sprintf("%.1f GiB", float64(b)/gib) }
@@ -289,22 +328,11 @@ func HasError(rows []Row) bool {
 	return false
 }
 
-// libvirtMajor is the major number of a libvirt version text, 0 when it is not known.
-func libvirtMajor(v string) int {
-	n, _ := strconv.Atoi(major(strings.TrimSpace(v)))
-	return n
-}
-
-// guardMinLibvirt is the first libvirt that runs the scripts of a hook directory (qemu.d).
-const guardMinLibvirt = 7
-
 // guardRow says what prepare does about the start guard (the libvirt hook that keeps the old copy of a
 // failed-over VM off).
 func guardRow(p Plan, o Options) Row {
 	row := Row{ID: "guard", Title: "Start guard"}
 	switch {
-	case p.Facts.Virsh != "" && p.Facts.LibvirtVersion != "" && libvirtMajor(p.Facts.LibvirtVersion) < guardMinLibvirt:
-		row.Status, row.Detail = Warning, "libvirt "+p.Facts.LibvirtVersion+" has no hook directory, so the start guard is not installed; a failed-over VM can start again on its old node until the controller shuts it down"
 	case p.Facts.GuardSHA != "" && p.Facts.GuardSHA == sha(nodeproto.HookScript(o.ServiceUser())):
 		row.Status, row.Detail = OK, "Installed at "+nodeproto.HookPath
 	case p.Facts.GuardSHA != "" && !p.Facts.GuardOurs:

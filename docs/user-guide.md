@@ -45,7 +45,10 @@ You can leave the page; the task keeps going.
 
 ![Nodes](img/nodes.png)
 
-A node is a host that runs your VMs.
+A node is a host that runs your VMs. It needs libvirt 11.0 or newer and QEMU 10.0 or newer from its distribution (see
+[Supported systems](../README.md#supported-systems)). **Add node** refuses an older host and changes nothing on it. A node
+that is already added and has older software shows as Offline with the reason and is not managed; after the node is
+upgraded it comes back by itself within five minutes.
 
 **This machine as a node.** While there are no nodes, the **Datacenter** page
 offers **Set up this machine as a node** when the controller's own machine can
@@ -745,7 +748,7 @@ while a change is waiting, the node's section shows it with the seconds left and
 rolled back is shown as one line you can dismiss.
 
 **Which nodes.** Nodes that use NetworkManager, or netplan with systemd-networkd. A node that uses ifupdown is not
-supported yet (the button is disabled and says so). VLANs on a virtual switch need libvirt 11 or later on the node. A
+supported yet (the button is disabled and says so). A
 node prepared with an older version of Virticle must be prepared again.
 
 ## Notifications

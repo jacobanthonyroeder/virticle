@@ -61,8 +61,8 @@ The container serves the same on port 8463 (compose.yaml publishes it on
 
 ### 3. Add a node
 
-A node is a Linux host with hardware virtualisation. Debian 13 and Rocky
-Linux 10 are tested. Adding a node prepares it: libvirt, QEMU and a small
+A node is a Linux host that meets [Supported systems](#supported-systems).
+Adding a node prepares it: libvirt, QEMU and a small
 node command are installed and the access the controller needs is set up.
 Nothing on the host is removed. A host that already runs libvirt is prepared
 the same way, and its networks, pools and VMs stay as they are.
@@ -98,6 +98,30 @@ Details are in [docs/install-node.md](docs/install-node.md).
 3. Open the VM and choose its **Console** tab.
 
 ![VM overview](docs/img/vm-overview.png)
+
+## Supported systems
+
+A node needs:
+
+- libvirt 11.0 or newer and QEMU 10.0 or newer, from the distribution's own
+  repositories
+- x86-64 with hardware virtualisation (arm64 is not tested)
+- systemd
+
+| Node system | libvirt, QEMU | Status |
+| --- | --- | --- |
+| Debian 13 | 11.3, 10.0 | Tested |
+| Rocky Linux 10 | 11.10, 10.1 | Tested |
+| Any other distribution that ships libvirt 11.0 and QEMU 10.0 or newer | 11.0 or newer, 10.0 or newer | Accepted, not tested |
+| Older releases, for example Debian 12 (libvirt 9.0, QEMU 7.2) and Ubuntu 24.04 LTS (libvirt 10.0, QEMU 8.2) | Below the minimum | Refused |
+
+Virticle checks the versions and has no setting to skip the check:
+
+- **Add node** refuses a host that is too old, and a host whose repositories
+  would install versions that are too old. It changes nothing on the host.
+- A node that is already added and has older software shows as offline, with
+  the reason. It is not managed. After the node is upgraded, it comes back by
+  itself.
 
 ## Everyday use
 
@@ -151,7 +175,9 @@ nodes. Steps for 0.2.0 to 0.3.0, and for older versions, are in
 ## Status
 
 Early release. Tested: a controller on Linux amd64, and nodes on Debian 13
-and Rocky Linux 10, each in both access modes.
+and Rocky Linux 10, each in both access modes. Nodes need libvirt 11.0 and
+QEMU 10.0 or newer; older systems are refused (see
+[Supported systems](#supported-systems)).
 
 Not tested: arm64, ACME certificate issuance, LACP against a real switch,
 sign-in with identity providers other than the test provider, and virtual

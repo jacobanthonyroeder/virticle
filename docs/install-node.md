@@ -1,6 +1,8 @@
 # Preparing a node
 
 A node is a Linux host with libvirt and QEMU that the controller reaches over SSH. No Virticle service runs on it.
+It needs libvirt 11.0 or newer and QEMU 10.0 or newer, from its distribution (see
+[Supported systems](#supported-systems)).
 
 **Prepare a node before you add it.** Either way works:
 
@@ -17,7 +19,7 @@ On this page:
 - [What prepare does](#what-prepare-does)
 - [Prepare options](#prepare-options)
 - [Upgrade and unprepare](#upgrade-and-unprepare)
-- [Tested systems and packages](#tested-systems-and-packages)
+- [Supported systems and packages](#supported-systems-and-packages)
 - [Preparing by hand](#preparing-by-hand)
 - [The restricted SSH key](#the-restricted-ssh-key)
 - [How nodes exchange files](#how-nodes-exchange-files)
@@ -69,10 +71,15 @@ Prepare runs these steps in order:
    - CPU virtualisation flags (`vmx` or `svm`) and `/dev/kvm`
    - nested virtualisation (information, when the host is itself a VM)
    - IOMMU on or off (information, needed for device passthrough)
-   - distribution and version against the tested list, and the architecture
+   - distribution against the list below, and the architecture
    - free space under `/var/lib/libvirt/images`
    - SELinux or AppArmor, and time sync
-   - whether libvirt is installed, and its version
+   - libvirt and QEMU against the minimum (libvirt 11.0, QEMU 10.0). Installed versions are checked. When they are not
+     installed yet, the versions the distribution's repositories would install are checked first (`apt-cache policy`,
+     `dnf repoquery`). A host that is too old gets an error row and **nothing is installed or changed**. When the
+     repositories cannot say (apt has no package lists yet), the packages are installed and the versions are checked
+     right after; a host that is then too old stops with an error that says what was installed and that the node
+     cannot be used
    - whether another Virticle controller manages the node (its key is in the account's `authorized_keys`) or runs
      snapshot schedules there. For a node that another controller manages, the dialog asks **Take over node** and the
      command line needs `--take-over`; the other controller's key is then removed (see
@@ -118,7 +125,7 @@ What is on the node afterwards:
 | Sudo rule | `/etc/sudoers.d/virticle`: the account may run the node command as root | Yes | No |
 | Node command | `/usr/local/libexec/virticle-node`, `root:root 0755` | Yes | Yes |
 | Node key | `~/.ssh/virticle_peer_ed25519`, the account's own key for copies between nodes | Yes | Yes |
-| Start guard | `/etc/libvirt/hooks/qemu.d/virticle-guard`, a libvirt hook that keeps the old copy of a failed-over VM off (libvirt 7 or newer) | Yes | Yes |
+| Start guard | `/etc/libvirt/hooks/qemu.d/virticle-guard`, a libvirt hook that keeps the old copy of a failed-over VM off | Yes | Yes |
 
 The sudoers file names one account, so a host has one Service account. Preparing it for another account replaces the
 rule.
@@ -172,13 +179,24 @@ firewall service `virticle-node` (or the ufw rule with that comment). It leaves 
   `virticle` has no such comment and is never removed.
 - It ends the account's processes first, so remove the node in the controller before you run it.
 
-## Tested systems and packages
+## Supported systems and packages
 
-| Distribution | Status |
-| --- | --- |
-| Debian 13, Rocky Linux 10 | Tested |
-| Debian 12, Ubuntu 22.04 and 24.04, RHEL, AlmaLinux and Rocky 9 and 10, Fedora | Untested. Prepare warns and goes on. |
-| Anything else | Error. Install by hand (below, including the node command), then add the node. |
+A node needs libvirt 11.0 or newer and QEMU 10.0 or newer from the distribution's own repositories, x86-64 with
+hardware virtualisation, and systemd. There is no setting to skip the check. Prepare, the connection test and every
+connection of the controller to a node make it.
+
+| Distribution | libvirt, QEMU | Status |
+| --- | --- | --- |
+| Debian 13 | 11.3, 10.0 | Tested |
+| Rocky Linux 10 | 11.10, 10.1 | Tested |
+| Any other Debian, Ubuntu, RHEL, AlmaLinux, Rocky or Fedora release that ships libvirt 11.0 and QEMU 10.0 or newer | 11.0 or newer, 10.0 or newer | Accepted. Prepare warns that it is untested and goes on. |
+| Older releases, for example Debian 12 and Ubuntu 24.04 LTS (libvirt 10.0, QEMU 8.2) | Below the minimum | Refused. Prepare shows an error row and changes nothing. |
+| Any other distribution | | Error. Install by hand (below, including the node command), then add the node. It is accepted if its libvirt and QEMU meet the minimum. |
+
+A node that is added although it is too old (a node prepared earlier, or a host that was added as already prepared)
+shows as **Offline** with the reason, for example: "This node has libvirt 10.0.0 and QEMU 8.2.2. Virticle needs libvirt
+11.0 and QEMU 10.0 or newer." The controller does not manage it. It looks at the node again every five minutes, so a
+node that was upgraded comes back by itself. Saving the node's connection settings looks again at once.
 
 Package names, checked on Debian 13 and Rocky Linux 10:
 

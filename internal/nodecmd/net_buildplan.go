@@ -135,9 +135,6 @@ func (c *Ctx) buildPlan(req *nodeproto.NetRequest) (*planInput, *netPlanned, sta
 			return nil, nil, st, Die("the VLAN settings are not part of this change")
 		}
 	} else if req.VLANAware {
-		if req.Action != nodeproto.NetDelete && req.LibvirtVersion < nodeproto.LibvirtVLANMin {
-			return nil, nil, st, Fail("VLANs on a Linux bridge need libvirt 11.0.0 or newer (this node has %s)", libvirtVersionString(req.LibvirtVersion))
-		}
 		if vlans, err = nodeproto.ParseVLANs(req.VLANs); err != nil {
 			return nil, nil, st, Die("%v", err)
 		}

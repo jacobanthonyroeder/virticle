@@ -118,14 +118,9 @@ func TestHostnetWaitDoesNotConfirmWhileLibvirtIsSilent(t *testing.T) {
 }
 
 func TestCheckHostnetRequest(t *testing.T) {
-	ok := nodeproto.NetRequest{Action: nodeproto.NetCreate, Bridge: "br0", VLANAware: true, LibvirtVersion: 11003000}
+	ok := nodeproto.NetRequest{Action: nodeproto.NetCreate, Bridge: "br0", VLANAware: true}
 	if err := checkHostnetRequest(ok); err != nil {
 		t.Error(err)
-	}
-	old := ok
-	old.LibvirtVersion = 10009000
-	if err := checkHostnetRequest(old); err == nil || !strings.Contains(err.Error(), "libvirt 11.0.0") {
-		t.Errorf("old libvirt: %v", err)
 	}
 	for _, r := range []nodeproto.NetRequest{{Action: "x", Bridge: "b"}, {Action: nodeproto.NetCreate}} {
 		if err := checkHostnetRequest(r); err == nil {
@@ -172,7 +167,7 @@ func TestManagementInterface(t *testing.T) {
 }
 
 func TestLibvirtNetworkOnVLANAwareBridge(t *testing.T) {
-	aware := &linuxVLAN{LibvirtVersion: 11003000, Found: true, Aware: true, VLANs: "10,20-30"}
+	aware := &linuxVLAN{Found: true, Aware: true, VLANs: "10,20-30"}
 	req := func(tag int, v *linuxVLAN) networkRequest {
 		return networkRequest{Name: "n1", Mode: "bridge", BridgeName: "br0", VLAN: tag, linuxVLAN: v}
 	}
@@ -203,10 +198,9 @@ func TestLibvirtNetworkOnVLANAwareBridge(t *testing.T) {
 		{"not allowed", req(15, aware), "not allowed on the bridge br0"},
 		{"out of range", req(5000, aware), "between 1 and 4094"},
 		{"unknown node state", req(10, nil), "cannot tell"},
-		{"not a linux bridge of the node", req(10, &linuxVLAN{LibvirtVersion: 11003000}), "cannot tell"},
-		{"libvirt too old", req(10, &linuxVLAN{LibvirtVersion: 10009000, Found: true, Aware: true, VLANs: "2-4094"}), "libvirt 11.0.0"},
-		{"not vlan aware", req(10, &linuxVLAN{LibvirtVersion: 11003000, Found: true}), "not VLAN-aware"},
-		{"no ids allowed", req(10, &linuxVLAN{LibvirtVersion: 11003000, Found: true, Aware: true}), "its uplink allows: none"},
+		{"not a linux bridge of the node", req(10, &linuxVLAN{}), "cannot tell"},
+		{"not vlan aware", req(10, &linuxVLAN{Found: true}), "not VLAN-aware"},
+		{"no ids allowed", req(10, &linuxVLAN{Found: true, Aware: true}), "its uplink allows: none"},
 	}
 	for _, c := range bad {
 		_, err := c.r.build(nil)

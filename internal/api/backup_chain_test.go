@@ -28,7 +28,7 @@ func bk(dir string, day int, kind, parent, ck string, virt uint64) chainBackup {
 }
 
 func baseInput() incrInput {
-	return incrInput{Live: true, AllQcow2: true, Supported: true, Layout: layoutOf(1 << 30), Target: "n1:default", Checkpoints: map[string]bool{}}
+	return incrInput{Live: true, AllQcow2: true, Layout: layoutOf(1 << 30), Target: "n1:default", Checkpoints: map[string]bool{}}
 }
 
 func cks(names ...string) map[string]bool {
@@ -65,7 +65,6 @@ func TestDecideEveryFallback(t *testing.T) {
 		{"incremental on the newest backup", func(in *incrInput) { in.Backups, in.Checkpoints = good, cks("virticle-a", "virticle-b") }, kindIncremental, "", true, "vm-b.vmbackup"},
 		{"VM shut off", func(in *incrInput) { in.Live = false; in.Backups, in.Checkpoints = good, cks("virticle-b") }, kindFull, whyShutOff, false, ""},
 		{"a raw disk", func(in *incrInput) { in.AllQcow2 = false; in.Backups, in.Checkpoints = good, cks("virticle-b") }, kindFull, whyFormat, false, ""},
-		{"old libvirt", func(in *incrInput) { in.Supported = false; in.Backups, in.Checkpoints = good, cks("virticle-b") }, kindFull, whyOldVirt, false, ""},
 		{"first backup", func(in *incrInput) {}, kindFull, whyFirst, true, ""},
 		{"backups from before this feature (no checkpoint)", func(in *incrInput) {
 			in.Backups = []chainBackup{bk("vm-old.vmbackup", 0, "", "", "", 1<<30)}

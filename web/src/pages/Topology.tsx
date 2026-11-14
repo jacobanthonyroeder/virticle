@@ -289,7 +289,7 @@ function SwitchBox({ node, s, accents, act, use, ctl, onAddNetwork, folded }: { 
                 ariaLabel={`Actions for ${s.name}`}
                 items={[
                   ...(info.uplink ? [{ label: "Edit uplinks", run: act.onEditUplinks }] : []),
-                  ...(act.st?.vlanCapable ? [{ label: "Edit VLANs", run: act.onEditVlans }] : []),
+                  { label: "Edit VLANs", run: act.onEditVlans },
                   ...(info.vlanFiltering ? [{ label: "Add this node's address", run: act.onAddAddress }] : []),
                   ...(info.vlanAddresses ?? []).map((v) => {
                     const used = !!v.address && (act.st?.controllerAddresses ?? []).includes(addrIP(v.address));
@@ -489,7 +489,6 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
           bridge={addNet}
           ovs={n.switches.find((s) => s.name === addNet)?.kind === "openvswitch"}
           info={bridgeOf(addNet)}
-          vlanCapable={!!st?.vlanCapable}
           used={(n.switches.find((s) => s.name === addNet)?.portGroups ?? []).filter((g) => g.kind === "network").map((g) => ({ network: g.network ?? "", vlan: g.vlan }))}
           onClose={() => setAddNet(null)}
           onDone={changed}

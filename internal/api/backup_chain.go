@@ -57,7 +57,6 @@ const (
 const (
 	whyShutOff      = "The VM was shut off, so its disks were copied whole."
 	whyFormat       = "A disk is not in qcow2 format and cannot track changes, so the disks were copied whole."
-	whyOldVirt      = "This node's libvirt is too old to track changes, so the disks were copied whole."
 	whyFirst        = "The first backup of this VM to this pool."
 	whyNoBase       = "No earlier backup could be built on (the VM was moved, restored, had a snapshot reverted or stopped unexpectedly)."
 	whyLayout       = "The disks changed since the last backup (added, removed, resized or moved)."
@@ -119,11 +118,10 @@ func (m *backupManifest) layout() []diskLayout {
 
 // incrInput is everything decideBackup looks at.
 type incrInput struct {
-	Live      bool         // the VM runs, so a backup job (and a checkpoint) is possible
-	AllQcow2  bool         // every disk that is backed up has a qcow2 image on top
-	Supported bool         // libvirt on the node can do checkpoints
-	Layout    []diskLayout // the disks as they are now
-	Target    string       // identifies node and pool, see targetKey
+	Live     bool         // the VM runs, so a backup job (and a checkpoint) is possible
+	AllQcow2 bool         // every disk that is backed up has a qcow2 image on top
+	Layout   []diskLayout // the disks as they are now
+	Target   string       // identifies node and pool, see targetKey
 	// Checkpoints are the names of this program's checkpoints that libvirt holds for the VM.
 	Checkpoints map[string]bool
 	// Backups are the readable backups of this VM in the target pool.
@@ -153,8 +151,6 @@ func decideBackup(in incrInput) backupPlan {
 		return full(whyShutOff, false)
 	case !in.AllQcow2:
 		return full(whyFormat, false)
-	case !in.Supported:
-		return full(whyOldVirt, false)
 	}
 	// The newest backup in the target that still has its checkpoint.
 	var base *chainBackup

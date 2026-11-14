@@ -606,13 +606,9 @@ func (r *replRun) run() (err error) {
 	for _, d := range m.disks {
 		in.Layout = append(in.Layout, diskLayout{Target: d.Target, Source: d.Base, Virt: d.Virt})
 	}
-	if v, verr := r.src.ConnectGetLibVersion(); verr == nil && v >= minCheckpointLibvirt {
-		in.Supported = true
-	}
 	cks, cerr := listCheckpoints(r.src, r.dom)
 	if cerr != nil {
-		log.Printf("replication %s: listing checkpoints: %v", r.name, cerr)
-		in.Supported = false
+		log.Printf("replication %s: listing checkpoints: %v", r.name, cerr) // no checkpoints known: a full copy
 	}
 	for _, c := range cks {
 		in.Checkpoints[c.Name] = true

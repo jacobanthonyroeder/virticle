@@ -27,15 +27,11 @@ func (s *Server) planIncremental(m *bkRun, pd poolDir, allQcow2 bool) backupPlan
 	if !m.live || !allQcow2 {
 		return decideBackup(in)
 	}
-	if v, err := m.src.ConnectGetLibVersion(); err != nil || v < minCheckpointLibvirt {
-		return decideBackup(in) // Supported is false
-	}
 	cks, err := listCheckpoints(m.src, m.dom)
 	if err != nil {
 		log.Printf("backup %s: listing checkpoints: %v", m.name, err)
 		return backupPlan{Kind: kindFull, Reason: whyNoList}
 	}
-	in.Supported = true
 	for _, c := range cks {
 		in.Checkpoints[c.Name] = true
 	}
