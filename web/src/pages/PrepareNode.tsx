@@ -41,10 +41,13 @@ export function rowItems(rows: Row[]): CheckItem[] {
  *
  * mode "add" registers the node afterwards. mode "prepare" is for a node that is already registered: it prepares it again and does
  * not register it a second time (the login user of the node is updated if the preparation settled on another account).
+ * update: the node has an older Virticle node command (the Nodes page says "Virticle update needed"); the dialog is then "Update Virticle",
+ * "Prepare node" is for a node that was never prepared.
  * "Already prepared" (under Advanced) registers a node without an administrator login, for hosts prepared on the command line.
  */
-export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", nodeId, nodeUser, onClose, onRegistered }: { addr: string; jump: string; mode?: "add" | "prepare"; nodeId?: number; nodeUser?: string; onClose: () => void; onRegistered: () => void }) {
+export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", nodeId, nodeUser, update: update0 = false, onClose, onRegistered }: { addr: string; jump: string; mode?: "add" | "prepare"; nodeId?: number; nodeUser?: string; update?: boolean; onClose: () => void; onRegistered: () => void }) {
   const adding = mode === "add";
+  const [update] = useState(update0); // as the dialog was opened: the node is no longer "older" once it was updated
   const [addr, setAddr] = useState(addr0);
   const [jump, setJump] = useState(jump0);
   const [adminUser, setAdminUser] = useState("root");
@@ -121,7 +124,7 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
     }
   });
 
-  const label = adding ? "Add node" : "Prepare node";
+  const label = adding ? "Add node" : update ? "Update Virticle" : "Prepare node";
   if (task !== undefined) {
     const running = !job || !job.done;
     const checked = !running && !!job?.checkOnly && !!job?.ok;
@@ -163,9 +166,9 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
   }
 
   return (
-    <Modal title={adding ? "Add node" : "Prepare node"} onClose={onClose} wide>
+    <Modal title={label} onClose={onClose} wide>
       <form onSubmit={submit} autoComplete="off">
-        {!direct && <p>{adding ? "Installs libvirt and the node command if missing, then adds the node." : "Installs libvirt and the node command if missing."} The credential is used for this run only and is not stored.</p>}
+        {!direct && <p>{adding ? "Installs libvirt and the node command if missing, then adds the node." : update ? "Installs this version of the node command." : "Installs libvirt and the node command if missing."} The credential is used for this run only and is not stored.</p>}
         <div className="grid2">
           <Field label="Address" hint="Host name or IP, optionally with :port.">
             <input value={addr} onChange={(e) => setAddr(e.target.value)} required autoFocus={!addr0} readOnly={!adding} />

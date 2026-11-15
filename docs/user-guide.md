@@ -120,7 +120,7 @@ shows what needs attention. An open Nodes page shows a node added this way at on
 [reference.md](reference.md#commands).
 
 When the node's **Settings** say it was prepared by an older version, choose
-**Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
+**Update Virticle** there (a node that was never prepared has **Prepare this node**; after an upgrade: see [install.md](install.md#upgrading)).
 
 After an upgrade the **Nodes** page marks each such node (**Virticle update needed** or **Not prepared**) and
 shows one notice, "N nodes need a Virticle update", with **Update Virticle on nodes** (administrators). Enter the administrator login once
@@ -1079,7 +1079,7 @@ Details: [reference.md](reference.md#operation-traces).
 | Node shows Offline | Node **Settings > Test connection**. It names the failing step. |
 | Guest agent "Not responding" | Install and start `qemu-guest-agent` in the VM. |
 | Migration blocked | Read the red pre-flight row. Usually a missing network or pool on the target, or a firewall between the nodes (SSH between nodes, Migration ports). |
-| Migration or backup refused for a node | **Settings** says the node is not prepared: it has no node command, or one from an older version. Choose **Prepare this node** there, or run `virticle node prepare` for it again (see [install.md](install.md#upgrading)). |
+| Migration or backup refused for a node | **Settings** says the node is not prepared: it has no node command, or one from an older version. Choose **Update Virticle** (or **Prepare this node** for a node that was never prepared) there, or run `virticle node prepare` for it again (see [install.md](install.md#upgrading)). |
 | A virtual switch change did not stay | The node did not come back in time and restored its previous settings. Read the line in the node's **Network** tab, check the cable and address, and try again. From the node's console: [reference.md](reference.md#host-bridges-virtual-switches). |
 | Charts have gaps | The VM was not running, or the node or the controller could not be read. Nothing is drawn as zero. |
 | Locked out after a web access change | Wait 60 seconds for the automatic revert, or run `virticle web reset` and restart. |

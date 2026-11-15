@@ -71,7 +71,7 @@ Prepare signs in with an **administrator credential that you give for this one r
   `sudo --preserve-env=SSH_AUTH_SOCK` passes it. `node add` needs no credential for a host that the controller's key
   already gets into with this version's node command.
 - In the web dialog, enter a password or paste a private key without a passphrase. Choose **Check** to see what would
-  change, then **Add node** (**Prepare node** for a node that is already added); the dialog keeps the credential in memory for that, so you do not type it twice. The password is also used for sudo
+  change, then **Add node** (**Prepare node** for a node that is already added, **Update Virticle** when it has an older node command); the dialog keeps the credential in memory for that, so you do not type it twice. The password is also used for sudo
   when the user is not root.
 
 The credential is used in memory only. It is not stored, not logged, and not written to the audit log or the task

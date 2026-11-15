@@ -373,7 +373,7 @@ made when the schema version does not change.
 2. **Prepare each node again.** The node command has protocol 22 (0.4.x had 21). After the upgrade every node is marked
    **Outdated**, and the **Nodes** page shows "N nodes need preparing" with **Prepare all**. Until a node is prepared,
    migration, backups, replication and the other features that need root stop on it; VMs keep running. Choose
-   **Prepare all** (one administrator login for all nodes), or **Settings > Prepare this node** on each node, or run
+   **Prepare all** (one administrator login for all nodes), or **Settings > Update Virticle** on each node, or run
    `virticle node prepare admin@host` (add `--root` for a Root node). On a node itself: `sudo virticle node prepare`.
 
 What changes by itself:
@@ -409,7 +409,7 @@ The same steps for 0.3.0, 0.3.1 and 0.3.2.
    the node **Outdated** and shows the notice "N nodes need preparing" with **Prepare all**, and the node's **Settings**
    say "This node was prepared by an older version, so features that need root are off." Migration, backups,
    replication and the other features that need root stop on it. VMs keep running. Choose **Prepare all** (one
-   administrator login for all nodes), or **Settings > Prepare this node** on each node, or run
+   administrator login for all nodes), or **Settings > Update Virticle** on each node, or run
    `virticle node prepare admin@host` (add `--root` for a Root node).
 
 What stays as it was:
@@ -446,7 +446,7 @@ Stop the old controller before you start the new one.
    itself. You do not need it when the controller keeps listening on `127.0.0.1`. Run it again after you change the web
    port.
 4. **Prepare each node again.** Either way works:
-   - In the web UI: open the node, then **Settings > Prepare this node**.
+   - In the web UI: open the node, then **Settings > Update Virticle** (**Prepare this node** for a node that was never prepared).
    - In a shell: `virticle node prepare admin@host`. Add `--root` if the node is a Root node.
 
    Preparing replaces the node command and also sets up what the new features need: it opens the migration ports (TCP
