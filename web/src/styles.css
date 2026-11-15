@@ -303,7 +303,7 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
 textarea[readonly] { opacity: 0.8; }
 
 @media (max-width: 760px) {
-  .alertpanel { position: fixed; left: 8px; right: 8px; top: 56px; bottom: auto; width: auto; }
+  .alertpanel, header.topbar .alertpanel { position: fixed; left: 8px; right: 8px; top: 56px; bottom: auto; width: auto; margin-top: 0; }
 }
 @media (max-width: 760px) {
   .segmented { display: flex; flex-wrap: wrap; }

@@ -73,6 +73,20 @@ test.describe.serial("XML editor, tasks, alerts", () => {
     await expect(panel).toBeHidden();
   });
 
+  test("the Alerts panel is on screen at phone width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto("/datacenter/vms");
+    await page.getByRole("button", { name: /^Alerts/ }).click();
+    const panel = page.getByRole("dialog", { name: "Alerts" });
+    await expect(panel).toBeVisible();
+    const box = (await panel.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeLessThan(120);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+  });
+
   test("Notifications page opens (destinations are covered by 43-notifications)", async ({ page }) => {
     await page.goto("/alerts-settings");
     await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
