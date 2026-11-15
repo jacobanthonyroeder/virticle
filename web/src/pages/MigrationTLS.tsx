@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { del, get, post } from "../api";
 import { useEvents } from "../live";
 import { useAction, useConfirm } from "../ui";
+import DialogAdvanced from "./DialogAdvanced";
 import { CheckList, CheckStatus, StatusLine } from "../Checks";
 
 export interface MigTLS {
@@ -97,8 +98,7 @@ export default function MigrationTLS({ node, online, admin }: { node: number; on
   return (
     <div className="migtls">
       <StatusLine status={status}>{word}</StatusLine>
-      <details open={wrong}>
-        <summary>Details</summary>
+      <DialogAdvanced title="Details" defaultOpen={wrong} flat>
         <div className="updlist">
           {st.autoError && <StatusLine status="warning">Automatic setup failed: {st.autoError}</StatusLine>}
           {st.problems && st.problems.length > 0 && (
@@ -143,7 +143,7 @@ export default function MigrationTLS({ node, online, admin }: { node: number; on
             </div>
           )}
         </div>
-      </details>
+      </DialogAdvanced>
       {confirm.dialog}
     </div>
   );

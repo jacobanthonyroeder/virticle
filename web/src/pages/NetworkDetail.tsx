@@ -6,6 +6,7 @@ import { useRole } from "../auth";
 import ComboInput from "../ComboInput";
 import { ErrorBox, Field, Modal, useAction, useConfirm } from "../ui";
 import { StatusLine } from "../Checks";
+import DialogAdvanced from "./DialogAdvanced";
 
 const modeNames: Record<string, string> = { nat: "NAT", route: "Routed", open: "Open", isolated: "Isolated", bridge: "Bridge" };
 /** The libvirt forward mode in words. */
@@ -126,8 +127,7 @@ function Detail({ base, name }: { base: string; name: string }) {
                     ))}
               </dd>
             </dl>
-            <details className="cloudinit">
-              <summary>Details</summary>
+            <DialogAdvanced title="Details">
               <dl>
                 <dt>UUID</dt>
                 <dd className="mono">{n.uuid}</dd>
@@ -140,7 +140,7 @@ function Detail({ base, name }: { base: string; name: string }) {
                   </>
                 )}
               </dl>
-            </details>
+            </DialogAdvanced>
           </div>
           <div className="card">
             <h3>DHCP leases</h3>
@@ -301,10 +301,8 @@ function XmlEditor({ url, n, onSaved }: { url: string; n: Network; onSaved: () =
     }
   };
   return (
-    <details className="card" style={{ gridColumn: "1 / -1" }}>
-      <summary>
-        <h3 style={{ display: "inline" }}>Definition (XML)</h3>
-      </summary>
+    <div className="card" style={{ gridColumn: "1 / -1" }}>
+      <DialogAdvanced title="Definition (XML)" flat>
       <small>
         This is the saved definition. {n.active ? "The network is running, so edits take effect after it is stopped and started again." : "Edits apply when the network is started."} The name and UUID cannot be changed.
       </small>
@@ -319,6 +317,7 @@ function XmlEditor({ url, n, onSaved }: { url: string; n: Network; onSaved: () =
           Revert
         </button>
       </div>
-    </details>
+      </DialogAdvanced>
+    </div>
   );
 }

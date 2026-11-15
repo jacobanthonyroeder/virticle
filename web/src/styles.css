@@ -222,9 +222,7 @@ footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px
   pre, textarea, .mono.wrap { max-width: 100%; }
 }
 
-.cloudinit { margin: 10px 0; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
-.cloudinit summary { cursor: pointer; font-weight: 600; }
-.cloudinit .hint { margin: 6px 0 10px; opacity: 0.75; font-size: 13px; }
+.dlgadv > .hint { margin: 6px 0 10px; opacity: 0.75; font-size: 13px; }
 /* migration pre-flight list */
 
 /* Roles: the server enforces them; this only hides controls a viewer cannot use. */
