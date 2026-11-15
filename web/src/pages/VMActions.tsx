@@ -1,29 +1,19 @@
-// The "Actions" menu of the VM page: power, hardware, snapshots, clone, template, migrate, XML, delete.
-// Entries that do not apply to the VM's state are disabled with a reason, never hidden, so the
-// menu keeps its shape. Destructive power actions ask for confirmation first.
+// The "Actions" menu of the VM page. The menu itself is vmMenu() (../vmMenu.ts), shared with the tree's
+// right-click menu; this file gives it handlers that open the page's dialogs. Destructive power actions
+// ask for confirmation first.
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { del, post, put, VMDetail } from "../api";
 import { atLeast, useRole } from "../auth";
-import { DropdownMenu, MenuEntry } from "../Menu";
-import { powerConfirm, powerLabel } from "../power";
+import { DropdownMenu } from "../Menu";
+import { powerConfirm } from "../power";
+import { findEntry, vmMenu } from "../vmMenu";
 import { ErrorBox, Modal, useAction, useConfirm } from "../ui";
 import { CloneDialog, ConvertDialog } from "./Clone";
 import MigrateDialog from "./Migrate";
 import DiskMoveDialog from "./DiskMove";
 import { HardwareDialog, HwArea } from "./Hardware";
 import { TakeSnapshot } from "./Snapshots";
-
-/** Hardware areas of Edit Settings: menu label and the section its dialog shows. */
-export const hardwareAreas: [string, HwArea][] = [
-  ["CPU and memory", "cpu"],
-  ["Disks", "disks"],
-  ["Network interfaces", "nics"],
-  ["CD-ROM", "cdrom"],
-  ["Boot order", "boot"],
-  ["Firmware and TPM", "firmware"],
-  ["Passthrough devices", "passthrough"],
-];
 
 export default function VMActions(props: {
   d: VMDetail;
@@ -48,95 +38,45 @@ export default function VMActions(props: {
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState<[string, HwArea]>();
 
-  const off = d.state === "shutoff";
-  const running = d.state === "running";
-  const paused = d.state === "paused";
-  const need = op ? undefined : "Needs the operator role";
   const act = async (a: string, body: { action: string } = { action: a }) => {
     const spec = powerConfirm(a, [d.name]);
     if (spec && !(await confirm.ask(spec))) return;
     run(() => post(`${base}/action`, body));
   };
-  const when = (ok: boolean, why: string) => ({ disabled: !op || busy || !ok, title: need ?? (ok ? undefined : why) });
-  const stateNow = off ? "The VM is shut off" : `The VM is ${d.state}`;
+  const moveDisk = d.disks.find((k) => k.target === movingDisk);
+  const items = vmMenu(
+    { vm: d, op, busy },
+    {
+      power: (_, a) => act(a),
+      clock: () => run(() => post(`${base}/clock/sync`)),
+      edit: (_, label, area) => setEditing([label, area]),
+      takeSnapshot: () => setTaking(true),
+      snapshots: () => goto("snapshots"),
+      schedule: () => goto("snapshots", "snap-schedule"),
+      clone: () => setCloning(true),
+      convert: () => setConverting(true),
+      convertBack: () => run(async () => { await put(`${base}/template`, { template: false }); props.onChanged(); }),
+      migrate: () => setMigrating(true),
+      moveDisk: (_, target) => setMovingDisk(target),
+      replication: props.openReplication,
+      xml: () => goto("xml"),
+      remove: () => setDeleting(true),
+    },
+  );
 
-  const power: MenuEntry[] = [
-    { label: powerLabel.start, run: () => act("start"), ...when(off && !d.template, d.template ? "A template cannot be started" : "The VM is already on") },
-    { label: powerLabel.reboot, run: () => act("reboot"), ...when(running, stateNow) },
-    { label: powerLabel.shutdown, run: () => act("shutdown"), ...when(running, stateNow) },
-    "sep",
-    { label: powerLabel.pause, run: () => act("pause"), ...when(running, stateNow) },
-    { label: powerLabel.resume, run: () => act("resume"), ...when(paused, "The VM is not paused") },
-    "sep",
-    { label: powerLabel.poweroff, danger: true, run: () => act("poweroff"), ...when(!off, stateNow) },
-    { label: powerLabel.reset, danger: true, run: () => act("reset"), ...when(!off, stateNow) },
-    "sep",
-    { label: "Sync guest clock", run: () => run(() => post(`${base}/clock/sync`)), ...when(running && d.agent === "connected", !running ? stateNow : "Needs the guest agent to be connected") },
-  ];
-  const settings: MenuEntry[] = hardwareAreas.map(([label, area]) => ({ label, run: () => setEditing([label, area]) }));
-  const snapshots: MenuEntry[] = [
-    { label: "Take snapshot", run: () => setTaking(true), disabled: !op, title: need },
-    { label: "Manage snapshots", run: () => goto("snapshots") },
-    { label: "Schedule", run: () => goto("snapshots", "snap-schedule") },
-  ];
-  const convertBack = () => run(async () => { await put(`${base}/template`, { template: false }); props.onChanged(); });
-  const canConvert = off || (running && d.agent === "connected");
-  const movable = d.disks.filter((k) => k.device === "disk" && k.source && !k.source.startsWith("/dev/"));
-  const moveDisk = movable.find((k) => k.target === movingDisk);
-  // "?do=clone", "?do=migrate" and "?do=move-disk" (Clone and Migrate in the tree's menu) open the dialog on arrival.
+  // "?do=<entry id>" (from the tree's menu) runs that entry of this menu on arrival, if it is enabled now.
   const [params, setParams] = useSearchParams();
   const todo = params.get("do");
   useEffect(() => {
     if (!todo) return;
-    if (op && todo === "clone" && off) setCloning(true);
-    if (op && todo === "migrate") setMigrating(true);
-    if (op && todo === "move-disk") {
-      // One disk: its move dialog. Several: the Disks page, where each disk is named.
-      if (movable.length === 1) setMovingDisk(movable[0].target);
-    }
     const next = new URLSearchParams(params);
     next.delete("do");
-    if (op && todo === "move-disk" && movable.length > 1) {
-      next.set("tab", "hardware");
-      next.set("sec", "disks");
-    }
     setParams(next, { replace: true });
+    const e = findEntry(items, todo);
+    // After the address changed: an entry that goes to a tab sets the address again.
+    if (e && !e.disabled) setTimeout(() => e.run?.(), 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [todo]);
-  const migrate: MenuEntry[] = [
-    { label: "Migrate to another node", run: () => setMigrating(true), disabled: !op, title: need },
-    // One entry per disk that can be moved; it opens the move dialog itself.
-    ...(movable.length === 0
-      ? [{ label: "Move a disk to another pool", run: () => {}, disabled: true, title: op ? "This VM has no disk that can be moved" : need }]
-      : movable.map((k) => ({
-          label: movable.length === 1 ? "Move the disk to another pool" : `Move disk ${k.target} to another pool`,
-          run: () => setMovingDisk(k.target),
-          disabled: !op,
-          title: need,
-        }))),
-  ];
-  const more: MenuEntry[] = [
-    { label: "Edit XML", run: () => goto("xml") },
-    "sep",
-    { label: "Delete VM", danger: true, run: () => setDeleting(true), ...when(off, "Shut the VM down first") },
-  ];
-
-  // The old copy after a failover can only be deleted (everything else is refused).
-  const stale = d.state === "stale";
-  const items: MenuEntry[] = stale
-    ? [{ label: "Delete VM", danger: true, run: () => setDeleting(true), disabled: !op, title: need }]
-    : [
-    { label: "Power", items: power, disabled: !op, title: need },
-    { label: "Edit Settings", items: settings, disabled: !op, title: need },
-    { label: "Snapshots", items: snapshots },
-    { label: "Clone", run: () => setCloning(true), ...when(off, "Shut the VM down to clone it") },
-    d.template
-      ? { label: "Convert back to a VM", run: convertBack, ...when(off, "Shut the VM down first") }
-      : { label: "Convert to template", run: () => setConverting(true), ...when(canConvert, "Shut the VM down first, or start it with the guest agent connected") },
-    { label: "Migrate", items: migrate, disabled: !op, title: need },
-    { label: "Replication", run: props.openReplication, disabled: d.template, title: d.template ? "A template cannot be replicated" : undefined },
-    { label: "More", items: more },
-    ];
 
   return (
     <>
