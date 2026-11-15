@@ -580,7 +580,7 @@ func (s *Server) volumeAction(w http.ResponseWriter, r *http.Request) {
 			case st.Stopped():
 				// The stop came too late to end the copy: the new volume is not kept.
 				if derr := h.StorageVolDelete(nv, 0); derr != nil {
-					return fmt.Errorf("clone cancelled; the new volume %s could not be removed: %v", req.Name, derr)
+					return stoppedError(fmt.Sprintf("clone cancelled; the new volume %s could not be removed: %v", req.Name, derr))
 				}
 				return stoppedErr("clone")
 			}

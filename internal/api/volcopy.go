@@ -63,7 +63,7 @@ func copyStopped(what string, err error) error {
 	if rest := strings.TrimPrefix(err.Error(), errCopyStopped.Error()+": "); rest != err.Error() {
 		msg += "; " + rest
 	}
-	return errors.New(msg)
+	return stoppedError(msg)
 }
 
 // killCopy asks the node to end the qemu-img that writes dest, until that worked, the copy has ended or a

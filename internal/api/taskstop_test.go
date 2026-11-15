@@ -5,6 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -139,4 +143,30 @@ type failingReader struct{ onRead func() }
 func (f failingReader) Read([]byte) (int, error) {
 	f.onRead()
 	return 0, errors.New("i/o timeout")
+}
+
+// A task the user stopped answers 409 with its plain message and is not logged as an internal error.
+func TestFailStopped(t *testing.T) {
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+	for _, err := range []error{
+		stoppedErr("clone"),
+		fmt.Errorf("%w (rollback incomplete, left behind: x)", stoppedErr("clone")),
+		copyStopped("clone", fmt.Errorf("%w: left y", errCopyStopped)),
+	} {
+		w := httptest.NewRecorder()
+		fail(w, err)
+		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "clone cancelled") {
+			t.Errorf("%v: got %d %s", err, w.Code, w.Body.String())
+		}
+	}
+	if logs.Len() != 0 {
+		t.Errorf("logged: %s", logs.String())
+	}
+	w := httptest.NewRecorder()
+	fail(w, errors.New("boom"))
+	if w.Code != http.StatusInternalServerError || !strings.Contains(logs.String(), "internal error") {
+		t.Errorf("a real failure must stay a logged 500: %d %q", w.Code, logs.String())
+	}
 }
