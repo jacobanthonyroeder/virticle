@@ -214,18 +214,28 @@ func (s *Server) planBackup(srcID int64, src *hostconn.Host, dom libvirt.Domain,
 		}
 	}
 	m.plan = s.planIncremental(m, pd, allQcow2)
+	incr := false
 	if m.plan.Kind == kindIncremental {
 		// Only the changed blocks are copied; libvirt knows how many.
 		if n, ok := changedBytes(src, dom, m.plan.ParentCheckpoint); ok {
 			m.changed = n
 			need = n + n/8 + importFreeMargin
+			incr = true
 		}
 	}
-	if m.enc != "" && !m.remote {
-		need += sealSpace(m.disks) // a plain file and its encrypted copy exist together for a moment
+	var seal uint64
+	if m.enc != "" {
+		seal = sealSpace(m.disks, m.changed, incr) // a plain file and its encrypted copy exist together for a moment
+	}
+	if !m.remote {
+		need += seal
 	}
 	if uint64(free) < need {
-		return nil, badRequest(fmt.Sprintf("not enough free space in %s on %s: %s available, about %s needed", pd.Dir, m.dst.Name, fmtBytes(uint64(free)), fmtBytes(need)))
+		msg := fmt.Sprintf("not enough free space in %s on %s: %s available, about %s needed", pd.Dir, m.dst.Name, fmtBytes(uint64(free)), fmtBytes(need))
+		if seal > 0 && !m.remote {
+			msg += fmt.Sprintf(" (%s of it to encrypt the largest file next to its plain copy)", fmtBytes(seal))
+		}
+		return nil, badRequest(msg)
 	}
 
 	m.srcDir = m.dstDir
@@ -244,10 +254,7 @@ func (s *Server) planBackup(srcID int64, src *hostconn.Host, dom libvirt.Domain,
 		if !safePathRE.MatchString(m.srcDir) {
 			return nil, badRequest("unsupported characters in the pool directory " + m.srcDir)
 		}
-		stage := need
-		if m.enc != "" {
-			stage += sealSpace(m.disks)
-		}
+		stage := need + seal
 		if sf, err := bkFreeBytes(src, m.srcDir); err != nil || uint64(sf) < stage {
 			return nil, badRequest(fmt.Sprintf("not enough free space in %s on %s to stage the backup", m.srcDir, src.Name))
 		}
