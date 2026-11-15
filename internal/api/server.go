@@ -69,6 +69,7 @@ type Server struct {
 	shots     shotCache
 	cpuBase   baselineState
 	migAuto   *migTLSAuto // automatic encrypted-migration setup (migtlsauto.go)
+	guestInfo guestCache  // what is on a VM's disks, for the clone dialog (guestsetup.go)
 
 	notifyOnce sync.Once // notify.go
 	notify     *notifier
@@ -210,6 +211,7 @@ func (s *Server) Handler() http.Handler {
 	auth("POST /api/nodes/{node}/vms/{uuid}/seal", s.vmSeal)
 	auth("GET /api/nodes/{node}/vms/{uuid}/clone-info", s.cloneInfo)
 	auth("POST /api/nodes/{node}/vms/{uuid}/clone", s.vmClone)
+	auth("GET /api/nodes/{node}/vms/{uuid}/guest-setup", s.guestSetupInfo)
 	auth("GET /api/nodes/{node}/vms/{uuid}/vnc", s.vmVNC)
 	auth("GET /api/nodes/{node}/vms/{uuid}/serial", s.vmSerial)
 	auth("POST /api/nodes/{node}/vms/{uuid}/serial-console", s.vmSerialAdd)
@@ -453,7 +455,7 @@ func readsDiskFiles(r *http.Request) bool {
 		return false
 	}
 	p := r.URL.Path
-	return strings.HasSuffix(p, "/move/plan") || strings.HasSuffix(p, "/clone-info") || strings.HasSuffix(p, "/snapshots") || strings.HasSuffix(p, "/snapshot-options")
+	return strings.HasSuffix(p, "/move/plan") || strings.HasSuffix(p, "/clone-info") || strings.HasSuffix(p, "/guest-setup") || strings.HasSuffix(p, "/snapshots") || strings.HasSuffix(p, "/snapshot-options")
 }
 
 // task runs fn, recording it in the task log and announcing start and finish

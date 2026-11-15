@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { get, post, put, VMDetail } from "../api";
 import { ErrorBox, Field, Modal, useAction } from "../ui";
@@ -13,6 +13,29 @@ interface CloneInfo {
   virtSysprep: boolean;
   sysprep?: string;
   sysprepProblem?: string;
+}
+
+/** How the Guest setup section reaches the clone (GET .../guest-setup). */
+interface GuestSetup {
+  setup?: "cloud-init" | "unattend" | "disk";
+  problem?: string;
+  unchecked?: string;
+  system?: string;
+}
+
+function setupLine(g: GuestSetup | undefined, error: string | undefined, template: boolean): string {
+  if (error) return error;
+  if (!g) return "Checking";
+  if (g.unchecked) return `Not checked (${g.unchecked}): needs cloud-init in the guest`;
+  switch (g.setup) {
+    case "cloud-init":
+      return "Applied by cloud-init at first start";
+    case "unattend":
+      return "Applied by Windows setup at first start";
+    case "disk":
+      return `Written into the disk: this ${template ? "template" : "VM"} has no cloud-init`;
+  }
+  return `Not possible: ${g.problem}`;
 }
 
 /**
@@ -31,6 +54,15 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
   const [sysprepChoice, setSysprepChoice] = useState<boolean>();
   const [ci, setCi] = useState<CloudInitValues>(emptyCloudInit);
   const [result, setResult] = useState<string>();
+  // Looked up when the Guest setup section is first opened: looking into the disks takes seconds.
+  const [setupAsked, setSetupAsked] = useState(false);
+  const [gs, setGs] = useState<GuestSetup>();
+  const [gsError, setGsError] = useState<string>();
+  const askSetup = useCallback(() => setSetupAsked(true), []);
+  useEffect(() => {
+    if (!setupAsked) return;
+    get<GuestSetup>(`${base}/guest-setup`).then(setGs, (e) => setGsError(String(e.message ?? e)));
+  }, [base, setupAsked]);
 
   useEffect(() => {
     get<CloneInfo>(`${base}/clone-info`).then(setInfo, (e) => setInfoError(String(e.message ?? e)));
@@ -40,8 +72,10 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
   const linked = d.template && !fullCopy;
   const canSysprep = !!info && !info.sysprepProblem;
   const sysprep = canSysprep && (sysprepChoice ?? d.template);
-  // Profiles are Linux-only; for Windows the select is not offered.
-  const customize = cloudInitUsed(windows ? { ...ci, profile: 0 } : ci);
+  // Profiles and raw user-data need cloud-init: not offered for Windows or a guest set up through its disk.
+  const onDisk = gs?.setup === "disk";
+  const noSetup = !!gs && !gs.setup;
+  const customize = cloudInitUsed(windows || onDisk ? { ...ci, profile: 0, rawUserData: onDisk ? "" : ci.rawUserData } : ci);
   const submit = async () => {
     let uuid = "";
     let note = "";
@@ -52,11 +86,11 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
         linked,
         start,
         sysprep,
-        customize: customize ? { hostname: p.hostname, user: p.user, password: p.password, sshKeys: p.sshKeys, packages: p.packages, rawUserData: p.rawUserData, profile: windows ? undefined : p.profile } : undefined,
+        customize: customize ? { hostname: p.hostname, user: p.user, password: p.password, sshKeys: p.sshKeys, packages: p.packages, rawUserData: onDisk ? undefined : p.rawUserData, profile: windows || onDisk ? undefined : p.profile } : undefined,
       };
-      const r = await post<{ uuid: string; sysprep: string; startError?: string }>(`${base}/clone`, body);
+      const r = await post<{ uuid: string; sysprep: string; setup?: string; startError?: string }>(`${base}/clone`, body);
       uuid = r.uuid;
-      note = [r.sysprep && `Identity reset by: ${r.sysprep}.`, r.startError && `It was created but did not start: ${r.startError}`].filter(Boolean).join(" ");
+      note = [r.sysprep && `Identity reset by: ${r.sysprep}.`, r.setup === "disk" && "User and settings written into the disk.", r.startError && `It was created but did not start: ${r.startError}`].filter(Boolean).join(" ");
     });
     if (!ok) return;
     if (note) setResult(note + "\n\nOpening the new VM.");
@@ -76,7 +110,15 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
       {d.template && info?.sysprepProblem && <p className="muted">{info.sysprepProblem}</p>}
       {!info && !infoError && <p className="muted">Checking</p>}
       {infoError && <p className="muted">{infoError}</p>}
-      <CloudInitFields value={ci} onChange={setCi} profiles={!!info && !windows} />
+      <CloudInitFields
+        value={ci}
+        onChange={setCi}
+        profiles={!!info && !windows && !onDisk && !noSetup}
+        raw={!onDisk && !noSetup}
+        disabled={noSetup}
+        status={setupLine(gs, gsError, d.template)}
+        onOpen={askSetup}
+      />
       <DialogAdvanced>
         {d.template && (
           <label className="check">
