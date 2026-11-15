@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -23,35 +24,55 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"text/tabwriter"
+	"time"
 
 	"golang.org/x/term"
 
+	"virticle/internal/api"
+	"virticle/internal/cluster"
 	"virticle/internal/prepare"
 	"virticle/internal/store"
 	"virticle/internal/tlscert"
 	"virticle/internal/webaccess"
 )
 
-const setupUsage = `usage: sudo virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes] [-data DIR]
+const setupUsage = `usage: sudo virticle setup [--admin NAME --admin-password-file FILE] [--node | --no-node]
+                           [--address ADDR] [--port N] [--no-firewall] [--yes] [--check] [--undo] [--data DIR]
 
 Run once on the machine where the controller is installed, as root. Setup
   - on a terminal, asks which address and port the web interface listens on (Enter keeps the
     default: all addresses, port 8463). Not on a terminal it uses the defaults,
   - checks that the address and port are free and names the program that uses them if not,
+  - creates the first administrator: on a terminal it asks for the name and password; scripts
+    give --admin NAME and the password in --admin-password-file FILE or VIRTICLE_ADMIN_PASSWORD,
   - opens the web port in the firewall when firewalld or ufw is active (a service or rule
     named virticle; when the port was changed since the last run the old port is closed again).
     On a terminal it asks first. Without one it opens the port, unless --no-firewall is given,
   - makes sure the virticle service is enabled and running,
-  - prints the address to open.
---address ADDR  an IP address of this machine, or "all" (the default). Answers the question.
---port N        a port from 1 to 65535 (the default is 8463). Answers the question.
-                Both only apply while no administrator exists and the web settings are still
-                the first-start ones. Later, change them on the Web access page.
---check         changes nothing and asks nothing.
---undo          removes the firewall rule that setup added and nothing else.
---no-firewall   does not change the firewall; prints the command to run yourself.
---yes           asks nothing: takes the defaults and answers yes to the firewall question.
-Running setup again changes nothing. -data defaults to /var/lib/virticle on an installed machine.`
+  - when this machine can run virtual machines, asks "Use this machine as a node too?" and adds
+    it (as sudo virticle node add does),
+  - ends with a summary and the address to open.
+--admin NAME          the first administrator's name (default admin when a password is given).
+--admin-password-file FILE
+                      the administrator's password: the first line of FILE. The environment
+                      variable VIRTICLE_ADMIN_PASSWORD works too. Never put it on the command line.
+--node, --no-node     answer the node question. Without a terminal and without either, the
+                      machine is not added.
+--address ADDR        an IP address of this machine, or "all" (the default). Answers the question.
+--port N              a port from 1 to 65535 (the default is 8463). Answers the question.
+                      Both only apply while no administrator exists and the web settings are still
+                      the first-start ones. Later, change them on the Web access page.
+--no-firewall         does not change the firewall; prints the command to run yourself.
+--yes                 asks nothing: takes the defaults, opens the firewall and adds this machine as
+                      a node when it can run virtual machines.
+--check               changes nothing and asks nothing.
+--undo                removes the firewall rule that setup added and nothing else.
+Running setup again changes nothing that is done and says so. --data defaults to /var/lib/virticle
+on an installed machine.`
+
+// adminPasswordEnv holds the first administrator's password for scripts.
+const adminPasswordEnv = "VIRTICLE_ADMIN_PASSWORD"
 
 // webFirewallService names the firewalld service and the ufw rule comment of
 // the controller's web port.
@@ -86,6 +107,14 @@ type setupEnv struct {
 	holder func(port int) (program string, pid int)
 	// save stores the web access settings before the service is started.
 	save func(ws webaccess.Settings) error
+
+	// vmProblem says why this machine cannot run virtual machines (hasKVM is false then); "" when it can.
+	vmProblem string
+	// admins are the administrators that exist; createAdmin makes the first one.
+	admins      func() []string
+	createAdmin func(name, password string) error
+	// readPassword asks for a password on the terminal without showing it.
+	readPassword func(prompt string) (string, error)
 }
 
 // setupOpts are the command-line choices of "virticle setup".
@@ -95,6 +124,18 @@ type setupOpts struct {
 	address     string // --address, "" when not given
 	noFirewall  bool
 	yes         bool
+
+	admin         string // --admin, "" when not given
+	adminPassword string // from --admin-password-file or VIRTICLE_ADMIN_PASSWORD
+	node, noNode  bool
+}
+
+// setupResult is what runSetupAll settled, beside the rows.
+type setupResult struct {
+	rows    []prepare.Row
+	addNode bool   // add this machine as a node now
+	url     string // the address to open
+	hasUser bool   // an administrator exists (or was just made)
 }
 
 // canAsk says whether setup may ask questions: on a terminal, not with
@@ -498,11 +539,24 @@ func firewallRows(e setupEnv, o setupOpts, ports []string) []prepare.Row {
 
 // runSetup does setup (or only looks, with check; or takes the firewall rule
 // away, with undo) and returns the rows to print.
-func runSetup(e setupEnv, o setupOpts) []prepare.Row {
+func runSetup(e setupEnv, o setupOpts) []prepare.Row { return runSetupAll(e, o).rows }
+
+func runSetupAll(e setupEnv, o setupOpts) setupResult {
 	if e.euid != 0 {
-		return []prepare.Row{{ID: "root", Title: "Administrator", Status: prepare.Error,
-			Detail: "setup changes the firewall and the service, so it needs root. Run: sudo virticle setup"}}
+		return setupResult{rows: []prepare.Row{{ID: "root", Title: "Root", Status: prepare.Error,
+			Detail: "setup changes the firewall and the service, so it needs root. Run: sudo virticle setup"}}}
 	}
+	if o.undo {
+		return setupResult{rows: runSetupRows(e, o, nil)}
+	}
+	var res setupResult
+	rows := runSetupRows(e, o, &res)
+	res.rows = rows
+	return res
+}
+
+// runSetupRows is setup itself; res (nil for --undo) receives what it settled.
+func runSetupRows(e setupEnv, o setupOpts, res *setupResult) []prepare.Row {
 	if o.undo {
 		var row prepare.Row
 		if o.check {
@@ -556,10 +610,48 @@ func runSetup(e setupEnv, o setupOpts) []prepare.Row {
 		}
 	}
 
-	if changed && !o.check {
+	// The questions and the script inputs, all before anything is changed.
+	adminName, adminPW, stop := chooseAdmin(e, o, hasUsers)
+	if stop != nil {
+		return []prepare.Row{*stop}
+	}
+	addNode, stop := chooseNode(e, o)
+	if stop != nil {
+		return []prepare.Row{*stop}
+	}
+
+	// A controller that finds users but no stored web settings takes itself for an install from before 0.3.0 and
+	// keeps loopback HTTP: so the settings setup reports are stored before it creates the first administrator.
+	if !o.check && (changed || (adminName != "" && source != "stored")) {
 		if err := e.save(ws); err != nil {
 			return []prepare.Row{errorRow("web", "Web access", "Could not store the web access settings ("+err.Error()+"). Nothing was changed.")}
 		}
+	}
+	// The administrator before the service starts, so that nobody else can claim the first-run page.
+	adminRow := prepare.Row{ID: "admin", Title: "Administrator"}
+	switch {
+	case hasUsers:
+		names := []string{}
+		if e.admins != nil {
+			names = e.admins()
+		}
+		adminRow.Status, adminRow.Detail = prepare.OK, "Already set up ("+strings.Join(names, ", ")+")."
+		if len(names) == 0 {
+			adminRow.Detail = "Users exist already."
+		}
+		if o.admin != "" && !contains(names, o.admin) {
+			adminRow.Detail += " Setup creates no other; add users on the Users page."
+		}
+	case adminName != "" && o.check:
+		adminRow.Status, adminRow.Detail = prepare.Info, "Setup will create the administrator "+adminName+"."
+	case adminName != "":
+		if err := e.createAdmin(adminName, adminPW); err != nil {
+			return []prepare.Row{errorRow("admin", "Administrator", "Could not create "+adminName+": "+err.Error())}
+		}
+		adminRow.Status, adminRow.Detail = prepare.OK, "Created "+adminName+"."
+		hasUsers = true
+	default:
+		adminRow.Status, adminRow.Detail = prepare.Info, "None yet. Create it in the web interface, or run: sudo virticle setup --admin NAME --admin-password-file FILE"
 	}
 
 	ports := webPorts(ws)
@@ -603,21 +695,124 @@ func runSetup(e setupEnv, o setupOpts) []prepare.Row {
 				" open as well until you have confirmed it; run setup again after that to close it."})
 	}
 
+	rows = append(rows, adminRow)
 	rows = append(rows, firewallRows(e, o, ports)...)
 	rows = append(rows, serviceRow(e, o.check, restart)...)
 
-	if u := openURL(ws, e.addrs); u != "" {
-		line := "open " + u + " to sign in"
-		if !hasUsers {
-			line = "open " + u + " to create the administrator"
-		}
-		rows = append(rows, prepare.Row{ID: "next", Title: "Next", Status: prepare.Info, Detail: line})
+	switch {
+	case e.hasLocalNode:
+		rows = append(rows, prepare.Row{ID: "node", Title: "Node", Status: prepare.OK, Detail: "This machine is a node already."})
+	case addNode && o.check:
+		rows = append(rows, prepare.Row{ID: "node", Title: "Node", Status: prepare.Info, Detail: "Setup will add this machine as a node."})
+	case e.hasKVM && !addNode:
+		rows = append(rows, prepare.Row{ID: "node", Title: "Node", Status: prepare.Info,
+			Detail: "This machine is not a node. To run virtual machines on it too: sudo virticle node add"})
 	}
-	if e.hasKVM && !e.hasLocalNode {
-		rows = append(rows, prepare.Row{ID: "vms", Title: "Virtual machines", Status: prepare.Info,
-			Detail: "To run virtual machines on this machine too, choose 'Set up this machine as a node' on the start page."})
+	if res != nil {
+		res.addNode = addNode && !o.check
+		res.url = openURL(ws, e.addrs)
+		res.hasUser = hasUsers
 	}
 	return rows
+}
+
+// chooseAdmin settles the first administrator from --admin and the password (file or environment), or from questions
+// on a terminal. An empty name means none is made now. A returned row ends setup before anything is changed.
+func chooseAdmin(e setupEnv, o setupOpts, hasUsers bool) (name, password string, stop *prepare.Row) {
+	fail := func(detail string) (string, string, *prepare.Row) {
+		r := errorRow("admin", "Administrator", detail)
+		return "", "", &r
+	}
+	if hasUsers {
+		return "", "", nil
+	}
+	name, password = strings.TrimSpace(o.admin), o.adminPassword
+	if name == "" && password != "" {
+		name = "admin"
+	}
+	terminal := e.terminal && e.readPassword != nil && !o.check
+	if name == "" {
+		if !e.canAsk(o) || e.readPassword == nil {
+			return "", "", nil
+		}
+		ans, ok := e.ask("Administrator of the web interface [admin]: ")
+		if !ok {
+			return "", "", nil // no input: the browser creates it
+		}
+		if name = strings.TrimSpace(ans); name == "" {
+			name = "admin"
+		}
+	}
+	if err := api.ValidateUsername(name); err != nil {
+		return fail(upperFirst(err.Error()) + ".")
+	}
+	if password == "" {
+		if !terminal {
+			if o.check {
+				return name, "", nil
+			}
+			return fail("--admin " + name + " needs the password: --admin-password-file FILE, or the environment variable " + adminPasswordEnv)
+		}
+		for i := 0; ; i++ {
+			a, err := e.readPassword("Password for " + name + ": ")
+			if err != nil {
+				return fail(err.Error())
+			}
+			msg := ""
+			if err := api.ValidateFirstAdmin(name, a); err != nil {
+				msg = err.Error()
+			} else if b, err := e.readPassword("Again: "); err != nil {
+				return fail(err.Error())
+			} else if a != b {
+				msg = "the two passwords differ"
+			}
+			if msg == "" {
+				password = a
+				break
+			}
+			if i == 2 {
+				return fail(upperFirst(msg) + ". Run setup again.")
+			}
+			fmt.Println(upperFirst(msg) + ".")
+		}
+	}
+	if err := api.ValidateFirstAdmin(name, password); err != nil {
+		return fail(upperFirst(err.Error()) + ".")
+	}
+	return name, password, nil
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// chooseNode says whether this machine is to be added as a node: --node or --no-node, --yes, or the question on a
+// terminal. Without either and without a terminal it is not.
+func chooseNode(e setupEnv, o setupOpts) (bool, *prepare.Row) {
+	fail := func(detail string) (bool, *prepare.Row) {
+		r := errorRow("node", "Node", detail)
+		return false, &r
+	}
+	switch {
+	case o.node && o.noNode:
+		return fail("--node and --no-node exclude each other.")
+	case o.node && !e.hasKVM:
+		why := e.vmProblem
+		if why == "" {
+			why = "it has no /dev/kvm"
+		}
+		return fail("--node: this machine cannot run virtual machines: " + lowerFirst(why) + ". Nothing was changed.")
+	case !e.hasKVM || e.hasLocalNode || o.noNode:
+		return false, nil
+	case o.node || o.yes:
+		return true, nil
+	case e.canAsk(o):
+		return askYes(e.ask, "Use this machine as a node too? [Y/n] ", true), nil
+	}
+	return false, nil
 }
 
 // chooseListener settles the HTTPS listener of a machine that is not set up
@@ -786,7 +981,11 @@ func setupCommand(args []string) int {
 	fs.StringVar(&o.address, "address", "", "IP address of this machine for the web interface, or all")
 	fs.StringVar(&o.port, "port", "", "HTTPS port of the web interface")
 	fs.BoolVar(&o.noFirewall, "no-firewall", false, "do not change the firewall")
-	fs.BoolVar(&o.yes, "yes", false, "ask nothing; answer yes to the firewall question")
+	fs.BoolVar(&o.yes, "yes", false, "ask nothing; answer yes to the firewall and node questions")
+	fs.StringVar(&o.admin, "admin", "", "the first administrator's name")
+	pwFile := fs.String("admin-password-file", "", "the first administrator's password: the first line of this file")
+	fs.BoolVar(&o.node, "node", false, "add this machine as a node")
+	fs.BoolVar(&o.noNode, "no-node", false, "do not add this machine as a node")
 	data := fs.String("data", defaultDataDir(), "the controller's data directory")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -794,24 +993,132 @@ func setupCommand(args []string) int {
 		}
 		return 2
 	}
-	if fs.NArg() > 0 || (o.undo && (o.address != "" || o.port != "")) {
+	if fs.NArg() > 0 || (o.undo && (o.address != "" || o.port != "" || o.admin != "" || *pwFile != "" || o.node)) {
 		fmt.Fprintln(os.Stderr, setupUsage)
 		return 2
 	}
-	_, kvmErr := os.Stat("/dev/kvm")
-	e := setupEnv{euid: os.Geteuid(), sh: localSh, settings: storedWebSettings(*data), pendingPrev: pendingWebSettings(*data), addrs: suggestedAddresses(), hasKVM: kvmErr == nil}
+	if *pwFile != "" {
+		pw, err := firstLineOf(*pwFile)
+		if err != nil {
+			return errorLine(2, "--admin-password-file: %v", err)
+		}
+		o.adminPassword = pw
+	} else if v := os.Getenv(adminPasswordEnv); v != "" {
+		o.adminPassword = v
+	}
+	e := setupEnv{euid: os.Geteuid(), sh: localSh, settings: storedWebSettings(*data), pendingPrev: pendingWebSettings(*data), addrs: suggestedAddresses()}
+	e.vmProblem = api.LocalNodeProblem()
+	e.hasKVM = e.vmProblem == ""
 	e.hasLocalNode = e.hasKVM && hasLocalNode(*data, e.addrs)
 	e.terminal = term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 	e.ask = stdinAsker(bufio.NewReader(os.Stdin))
+	e.readPassword = realCredIO().readPassword
 	e.ips = machineIPs()
 	e.probe = listenProbe
 	e.holder = portHolder
 	e.save = saveWebSettings(*data)
-	rows := runSetup(e, o)
-	for _, r := range rows {
+	e.admins = func() []string { return adminNames(*data) }
+	e.createAdmin = createFirstAdmin(*data)
+	res := runSetupAll(e, o)
+	for _, r := range res.rows {
 		printRow(r)
 	}
-	return exitCode(rows)
+	code := exitCode(res.rows)
+	if code != 0 || o.check || o.undo {
+		return code
+	}
+	running := false
+	if out, err := localSh(unitCheckScript); err == nil && strings.Contains(out, "active=active") {
+		running = true
+		// The service was (re)started just now: let it open its socket before the commands below use it.
+		waitForSocket(*data, 20*time.Second)
+	}
+	if res.addNode {
+		fmt.Println()
+		q := addReq{data: *data, out: os.Stdout}
+		if e.canAsk(o) {
+			q.ask = e.ask // "Take over the node from the other controller?"
+		}
+		if c := addNode(q, realCredIO()); c != 0 {
+			code = c
+		}
+	}
+	fmt.Println()
+	setupSummary(os.Stdout, *data, running, res)
+	return code
+}
+
+// setupSummary prints the three lines that end setup, and the address to open.
+func setupSummary(w io.Writer, data string, running bool, res setupResult) {
+	var ns []cluster.NodeStatus
+	if c, err := openCtl(data, 5*time.Second); err == nil {
+		ns, _ = c.settledNodes(20 * time.Second)
+		c.Close()
+	}
+	fmt.Fprint(w, summaryText(running, res, adminNames(data), ns))
+}
+
+func summaryText(running bool, res setupResult, admins []string, ns []cluster.NodeStatus) string {
+	var b strings.Builder
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	ctlLine := "service running"
+	if !running {
+		ctlLine = "service not running"
+	}
+	if res.url != "" {
+		ctlLine += ", " + res.url
+	}
+	fmt.Fprintf(tw, "Controller\t%s\n", ctlLine)
+	if len(admins) > 0 {
+		fmt.Fprintf(tw, "Administrator\t%s\n", strings.Join(admins, ", "))
+	} else {
+		fmt.Fprintf(tw, "Administrator\tnone yet\n")
+	}
+	var parts []string
+	for _, n := range ns {
+		parts = append(parts, nodeName(n)+" "+n.State)
+	}
+	if len(parts) == 0 {
+		parts = []string{"none (add one: sudo virticle node add [user@]host)"}
+	}
+	fmt.Fprintf(tw, "Nodes\t%s\n", strings.Join(parts, ", "))
+	tw.Flush()
+	switch {
+	case res.url != "" && len(admins) > 0:
+		fmt.Fprintf(&b, "Open %s to sign in.\n", res.url)
+	case res.url != "":
+		fmt.Fprintf(&b, "Open %s to create the administrator.\n", res.url)
+	}
+	return b.String()
+}
+
+// createFirstAdmin makes the first administrator in the database, as the first-run page does. The running
+// controller reads users from the database on every request, so it needs no restart.
+func createFirstAdmin(data string) func(name, password string) error {
+	return func(name, password string) error {
+		if err := os.MkdirAll(data, 0o700); err != nil {
+			return err
+		}
+		dbPath, err := store.DBPath(data, log.Printf)
+		if err != nil {
+			return err
+		}
+		st, err := store.Open(dbPath)
+		if err != nil {
+			return err
+		}
+		_, err = st.CreateFirstUser(name, password)
+		if cerr := st.Close(); err == nil {
+			err = cerr
+		}
+		if errors.Is(err, store.ErrConflict) {
+			err = errors.New("an administrator was created meanwhile")
+		}
+		if err != nil {
+			return err
+		}
+		return chownLike(data, dbPath, dbPath+"-wal", dbPath+"-shm")
+	}
 }
 
 // stdinAsker prints a question and reads the answer line from in.

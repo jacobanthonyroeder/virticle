@@ -1,12 +1,14 @@
 package main
 
-// "virticle node prepare" and "virticle node unprepare": make a host ready to
-// be managed, and take that away again. The administrator's credential (the
-// SSH agent, or a key file, or a password on standard input) is used for this
-// one run and never stored.
+// "virticle node ...": add, list and remove (nodeadd.go), and prepare and
+// unprepare: make a host ready to be managed, and take that away again. The
+// administrator's credential (the SSH agent, a key file, or a password from a
+// terminal, a file, the environment or standard input) is used for one run and
+// never stored.
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,23 +26,48 @@ import (
 )
 
 // nodeShort follows an error; the whole text (nodeUsage) is for --help.
-const nodeShort = `  sudo virticle node prepare [--check]             this machine
-  virticle node prepare [--check] [user@]host      another host, over SSH
-  virticle node unprepare [user@]host
-  virticle node prepare --help                     all options`
+const nodeShort = `  sudo virticle node add [user@]host         prepare a host if needed and add it as a node
+  sudo virticle node add                     this machine
+  sudo virticle node list [--json]
+  sudo virticle node remove NAME
+  virticle node --help                       all commands and options`
 
 const nodeUsage = `usage:
+  sudo virticle node add [user@]host[:port]   prepare a host if needed and add it as a node
+  sudo virticle node add                      the same for this machine
+  sudo virticle node list [--json]            the nodes: name, address, state
+  sudo virticle node remove NAME              stop managing a node (NAME: its host name or address)
+
+node add signs in to the host as the administrator (root, or a user that may use sudo) and prepares it, the
+way Nodes > Add node does in the web interface. The credential is used for this run only: your SSH agent,
+--identity FILE, or a password, asked for on a terminal; scripts give --password-file FILE or the
+environment variable VIRTICLE_NODE_PASSWORD. A host that this controller's key already gets into needs no
+credential. The running controller shows the node at once; it needs no restart. When the controller is
+stopped, the commands work on its data directory and it finds the node at its next start.
+These commands need the controller's data directory: run them as root (sudo) or as the controller's account.
+
+Options of node add:
+  --root                the controller signs in as root (no service account; a service account is safer)
+  --user NAME           the name of the service account (default virticle-node)
+  --jump user@host      reach the host through a jump host
+  --take-over           the host is managed by another Virticle controller: take it over (asked on a terminal)
+  --identity FILE       the administrator's private key file
+  --password-file FILE  the administrator's password: the first line of FILE
+  --password-stdin      the administrator's password: one line on standard input
+  --data DIR            the controller's data directory (default /var/lib/virticle on an installed machine)
+Options of node remove: --yes (asks nothing on a terminal), --data DIR. Of node list: --json, --data DIR.
+
+Prepare only (node add runs it first; it does not add the node):
   sudo virticle node prepare [--check] [--minimal] [--root] [--user NAME] [--from ADDR] [--take-over]
   virticle node prepare   [--check] [--minimal] [--root] [--user NAME] [--use-existing-user[=NAME]] [--confirm]
-                          [--from ADDR] [--take-over] [--jump user@host]
-                          [--identity FILE] [--password-stdin] [--data DIR] [user@]host[:port]
+                          [--from ADDR] [--take-over] [--jump user@host] [--identity FILE]
+                          [--password-file FILE] [--password-stdin] [--data DIR] [user@]host[:port]
   virticle node unprepare [--user NAME] [--root] [--jump user@host] [--identity FILE]
-                          [--password-stdin] [--data DIR] [user@]host[:port]
+                          [--password-file FILE] [--password-stdin] [--data DIR] [user@]host[:port]
 
-Without a host, prepare works on this machine and must run as root. With a host it signs in as the
-administrator (your SSH agent, or --identity, or a password: asked for on a terminal, read from
-standard input with --password-stdin). It installs libvirt and QEMU, installs the node command (virticle-node) and tests
-the connection. There are two ways for the controller to reach the node:
+Without a host, prepare works on this machine and must run as root. It installs libvirt and QEMU,
+installs the node command (virticle-node) and tests the connection. The controller reaches the node in
+one of two ways:
   Service account (default, recommended): prepare creates the account virticle-node for the
     controller with a restricted SSH key and a sudo rule that lets it run the node command as root,
     and nothing else. (The account virticle belongs to the controller package and is never used.
@@ -95,19 +122,193 @@ func nodeFail(msg string) int {
 	return 2
 }
 
+// errorLine prints a one-line error (no usage: the command was right, the situation is not) and returns code.
+func errorLine(code int, format string, a ...any) int {
+	fmt.Fprintf(os.Stderr, "Error: "+format+"\n", a...)
+	return code
+}
+
 func nodeCommand(args []string) int {
 	if len(args) == 0 {
-		return nodeFail("say what to do: prepare or unprepare")
+		return nodeFail("say what to do: add, list, remove, prepare or unprepare")
 	}
-	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	switch args[0] {
+	case "-h", "--help", "help":
 		fmt.Println(nodeUsage)
 		return 0
+	case "add":
+		return nodeAddCommand(args[1:])
+	case "list":
+		return nodeListCommand(args[1:])
+	case "remove":
+		return nodeRemoveCommand(args[1:])
+	case "prepare", "unprepare":
+		return nodePrepareCommand(args[0], args[1:])
 	}
-	if args[0] != "prepare" && args[0] != "unprepare" {
-		return nodeFail("unknown command " + args[0])
+	return nodeFail("unknown command " + args[0])
+}
+
+// credFlags are how the administrator signs in to another host.
+type credFlags struct {
+	identity, passwordFile string
+	pwStdin                bool
+}
+
+func (c *credFlags) register(fs *flag.FlagSet) {
+	fs.StringVar(&c.identity, "identity", "", "administrator's private key file (the SSH agent is used as well)")
+	fs.StringVar(&c.passwordFile, "password-file", "", "read the administrator's password from the first line of this file")
+	fs.BoolVar(&c.pwStdin, "password-stdin", false, "read the administrator's password from standard input")
+}
+
+func (c credFlags) given() bool { return c.identity != "" || c.passwordFile != "" || c.pwStdin }
+
+// nodePasswordEnv holds the administrator's password for scripts.
+const nodePasswordEnv = "VIRTICLE_NODE_PASSWORD"
+
+// credIO is what adminLogin needs from the terminal; tests replace it.
+type credIO struct {
+	tty          bool
+	stdin        io.Reader
+	readPassword func(prompt string) (string, error)
+	getenv       func(string) string
+	agent        bool
+}
+
+func realCredIO() credIO {
+	fd := int(os.Stdin.Fd())
+	return credIO{
+		tty: term.IsTerminal(fd), stdin: os.Stdin, getenv: os.Getenv, agent: os.Getenv("SSH_AUTH_SOCK") != "",
+		readPassword: func(prompt string) (string, error) {
+			fmt.Fprint(os.Stderr, prompt)
+			b, err := term.ReadPassword(fd)
+			fmt.Fprintln(os.Stderr)
+			return string(b), err
+		},
 	}
-	unprepare := args[0] == "unprepare"
-	fs := flag.NewFlagSet("node "+args[0], flag.ContinueOnError)
+}
+
+// firstLineOf is the first line of a password file, without the line end.
+func firstLineOf(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	line, _, _ := strings.Cut(string(b), "\n")
+	line = strings.TrimRight(line, "\r")
+	if line == "" {
+		return "", fmt.Errorf("the first line of %s is empty", path)
+	}
+	return line, nil
+}
+
+// adminLogin builds the administrator's credential for adminUser at addr: a key file, the SSH agent, and a password
+// from --password-file, the environment, --password-stdin or (on a terminal, when there is no key) a question. The
+// code is the exit code for the error.
+func adminLogin(adminUser, addr, jump string, c credFlags, in credIO) (prepare.Admin, int, error) {
+	a := prepare.Admin{Addr: addr, User: adminUser, Jump: jump, Agent: in.agent}
+	if c.identity != "" {
+		b, err := os.ReadFile(c.identity)
+		if err != nil {
+			return a, 1, fmt.Errorf("--identity: %v", err)
+		}
+		a.KeyPEM = b
+	}
+	switch {
+	case c.passwordFile != "":
+		pw, err := firstLineOf(c.passwordFile)
+		if err != nil {
+			return a, 1, fmt.Errorf("--password-file: %v", err)
+		}
+		a.Password = pw
+	case in.getenv(nodePasswordEnv) != "":
+		a.Password = in.getenv(nodePasswordEnv)
+	case in.tty && (c.pwStdin || (len(a.KeyPEM) == 0 && !a.Agent)):
+		// On a terminal the password is asked for and not shown.
+		pw, err := in.readPassword(fmt.Sprintf("Password for %s@%s: ", adminUser, addr))
+		if err != nil {
+			return a, 1, err
+		}
+		a.Password = pw
+	case c.pwStdin:
+		line, err := bufio.NewReader(in.stdin).ReadString('\n')
+		if err != nil && err != io.EOF {
+			return a, 1, err
+		}
+		a.Password = strings.TrimRight(line, "\r\n")
+	}
+	if a.Password == "" && len(a.KeyPEM) == 0 && !a.Agent {
+		return a, 2, fmt.Errorf("no way to sign in to %s as %s: no SSH agent, no --identity FILE, no password (--password-file FILE or %s), and no terminal to ask for it", addr, adminUser, nodePasswordEnv)
+	}
+	return a, 0, nil
+}
+
+// controllerKey makes sure the controller's key pair exists in data and returns the key file and the public key.
+func controllerKey(data string) (string, string, error) {
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		return "", "", fmt.Errorf("the controller's data directory %s: %v%s", data, err, sudoHint(err))
+	}
+	keyFile := filepath.Join(data, "id_ed25519")
+	pub, err := ensureKey(keyFile)
+	if err != nil {
+		return "", "", fmt.Errorf("the controller's SSH key in %s: %v%s", data, err, sudoHint(err))
+	}
+	if os.Geteuid() == 0 {
+		chownLike(data, keyFile, keyFile+".pub") // a key made now belongs to the controller's account
+	}
+	return keyFile, pub, nil
+}
+
+func sudoHint(err error) string {
+	if (os.IsPermission(err) || errors.Is(err, errNoAccess)) && os.Geteuid() != 0 {
+		return " (run it with sudo)"
+	}
+	return ""
+}
+
+func instanceIDOf(data string) string {
+	if b, err := os.ReadFile(filepath.Join(data, "instance-id")); err == nil {
+		return strings.TrimSpace(string(b))
+	}
+	return ""
+}
+
+// thisMachine names this machine in the messages.
+func thisMachine() string {
+	where := "this machine"
+	if h, err := os.Hostname(); err == nil {
+		where += " (" + h + ")"
+	}
+	return where
+}
+
+// runPrepare prepares a host the way the web dialog does, printing the rows as they settle, and returns them all.
+// verifyAddr is the address the connection test (and the node record) uses.
+func runPrepare(r *prepare.Runner, o prepare.Options, mgr *cluster.Manager, verifyAddr, jump string) []prepare.Row {
+	printed := 0
+	rows := r.Prepare(o, func(rs []prepare.Row) {
+		// Print rows as they settle; the final list is printed below for anything not shown yet.
+		for printed < len(rs) && rs[printed].Status != prepare.Skipped {
+			printRow(rs[printed])
+			printed++
+		}
+	}, func() []prepare.Row { return prepare.Verify(mgr, verifyAddr, r.User, jump) })
+	for ; printed < len(rows); printed++ {
+		printRow(rows[printed])
+	}
+	return rows
+}
+
+// splitTarget splits [user@]host[:port] into the administrator and the address.
+func splitTarget(target string) (adminUser, addr string) {
+	if u, a, ok := strings.Cut(target, "@"); ok {
+		return u, a
+	}
+	return "root", target
+}
+
+func nodePrepareCommand(verb string, args []string) int {
+	unprepare := verb == "unprepare"
+	fs := flag.NewFlagSet("node "+verb, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
 	var (
@@ -119,28 +320,20 @@ func nodeCommand(args []string) int {
 		from     = fs.String("from", "", "restrict the controller's key to this source address (comma-separated patterns)")
 		minimal  = fs.Bool("minimal", false, "leave out the guest disk tools (virt-sysprep); clone with sysprep then needs a sealed template")
 		jump     = fs.String("jump", "", "user@host to connect through")
-		identity = fs.String("identity", "", "administrator's private key file (the SSH agent is used as well)")
-		pwStdin  = fs.Bool("password-stdin", false, "read the administrator's password from standard input")
 		takeOver = fs.Bool("take-over", false, "the node was managed by another Virticle controller: remove that controller's SSH key from the node")
 		data     = fs.String("data", defaultDataDir(), "the controller's data directory (its key and known_hosts)")
+		cred     credFlags
 	)
+	cred.register(fs)
 	fs.Var(&existing, "use-existing-user", "the account already exists: only add the key (and with --confirm groups and the sudo rule)")
 
-	var pos []string
-	rest := args[1:]
-	for {
-		if err := fs.Parse(rest); err != nil {
-			if err == flag.ErrHelp {
-				fmt.Println(nodeUsage)
-				return 0
-			}
-			return nodeFail(err.Error())
+	pos, err := parseMixed(fs, args)
+	if err != nil {
+		if err == flag.ErrHelp {
+			fmt.Println(nodeUsage)
+			return 0
 		}
-		if fs.NArg() == 0 {
-			break
-		}
-		pos = append(pos, fs.Arg(0))
-		rest = fs.Args()[1:]
+		return nodeFail(err.Error())
 	}
 	target := ""
 	for _, p := range pos {
@@ -157,43 +350,22 @@ func nodeCommand(args []string) int {
 	switch {
 	case local && unprepare:
 		return nodeFail("unprepare needs a host")
-	case local && (*jump != "" || *identity != "" || *pwStdin):
-		return nodeFail("no host given; --jump, --identity and --password-stdin are for another host")
+	case local && (*jump != "" || cred.given()):
+		return nodeFail("no host given; --jump, --identity, --password-file and --password-stdin are for another host")
 	case local && os.Geteuid() != 0:
 		return nodeFail("no host given. To prepare this machine, run as root: sudo virticle node prepare")
 	}
 	if local {
 		target = "127.0.0.1"
 	}
-	adminUser, addr := "root", target
-	if u, a, ok := strings.Cut(target, "@"); ok {
-		adminUser, addr = u, a
-	}
+	adminUser, addr := splitTarget(target)
 
-	if err := os.MkdirAll(*data, 0o700); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: the controller's data directory %s: %v\n", *data, err)
-		return 1
-	}
-	keyFile := filepath.Join(*data, "id_ed25519")
-	pub, err := ensureKey(keyFile)
+	keyFile, pub, err := controllerKey(*data)
 	if err != nil {
-		hint := ""
-		if os.IsPermission(err) && os.Geteuid() != 0 {
-			hint = " (run it with sudo)"
-		}
-		fmt.Fprintf(os.Stderr, "Error: the controller's SSH key in %s: %v%s\n", *data, err, hint)
-		return 1
+		return errorLine(1, "%v", err)
 	}
-	if os.Geteuid() == 0 {
-		chownLike(*data, keyFile, keyFile+".pub") // a key made now belongs to the controller's account
-	}
-	instance := ""
-	if b, err := os.ReadFile(filepath.Join(*data, "instance-id")); err == nil {
-		instance = strings.TrimSpace(string(b))
-	}
-
 	o := prepare.Options{User: *user, UseExisting: existing.on, Confirm: *confirm, AllowRoot: *root,
-		From: *from, Minimal: *minimal, ControllerKey: pub, InstanceID: instance, TakeOver: *takeOver}
+		From: *from, Minimal: *minimal, ControllerKey: pub, InstanceID: instanceIDOf(*data), TakeOver: *takeOver}
 	if existing.name != "" {
 		o.User = existing.name
 	}
@@ -203,52 +375,20 @@ func nodeCommand(args []string) int {
 	}
 
 	mgr := cluster.NewManager(keyFile, filepath.Join(*data, "known_hosts"))
+	defer chownLike(*data, filepath.Join(*data, "known_hosts"))
 	var r *prepare.Runner
 	where := target
 	if local {
-		where = "this machine"
-		if h, err := os.Hostname(); err == nil {
-			where += " (" + h + ")"
-		}
+		where = thisMachine()
 		r = &prepare.Runner{N: localNode{}}
 	} else {
-		a := prepare.Admin{Addr: addr, User: adminUser, Jump: *jump, Agent: os.Getenv("SSH_AUTH_SOCK") != ""}
-		if *identity != "" {
-			b, err := os.ReadFile(*identity)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-			a.KeyPEM = b
-		}
-		tty := term.IsTerminal(int(os.Stdin.Fd()))
-		switch {
-		case tty && (*pwStdin || (len(a.KeyPEM) == 0 && !a.Agent)):
-			// On a terminal the password is asked for and not shown.
-			fmt.Fprintf(os.Stderr, "Password for %s@%s: ", adminUser, addr)
-			b, err := term.ReadPassword(int(os.Stdin.Fd()))
-			fmt.Fprintln(os.Stderr)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-			a.Password = string(b)
-		case *pwStdin:
-			line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-			if err != nil && err != io.EOF {
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-			a.Password = strings.TrimRight(line, "\r\n")
-		}
-		if a.Password == "" && len(a.KeyPEM) == 0 && !a.Agent {
-			fmt.Fprintf(os.Stderr, "Error: no way to sign in to %s as %s: no SSH agent, no --identity FILE, and no terminal to ask for the password (--password-stdin reads it from standard input)\n", addr, adminUser)
-			return 2
+		a, code, err := adminLogin(adminUser, addr, *jump, cred, realCredIO())
+		if err != nil {
+			return errorLine(code, "%v", err)
 		}
 		conn, err := prepare.Dial(mgr, a)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: could not sign in to %s as %s: %v\n", addr, adminUser, err)
-			return 1
+			return errorLine(1, "could not sign in to %s as %s: %v", addr, adminUser, err)
 		}
 		defer conn.Close()
 		r = &prepare.Runner{N: conn, SudoPassword: a.Password}
@@ -269,40 +409,47 @@ func nodeCommand(args []string) int {
 	case *check:
 		rows, _, _ = r.Check(o)
 	default:
-		printed := 0
-		rows = r.Prepare(o, func(rs []prepare.Row) {
-			// Print rows as they settle; the final list is printed below for
-			// anything not shown yet.
-			for printed < len(rs) && rs[printed].Status != prepare.Skipped {
-				printRow(rs[printed])
-				printed++
-			}
-		}, func() []prepare.Row { return prepare.Verify(mgr, addr, r.User, *jump) })
-		for ; printed < len(rows); printed++ {
-			printRow(rows[printed])
-		}
+		rows = runPrepare(r, o, mgr, addr, *jump)
 		if code := exitCode(rows); code != 0 || r.User == "" {
 			return code
 		}
-		jumpArg := ""
-		if *jump != "" {
-			jumpArg = " with the jump host " + *jump
+		if local {
+			if hasLocalNode(*data, suggestedAddresses()) {
+				fmt.Println("\nThe controller already lists this machine.")
+				return 0
+			}
+			fmt.Println("\nNext: sudo virticle node add")
+			return 0
 		}
-		if !local && nodeListed(*data, addr) {
+		if nodeListed(*data, addr) {
 			fmt.Println("\nThe controller already lists this node.")
 			return 0
 		}
-		if local {
-			fmt.Printf("\nNext: add the node in the web interface (Nodes, Add node) with this machine's address and the SSH user %s.\n", r.User)
-			return 0
-		}
-		fmt.Printf("\nNext: add the node in the web interface (Nodes, Add node) with the address %s and the SSH user %s%s.\n", addr, r.User, jumpArg)
+		fmt.Printf("\nNext: sudo virticle node add %s\n", addCommandArgs(target, *jump, r.User))
 		return 0
 	}
 	for _, r := range rows {
 		printRow(r)
 	}
 	return exitCode(rows)
+}
+
+// addCommandArgs are the arguments of the "node add" that follows a prepare: the host as given, and the options that
+// make it use the same account.
+func addCommandArgs(target, jump, account string) string {
+	var b strings.Builder
+	switch account {
+	case "root":
+		b.WriteString("--root ")
+	case prepare.DefaultUser, "virticle", "":
+	default:
+		b.WriteString("--user " + account + " ")
+	}
+	if jump != "" {
+		b.WriteString("--jump " + jump + " ")
+	}
+	b.WriteString(target)
+	return b.String()
 }
 
 func printRow(r prepare.Row) {

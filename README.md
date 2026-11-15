@@ -27,8 +27,10 @@ Virticle look the same.
 ## Quick start
 
 Four steps: install the controller, create the administrator, add a node,
-create a VM. The controller is the machine that runs Virticle. It needs a
-Linux amd64 machine that can reach your nodes over SSH.
+create a VM. On one machine the first three are two commands:
+`sudo apt install virticle` and `sudo virticle setup`. The controller is the
+machine that runs Virticle. It needs a Linux amd64 machine that can reach your
+nodes over SSH.
 
 ### 1. Install the controller
 
@@ -47,11 +49,15 @@ Download packages from
 systemd service that serves HTTPS with a self-signed certificate on port 8463
 of all interfaces. It does not touch the firewall: run `sudo virticle setup`
 once. It asks which address and port to use (Enter keeps the defaults), asks
-before it opens the port in firewalld or ufw, and prints the address to open.
+before it opens the port in firewalld or ufw, creates the administrator, offers
+to add this machine as a node, and prints the address to open. Scripts pass
+`--admin NAME --admin-password-file FILE --node`.
 The container serves the same on port 8463 (compose.yaml publishes it on
 `127.0.0.1`). More in [docs/install.md](docs/install.md).
 
 ### 2. Create the administrator
+
+`sudo virticle setup` asks for the name and password on a terminal. Otherwise:
 
 1. Open the address that `sudo virticle setup` printed, `https://<address>:8463`
    (the journal says the same: `journalctl -u virticle`). Your browser warns
@@ -67,25 +73,26 @@ node command are installed and the access the controller needs is set up.
 Nothing on the host is removed. A host that already runs libvirt is prepared
 the same way, and its networks, pools and VMs stay as they are.
 
-**The machine the controller runs on.** While there are no nodes, the
-**Datacenter** page offers **Set up this machine as a node**. SSH must be
-running on the machine (`sudo systemctl enable --now sshd`). Enter an
-administrator login for this machine (root, or a user that may use sudo; used
-once, not stored) and choose **Add node**.
+**From a shell** on the controller's machine:
 
-**Another machine.**
+    sudo virticle node add root@192.0.2.11    # another machine; asks for its password once
+    sudo virticle node add                    # this machine (or answer yes in setup)
+    sudo virticle status                      # the nodes, and what needs attention
 
-1. Open **Nodes**, then **Add node**.
-2. Enter the address and an administrator login for the host. It is used once
-   and is not stored.
-3. Choose **Check** to see what would change. It changes nothing. Then choose
-   **Add node**, which prepares the host and adds it.
+The administrator login (root, or a user that may use sudo) is used once and
+not stored. SSH must run on the host, also on the controller's own machine
+(`sudo systemctl enable --now sshd`). The running controller shows the node at
+once.
+
+**In the browser.** Open **Nodes**, then **Add node**. Enter the address and
+an administrator login for the host. **Check** shows what would change and
+changes nothing; **Add node** prepares the host and adds it. While there are no
+nodes, the **Datacenter** page also offers **Set up this machine as a node**.
 
 ![Add node dialog](docs/img/add-node.png)
 
-From a shell: `virticle node prepare admin@host`, or `sudo virticle node prepare`
-on the machine itself (add `--check` to change nothing). The controller signs in to the node as the account `virticle-node`,
-which may run the node command as root through one sudo rule and nothing else.
+The controller signs in to the node as the account `virticle-node`, which may
+run the node command as root through one sudo rule and nothing else.
 **Root access instead of a service account** (`--root`) is the alternative.
 Details are in [docs/install-node.md](docs/install-node.md).
 

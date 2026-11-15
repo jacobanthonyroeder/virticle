@@ -4,11 +4,18 @@ A node is a Linux host with libvirt and QEMU that the controller reaches over SS
 It needs libvirt 11.0 or newer and QEMU 10.0 or newer, from its distribution (see
 [Supported systems](#supported-systems)).
 
-**Prepare a node before you add it.** Either way works:
+**Add a node.** Adding prepares the host when it needs it. Either way works:
 
+- In a shell on the controller's machine: `sudo virticle node add admin@host`. For the controller's own machine:
+  `sudo virticle node add` (or answer yes in `sudo virticle setup`).
 - In the web UI: **Nodes > Add node**.
-- In a shell: `virticle node prepare admin@host`. On the machine itself (also when it runs the controller):
-  `sudo virticle node prepare`.
+
+`admin` is root, or a user that may use sudo. The command asks for the password on a terminal and uses it for this run
+only. Scripts give `--password-file FILE`, `--identity FILE` or `VIRTICLE_NODE_PASSWORD`. The running controller shows
+the node at once. `sudo virticle node list` lists the nodes, `sudo virticle node remove NAME` removes one, and
+`sudo virticle status` says what needs attention.
+
+`virticle node prepare` does the preparation alone, without adding the node. `node add` runs it first.
 
 This page tells you what prepare does, so you can check it or do the same by hand. The last part,
 [Reference: the node command](#reference-the-node-command), is for readers who audit the program that runs as root.
@@ -43,9 +50,10 @@ There is no other way. A login that has general passwordless sudo but no node co
 
 ## The controller host as a node
 
-The machine that runs the controller can also be a node: choose **Set up this machine as a node** on the **Datacenter**
-page while there are no nodes (see the [README](../README.md#3-add-a-node)), or prepare it like any other host, with its
-own address. The two accounts on that machine are separate:
+The machine that runs the controller can also be a node: answer yes to "Use this machine as a node too?" in
+`sudo virticle setup`, run `sudo virticle node add` there, or choose **Set up this machine as a node** on the
+**Datacenter** page while there are no nodes (see the [README](../README.md#3-add-a-node)). The node is added with the
+machine's own address (the one of its default route). SSH must run on it. The two accounts on that machine are separate:
 
 | Account | Made by | Used for |
 | --- | --- | --- |
@@ -58,7 +66,10 @@ own address. The two accounts on that machine are separate:
 
 Prepare signs in with an **administrator credential that you give for this one run**.
 
-- With the command line, use your SSH agent, or `--identity FILE`, or a password on standard input.
+- With the command line, use your SSH agent, or `--identity FILE`, or a password: asked for on a terminal, or from
+  `--password-file FILE`, `VIRTICLE_NODE_PASSWORD` or `--password-stdin`. Under sudo your agent is not passed on;
+  `sudo --preserve-env=SSH_AUTH_SOCK` passes it. `node add` needs no credential for a host that the controller's key
+  already gets into with this version's node command.
 - In the web dialog, enter a password or paste a private key without a passphrase. Choose **Check** to see what would
   change, then **Add node** (**Prepare node** for a node that is already added); the dialog keeps the credential in memory for that, so you do not type it twice. The password is also used for sudo
   when the user is not root.
@@ -136,11 +147,12 @@ rule.
 ```
 virticle node prepare [--check] [--minimal] [--root] [--user NAME] [--use-existing-user[=NAME]] [--confirm]
                       [--from ADDR] [--take-over] [--jump user@host]
-                      [--identity FILE] [--password-stdin] [--data DIR] [[user@]host[:port]]
+                      [--identity FILE] [--password-file FILE] [--password-stdin] [--data DIR] [[user@]host[:port]]
 ```
 
 Without a host, prepare works on the machine it runs on and must run as root (`sudo virticle node prepare`); no
-sign-in is needed. Then add the node with the machine's address.
+sign-in is needed. `sudo virticle node add` does this and adds the node; `node add` takes `--root`, `--user`, `--jump`,
+`--take-over` and the sign-in options below.
 
 | Option | Meaning |
 | --- | --- |
@@ -153,12 +165,12 @@ sign-in is needed. Then add the node with the machine's address.
 | `--from ADDR` | Adds `from="ADDR"` to the key, so it works only from the controller's address. |
 | `--take-over` | The node trusts another Virticle controller's key (prepare then stops and asks): remove that key. See [controller-backup.md](controller-backup.md#c-there-is-no-backup-and-the-controller-is-lost). |
 | `--jump user@host` | Reaches the node through a jump host. |
-| `--identity FILE`, `--password-stdin` | How you sign in to another host as administrator. Default: your SSH agent; without one, a terminal asks for the password. `--password-stdin` is for scripts. |
-| `--data DIR` | The controller's data directory (its key, `known_hosts`, instance id). Default `data`. |
+| `--identity FILE`, `--password-file FILE`, `--password-stdin` | How you sign in to another host as administrator. Default: your SSH agent; without one, a terminal asks for the password. For scripts: `--password-file` (the first line of the file), `VIRTICLE_NODE_PASSWORD`, or `--password-stdin`. |
+| `--data DIR` | The controller's data directory (its key, `known_hosts`, instance id). Default `/var/lib/virticle` on an installed machine, else `data`. |
 
 The web dialog has one choice, **Root access instead of a service account**, and under **Advanced** a jump host and
 **Already prepared: connect without an administrator login** (for a host that you prepared in a shell: enter its
-address and SSH user, `virticle-node` or `root`). The other options are for the command line. `virticle node unprepare` takes `--user`, `--root`, `--jump`, `--identity`, `--password-stdin` and
+address and SSH user, `virticle-node` or `root`). The other options are for the command line. `virticle node unprepare` takes `--user`, `--root`, `--jump`, `--identity`, `--password-file`, `--password-stdin` and
 `--data`.
 
 The host key of the node is recorded in the controller's `known_hosts` the first time it is seen.

@@ -6,12 +6,64 @@
 | --- | --- |
 | `virticle [flags]` | Runs the controller. |
 | `virticle version` | Prints version, commit and build date. |
-| `virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes]` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). On a terminal it asks which address and port the web interface uses (defaults: all addresses, 8463). `--address` (an IP address of this machine, or `all`) and `--port` answer those questions; they only apply while no administrator exists. It checks that the port is free, asks before it opens the port in firewalld or ufw (without a terminal it opens it, unless `--no-firewall`), makes sure the service runs and prints the address to open. `--yes` asks nothing and answers yes. `--check` changes nothing; `--undo` removes the firewall rule it added. Takes `-data`. See [install.md](install.md#setup-choose-the-address-and-port-open-the-firewall). |
-| `virticle node prepare\|unprepare` | Prepares a host as a node, or undoes it. See [install-node.md](install-node.md). |
+| `virticle setup` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). Chooses the web address and port, opens the port in the firewall, starts the service, creates the first administrator and adds this machine as a node. Ends with a summary and the address to open. Options below. See [install.md](install.md#setup). |
+| `virticle node add [user@]host[:port]` | Prepares the host when it needs it and adds it as a node, as **Nodes > Add node** does. Without a host: this machine (as root). Options below. See [install-node.md](install-node.md). |
+| `virticle node list [--json]` | The nodes, one line each: name, address, state. A node that runs an older Virticle node command reads `Virticle update needed:` and the command that updates it. |
+| `virticle node remove NAME` | Removes a node from the controller, as **Remove node** does (NAME: its host name, address or id). Nothing is uninstalled from it. On a terminal it asks first; `--yes` asks nothing. |
+| `virticle status` | The controller's version, web address, service, administrator and every node with its state. For each problem it prints the command that fixes it. Exit code 1 when something needs attention. |
+| `virticle node prepare\|unprepare` | Prepares a host as a node without adding it (what `node add` runs first), or takes the controller's access away again. See [install-node.md](install-node.md#prepare-options). |
 | `virticle backup [-o FILE\|DIR] [--encrypt] [--passphrase-file FILE] [--keep-last\|--keep-hourly\|--keep-daily\|--keep-weekly\|--keep-monthly N]` | Writes the controller's own data (database, SSH key, certificates) to one file, while the controller runs. With `-o DIR` and `--keep-*` flags it then deletes the older backups in DIR that the [retention rules](#retention) do not keep; without them it deletes nothing. Takes `-data`. |
 | `virticle restore [--key FILE] FILE` | Puts such a file back; the controller must be stopped. `--key` names the recovery key file (`virticle-backup-key.age`) for a scheduled copy encrypted to the backup key; without it the key in the data directory is used. Takes `-data` and `--passphrase-file`. See [controller-backup.md](controller-backup.md). |
 | `virticle web show\|set\|reset` | Reads or changes the stored web access settings. `show` and `reset` take only `-data`. See [web-tls.md](web-tls.md). |
 | `virticle user reset-2fa\|reset-password USER` | Recovery on the controller's machine: turn two-step sign-in off for a user, or set a new password for a local account. Takes `-data` and, for `reset-password`, `--password-stdin`. See [sign-in.md](sign-in.md#two-step-sign-in-authenticator-app). |
+
+`setup`, `node`, `status`, `backup`, `restore`, `web` and `user` work on the controller's data directory, so they need
+root (sudo) or the controller's account. Every one takes `--data DIR` (default `/var/lib/virticle` on an installed
+machine).
+
+### setup options
+
+| Option | Meaning |
+| --- | --- |
+| `--admin NAME` | The first administrator's name. Without it, a terminal asks (Enter takes `admin`). Ignored when a user exists. |
+| `--admin-password-file FILE` | The administrator's password: the first line of FILE. `VIRTICLE_ADMIN_PASSWORD` works too. A password without `--admin` makes the user `admin`. Without either, a terminal asks twice. |
+| `--node`, `--no-node` | Add this machine as a node, or not. Without them a terminal asks "Use this machine as a node too? [Y/n]"; without a terminal the machine is not added. `--node` on a machine without KVM is an error. |
+| `--address ADDR` | An IP address of this machine, or `all` (default). Only while no administrator exists. |
+| `--port N` | The HTTPS port, 1 to 65535 (default 8463). Only while no administrator exists. |
+| `--no-firewall` | Leaves the firewall alone and prints the command to run. Without a terminal setup opens the port unless this is given. |
+| `--yes` | Asks nothing: takes the defaults, opens the firewall and adds this machine as a node when it can run VMs. |
+| `--check` | Changes nothing and asks nothing. |
+| `--undo` | Removes the firewall rule that setup added, and nothing else. |
+
+Running setup again changes nothing that is done and says so ("Already set up", "This machine is a node already").
+
+### node add options
+
+| Option | Meaning |
+| --- | --- |
+| `--root` | The controller signs in as root; no service account is made. |
+| `--user NAME` | Name of the service account (default `virticle-node`). |
+| `--jump user@host` | Reach the host through a jump host. |
+| `--take-over` | The host is managed by another Virticle controller: take it over. A terminal asks instead. |
+| `--identity FILE` | The administrator's private key. |
+| `--password-file FILE` | The administrator's password: the first line of FILE. `VIRTICLE_NODE_PASSWORD` works too. |
+| `--password-stdin` | The administrator's password: one line on standard input. |
+
+The administrator is root, or a user that may use sudo (`ann@host`). Without a key file or password, your SSH agent is
+used, and a terminal asks for the password. A host that this controller's key already gets into needs no credential.
+A password is never taken from the command line.
+
+### How the commands reach the controller
+
+While the controller runs, `node add`, `node list`, `node remove`, `status` and `setup` send their requests to it over a
+Unix socket, `control.sock` in the data directory. The socket file has mode 0600, the directory 0700, and the
+controller accepts only root and its own account on it. The requests run the same code as the web interface, so a node
+added on the command line appears in open browsers at once, and the audit log records it as `command line`. Nothing new
+listens on the network.
+
+While the controller is stopped, the commands take the data directory's lock (a controller cannot start meanwhile),
+work on the database themselves and connect to the nodes from the command. The controller reads the result at its
+next start.
 
 ## Flags
 
@@ -40,6 +92,8 @@ whose defaults stay.
 | --- | --- |
 | `VIRTICLE_LISTEN` | Default for `-listen`. |
 | `VIRTICLE_JUMP_PASSWORD` | Password for node jump hosts. |
+| `VIRTICLE_ADMIN_PASSWORD` | For scripts: the first administrator's password for `virticle setup` (instead of `--admin-password-file`). |
+| `VIRTICLE_NODE_PASSWORD` | For scripts: the host administrator's password for `virticle node add`, `prepare` and `unprepare` (instead of `--password-file`). |
 | `VIRTICLE_UPGRADE_LISTEN` | Set by the container image to `0.0.0.0:8080`: a data volume from 0.2.0 (users, no stored web settings) keeps answering there, as before. Packages and binaries do not set it. |
 
 The package reads these from `/etc/virticle/virticle.env`. Deprecated like
@@ -131,6 +185,7 @@ earlier versions no longer exist.
     the database; without it those secrets must be entered again. An older `settings.key` is renamed to it.
   - `migration-ca/`: the certificate authority of encrypted migration.
   - `backups/`: the daily controller backups (when switched on); `last-backup.json`: the time of the last backup; `.virticle.lock`: held while the controller runs.
+  - `control.sock`: the socket the command line uses while the controller runs (see [How the commands reach the controller](#how-the-commands-reach-the-controller)).
   - `virticle backup` writes everything above that cannot be rebuilt into one file; see [controller-backup.md](controller-backup.md).
 - **Memory only**: the newest statistics of every node and VM (the live
   charts show the last 10 minutes of them, and `/metrics` serves the latest),
