@@ -29,9 +29,14 @@ export function duration(ms: number): string {
   return `${Math.floor(ms / 60000)} min ${Math.round((ms % 60000) / 1000)} s`;
 }
 
+/** The node command is shown as "virticle-node VERB args": without sudo and its install path (the stored record keeps them). */
+export function shortNodeCmd(cmd: string): string {
+  return cmd.replace(/(?:sudo -n )?\/usr\/local\/libexec\/virticle-node(?=\s|$)/g, "virticle-node");
+}
+
 /** The text an operation line shows (and copies). */
 export function opLine(o: Operation): string {
-  if (o.cmd) return o.cmd;
+  if (o.cmd) return o.kind === "exec" ? shortNodeCmd(o.cmd) : o.cmd;
   return o.args ? `${o.api} (${o.args})` : o.api;
 }
 

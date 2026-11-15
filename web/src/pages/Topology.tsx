@@ -426,9 +426,8 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
   const migDone = useEditResult(n.node);
   const setMigDone = (items: CheckItem[]) => setEditResult(n.node, items);
   // Edit: management and migration on the addresses of one switch or card.
-  const [editAddr, setEditAddr] = useState<{ title: string; addrs: EditAddr[]; ownBridge: boolean } | null>(null);
-  // ownBridge: the address belongs to a bridge libvirt itself owns (NAT, routed, isolated): the controller cannot reach the node there.
-  const editOf = (title: string, addrs: Addr[], ownBridge = false) => (admin && shownOf(addrs).length > 0 ? () => (setMigDone([]), setEditAddr({ title, addrs, ownBridge })) : undefined);
+  const [editAddr, setEditAddr] = useState<{ title: string; addrs: EditAddr[] } | null>(null);
+  const editOf = (title: string, addrs: Addr[]) => (admin && shownOf(addrs).length > 0 ? () => (setMigDone([]), setEditAddr({ title, addrs })) : undefined);
   const canAdd = admin && !!st && !blocked;
   // A network of this node as the menus act on it; the VM interfaces on it are in the topology already.
   const target = (g: PortGroup): NetTarget => ({
@@ -474,7 +473,7 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
           s={s}
           accents={accents}
           act={switchActions(s)}
-          onEdit={editOf(s.name, s.hostAddresses, s.kind === "libvirt")}
+          onEdit={s.kind === "libvirt" ? undefined : editOf(s.name, s.hostAddresses)} // no node can be reached on a bridge libvirt owns
           ctl={ctl}
           onAddNetwork={operator && (s.kind === "linux-bridge" || s.kind === "openvswitch") ? () => setAddNet(s.name) : undefined}
           folded={!filtering && i >= SWITCHES_OPEN}
@@ -509,7 +508,6 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
           node={n.node}
           title={editAddr.title}
           addrs={editAddr.addrs}
-          ownBridge={editAddr.ownBridge}
           onClose={() => setEditAddr(null)}
           onSaved={(items) => {
             setEditAddr(null);

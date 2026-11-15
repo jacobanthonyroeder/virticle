@@ -4,7 +4,7 @@
 //
 // Management uses the same call as Settings > Connection > Edit connection (PUT /nodes/{id} with the new address):
 // the controller tests the connection first and refuses an address it cannot reach, so it is never left with one.
-// No Management box on an address of a bridge libvirt owns (NAT, routed, isolated): the node is not reachable there.
+// A bridge libvirt owns (NAT, routed, isolated) has no Edit: no other node can reach the node there.
 // Migration uses PUT /nodes/{id}/migration-network ("" is the default: the management address).
 import { FormEvent, useEffect, useState } from "react";
 import { ApiError, get, NodeStatus, put } from "../api";
@@ -35,7 +35,7 @@ function splitHostPort(addr: string): { host: string; port: string } {
   return { host: addr, port: "" };
 }
 
-export function AddressEditDialog(props: { node: number; title: string; addrs: EditAddr[]; ownBridge?: boolean; onClose: () => void; onSaved: (items: CheckItem[]) => void }) {
+export function AddressEditDialog(props: { node: number; title: string; addrs: EditAddr[]; onClose: () => void; onSaved: (items: CheckItem[]) => void }) {
   const list = props.addrs.filter((a) => a.address && !/^fe80:/i.test(a.address));
   const [mig, setMig] = useState<MigNetInfo | undefined>();
   const [conn, setConn] = useState<NodeStatus | undefined>();
@@ -143,11 +143,9 @@ export function AddressEditDialog(props: { node: number; title: string; addrs: E
                       {a.address.slice(ip.length)}
                     </td>
                     <td>
-                      {!props.ownBridge && (
-                        <label className="check" title={mw}>
-                          <input type="checkbox" checked={ip === newMgmt} disabled={!!mw || act.busy} onChange={(e) => e.target.checked && setMgmt(ip === curMgmt ? "" : ip)} aria-label={`Management on ${ip}`} />
-                        </label>
-                      )}
+                      <label className="check" title={mw}>
+                        <input type="checkbox" checked={ip === newMgmt} disabled={!!mw || act.busy} onChange={(e) => e.target.checked && setMgmt(ip === curMgmt ? "" : ip)} aria-label={`Management on ${ip}`} />
+                      </label>
                     </td>
                     <td>
                       <label className="check" title={gw}>

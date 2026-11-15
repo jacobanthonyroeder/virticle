@@ -158,7 +158,7 @@ export default function ConnectionCard({ n, admin }: { n: NodeStatus; admin: boo
           <StatusLine status="warning">
             {older ? "This node was prepared by an older version, so features that need root are off." : "This node is not prepared, so features that need root are off."}
           </StatusLine>
-          {admin && <button onClick={() => setPreparing(true)}>Prepare this node</button>}
+          {admin && <button onClick={() => setPreparing(true)}>{older ? "Update Virticle" : "Prepare this node"}</button>}
         </div>
       ) : (
         blocked.length > 0 && <StatusLine status="warning">{blocked[0].reason ?? "A feature that needs root is unavailable."}</StatusLine>
@@ -172,7 +172,7 @@ export default function ConnectionCard({ n, admin }: { n: NodeStatus; admin: boo
         </div>
       )}
       {confirm.dialog}
-      {preparing && <PrepareNode mode="prepare" nodeId={n.id} nodeUser={n.user} addr={n.addr} jump={n.jump ?? ""} onClose={() => setPreparing(false)} onRegistered={() => setPreparing(false)} />}
+      {preparing && <PrepareNode mode="prepare" update={older} nodeId={n.id} nodeUser={n.user} addr={n.addr} jump={n.jump ?? ""} onClose={() => setPreparing(false)} onRegistered={() => setPreparing(false)} />}
       {changing && mig.info && (
         <MigrationNetworkDialog
           node={n.id}

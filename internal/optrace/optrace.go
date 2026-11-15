@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"virticle/internal/nodeproto"
 )
 
 // Bounds of a trace.
@@ -159,9 +161,13 @@ func (t *Trace) Libvirt(node string, program, proc uint32, payload []byte) func(
 }
 
 // Exec is called before a command runs on a node over SSH. The function it returns gets the exit status (-1
-// when the command did not run to an end) and the error.
+// when the command did not run to an end) and the error. It returns nil for a command that only reads (see
+// ReadOnlyCommand), which is not recorded.
 func (t *Trace) Exec(node, cmd string) func(exit int, err error) {
 	if t == nil {
+		return nil
+	}
+	if ReadOnlyCommand(cmd) {
 		return nil
 	}
 	seq, ok := t.begin()
@@ -184,14 +190,11 @@ func (t *Trace) Exec(node, cmd string) func(exit int, err error) {
 	}
 }
 
-// NodeCmdPath is where the node command lives (internal/nodeproto.Path; not imported to keep this package
-// free of the controller's packages).
-const NodeCmdPath = "/usr/local/libexec/virticle-node"
+// NodeCmdPath is where the node command lives. internal/nodeproto is a leaf package (no controller packages).
+const NodeCmdPath = nodeproto.Path
 
-// program names what a command line runs: "virticle-node VERB" for the node command, else its first program
-// after sudo, timeout, exec and the like.
-func program(cmd string) string {
-	f := strings.Fields(cmd)
+// bare drops what only wraps a command: sudo, timeout, exec and the like.
+func bare(f []string) []string {
 	for len(f) > 0 {
 		switch f[0] {
 		case "sudo", "-n", "exec", "nice", "ionice", "nohup", "env":
@@ -206,6 +209,13 @@ func program(cmd string) string {
 		}
 		break
 	}
+	return f
+}
+
+// program names what a command line runs: "virticle-node VERB" for the node command, else its first program
+// after sudo, timeout, exec and the like.
+func program(cmd string) string {
+	f := bare(strings.Fields(cmd))
 	if len(f) == 0 {
 		return "sh"
 	}

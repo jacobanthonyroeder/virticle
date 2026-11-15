@@ -113,16 +113,12 @@ test.describe.serial("migration network", () => {
     await expect(page.getByText("Use for migration")).toHaveCount(0);
   });
 
-  test("a libvirt NAT bridge offers no Management box", async ({ page, n1 }) => {
+  test("a libvirt NAT bridge has no Edit", async ({ page, n1 }) => {
     await page.goto(`/node/${n1}/network`);
     const sw = page.locator("section.toposwitch").filter({ hasText: "libvirt network bridge" });
     await expect(page.locator("section.toposwitch").first()).toBeVisible({ timeout: 30_000 });
-    test.skip((await sw.count()) === 0 || (await sw.first().locator("[data-topo-edit]").count()) === 0, "the node has no libvirt bridge with an address");
-    await sw.first().locator("[data-topo-edit]").click();
-    const dlg = page.getByRole("dialog");
-    await expect(dlg.getByRole("checkbox", { name: /^Migration on / }).first()).toBeVisible({ timeout: 30_000 });
-    await expect(dlg.getByRole("checkbox", { name: /^Management on / })).toHaveCount(0);
-    await dlg.getByRole("button", { name: "Cancel" }).click();
+    test.skip((await sw.count()) === 0, "the node has no libvirt bridge");
+    await expect(sw.first().locator("[data-topo-edit]")).toHaveCount(0);
   });
 
   test("setting the migration network and resetting it", async ({ page, api, n1 }) => {

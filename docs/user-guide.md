@@ -122,7 +122,7 @@ shows what needs attention. An open Nodes page shows a node added this way at on
 [reference.md](reference.md#commands).
 
 When the node's **Settings** say it was prepared by an older version, choose
-**Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
+**Update Virticle** there (a node that was never prepared has **Prepare this node**; after an upgrade: see [install.md](install.md#upgrading)).
 
 After an upgrade the **Nodes** page marks each such node (**Virticle update needed** or **Not prepared**) and
 shows one notice, "N nodes need a Virticle update", with **Update Virticle on nodes** (administrators). Enter the administrator login once
@@ -783,7 +783,7 @@ stopped); select the arrow to open one. The filter finds a switch, a network or 
 
 The card or bridge that holds the address the controller uses to reach the node is marked **Management**; the address
 that carries migrations is marked **Migration**. Administrators change both with **Edit** on a switch or on an unused card
-that has an address: one **Management** and one **Migration** checkbox per address, then **Save**.
+that has an address (a bridge that libvirt owns, for a NAT, routed or isolated network, has no **Edit**: no other node can reach the node there): one **Management** and one **Migration** checkbox per address, then **Save**.
 
 | Checkbox | Effect |
 | --- | --- |
@@ -1056,10 +1056,10 @@ request. A task on the **Tasks** page opens the same way (administrators only).
 | Line | Shows |
 | --- | --- |
 | A libvirt call | The `virsh` command that does the same, run as root on the node, then the libvirt function and "equivalent". A call without such a command shows the function and its arguments. |
-| A program on the node | The command line as it ran, then the program. |
+| A program on the node | The command line as it ran, then the program. The node command shows as `virticle-node VERB arguments`, without `sudo` and its install path. |
 | Each line | OK or Failed, the time it took, **Copy**. An XML document the call carried opens under its file name. |
 
-- Reads (lists, XML, statistics) are not listed.
+- Reads (lists, XML, statistics) are not listed, on the node neither (file sizes, a scan for backups, a test that a path exists).
 - Passwords, keys, tokens, VNC and SPICE passwords and cloud-init data are replaced by `[redacted]` before anything is stored.
 - What a program read on standard input (keys, passwords) is never shown.
 
@@ -1067,7 +1067,6 @@ Example: creating the VM `web-1` from the cirros image with **Start** on (`POST 
 
 | Operation | Beside it |
 | --- | --- |
-| `/usr/local/libexec/virticle-node disk-boot '/var/lib/libvirt/images/cirros-0.6.3.qcow2'` | `virticle-node disk-boot`, OK, 349 ms |
 | `virsh vol-create-from default volume.xml --inputpool default cirros-0.6.3.qcow2` | `virStorageVolCreateXMLFrom` equivalent, OK, 267 ms |
 | `virsh vol-resize web-1.qcow2 1073741824B --pool default` | `virStorageVolResize` equivalent, OK, 106 ms |
 | `virsh define domain.xml --validate` | `virDomainDefineXMLFlags` equivalent, OK, 144 ms |
@@ -1082,7 +1081,7 @@ Details: [reference.md](reference.md#operation-traces).
 | Node shows Offline | Node **Settings > Test connection**. It names the failing step. |
 | Guest agent "Not responding" | Install and start `qemu-guest-agent` in the VM. |
 | Migration blocked | Read the red pre-flight row. Usually a missing network or pool on the target, or a firewall between the nodes (SSH between nodes, Migration ports). |
-| Migration or backup refused for a node | **Settings** says the node is not prepared: it has no node command, or one from an older version. Choose **Prepare this node** there, or run `virticle node prepare` for it again (see [install.md](install.md#upgrading)). |
+| Migration or backup refused for a node | **Settings** says the node is not prepared: it has no node command, or one from an older version. Choose **Update Virticle** (or **Prepare this node** for a node that was never prepared) there, or run `virticle node prepare` for it again (see [install.md](install.md#upgrading)). |
 | A virtual switch change did not stay | The node did not come back in time and restored its previous settings. Read the line in the node's **Network** tab, check the cable and address, and try again. From the node's console: [reference.md](reference.md#host-bridges-virtual-switches). |
 | Charts have gaps | The VM was not running, or the node or the controller could not be read. Nothing is drawn as zero. |
 | Locked out after a web access change | Wait 60 seconds for the automatic revert, or run `virticle web reset` and restart. |

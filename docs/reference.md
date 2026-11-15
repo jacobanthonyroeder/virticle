@@ -139,11 +139,15 @@ trace of the request that started it.
 | Programs run on a node over SSH (node command verbs and plain commands) | Node, program, the command line as it ran, exit status, duration |
 
 - Not recorded: reads (names with Get, List, Lookup, Is, Stats, Info, and every call on the connection itself), guest
-  agent and monitor commands that only query, and the periodic collectors.
+  agent and monitor commands that only query, and the periodic collectors. The same for programs on a node: node
+  command verbs that change nothing (`stat`, `read`, `qemu-img-info`, `files-size`, `backup-scan`, `tools-missing` and the
+  like; the list is `ReadOnlyVerbs` in `internal/nodeproto/verbs.go`, and a test fails for a verb in neither list) and
+  plain shell commands made of reading programs (`test`, `stat`, `cat`, `command -v`, `getent`). A command that
+  writes, or that is not clearly a read, is recorded.
 - A `virsh` line is an equivalent: Virticle calls libvirt over its RPC protocol and does not run `virsh`. Run it as
   root on the node. A file name in it (`domain.xml`) is the XML shown with the line. Flags without a `virsh` option are
   listed beside it. A call without a `virsh` command (the phases of a migration) shows the function and its arguments.
-- For a node command verb the trace shows the verb with its arguments, not the programs the verb ran inside.
+- For a node command verb the trace shows the verb with its arguments, not the programs the verb ran inside. The page shows it as `virticle-node VERB args`; the stored record keeps `sudo -n` and the install path.
 - Redaction, before storing: XML attributes and elements named like a password, secret, key or token (VNC and SPICE
   `passwd`, TPM `secret`, SEV `dhCert` and `session`), OEM strings and fw_cfg entries, QEMU pass-through arguments that
   look like secrets and all pass-through environment values, values after flags such as `--password` and
@@ -253,7 +257,8 @@ earlier versions no longer exist.
 ## Migration network and limit
 
 - Each node has a migration network: the address other nodes send migration data and file copies to. Default: the
-  management address. `GET` and `PUT /api/nodes/{id}/migration-network` read and change it (`address`, and `limit`).
+  management address. `GET` and `PUT /api/nodes/{id}/migration-network` read and change it (`address`, and `limit`). An address on a bridge that libvirt owns (a NAT, routed or
+  isolated network, `virbr*`) is refused with 400 while the node is online.
 - Limit on a shared link, per node: `""` (default, 80% of the link speed when known, else none), `"none"` or
   `"custom:<Mbit/s>"`. It applies only while migration data shares the interface of the management address. The lower
   limit of the two nodes wins. `bandwidthMiB` in a migrate request replaces it.

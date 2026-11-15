@@ -123,8 +123,8 @@ test.describe.serial("debian cloud image, guest agent, template and linked clone
     await field(dlg, "Password").fill(PASS);
     await dlg.getByLabel(/Start the clone when it is ready/).check();
     await dlg.getByRole("button", { name: "Clone", exact: true }).click();
-    // the dialog closes once the server accepted the clone; the Tasks dock follows it
-    await expect(dlg).toBeHidden();
+    // the dialog closes once the server accepted the clone (it first looks into the template's disk: seconds on a nested node); the Tasks dock follows it
+    await expect(dlg).toBeHidden({ timeout: 90_000 });
     await expect(dockRow(page, "clone", CLONE).first()).toContainText("Ok", { timeout: 90_000 });
     await expect(dockRow(page, "clone", CLONE).first().locator(".c-res")).toContainText("linked");
     const got = await api.vmByName(CLONE);

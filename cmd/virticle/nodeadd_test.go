@@ -155,6 +155,9 @@ func TestMatchNodesAndAlreadyListed(t *testing.T) {
 	if _, ok := alreadyListed(ns, "192.0.2.7", false); ok {
 		t.Error("another host")
 	}
+	if got := alreadyNodeLine("192.0.2.6"); got != "192.0.2.6 is a node already" {
+		t.Errorf("%q", got)
+	}
 }
 
 func TestAddCommandArgs(t *testing.T) {
