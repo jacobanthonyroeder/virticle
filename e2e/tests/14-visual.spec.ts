@@ -13,7 +13,7 @@ const OUT = "test-results/visual";
 // Coloured tags on the screenshot VM: a very light and a very dark colour must both stay readable on both themes.
 const T_LIGHT = `${P}vis-light`;
 const T_DARK = `${P}vis-dark`;
-const T_LONG = `${P}vis-a-rather-long-tag-name`;
+const T_LONG = `${P}vis-a-rather-long-tag-name`.slice(0, 31); // tags are at most 31 characters, whatever the prefix
 const T_PLAIN = `${P}vis-plain`;
 
 /** Finds visible text whose colour is too close to the background it sits on. */

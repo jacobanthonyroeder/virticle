@@ -68,7 +68,7 @@ test.describe.serial("prepare all", () => {
     await page.goto("/nodes");
     await page.getByRole("button", { name: "Prepare all" }).click();
     const dlg = dialog(page, "Prepare all");
-    await dlg.getByLabel("Password").fill("secret");
+    await dlg.getByRole("textbox", { name: "Password" }).fill("secret");
     await dlg.getByRole("button", { name: "Prepare all" }).click();
     await expect(dlg.locator(".badge.s-failed")).toHaveText("Failed");
     await expect(dlg).toContainText("could not sign in: permission denied");

@@ -198,10 +198,10 @@ test.describe.serial("users and roles", () => {
     await tok.dispose();
   });
 
-  test("Settings menu holds Users, Sign-in, Web access, Alerts, Controller backup and Audit, in that order", async ({ page }) => {
+  test("Settings menu holds Users, Sign-in, Web access, Alerts, Controller backup, Backup encryption and Audit, in that order", async ({ page }) => {
     await page.goto("/");
     await page.locator(".topbar").getByRole("button", { name: "Settings" }).click();
-    const names = ["Users", "Sign-in", "Web access", "Alerts", "Controller backup", "Audit"];
+    const names = ["Users", "Sign-in", "Web access", "Alerts", "Controller backup", "Backup encryption", "Audit"];
     for (const n of names) await expect(page.getByRole("menuitem", { name: n, exact: true })).toBeVisible();
     expect(await page.getByRole("menuitem").allInnerTexts()).toEqual(names);
     await page.getByRole("menuitem", { name: "Web access", exact: true }).click();
