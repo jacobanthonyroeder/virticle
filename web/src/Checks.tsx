@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import Help from "./Help";
 import "./checks.css";
 
 /** One design language for results: a dot (green ok, yellow warning, red failed, hollow for info or not run), then plain text. */
@@ -8,6 +9,8 @@ export interface CheckItem {
   status: CheckStatus;
   title?: ReactNode;
   detail?: ReactNode;
+  /** One more sentence, shown behind a "?" after the text. */
+  help?: ReactNode;
   key?: string;
 }
 
@@ -57,6 +60,7 @@ export function CheckList({ items, sort = true, summary = true, label }: { items
               {c.title ? <strong>{c.title}</strong> : null}
               {c.title && c.detail ? " " : null}
               {c.detail}
+              {c.help ? <Help>{c.help}</Help> : null}
             </span>
           </li>
         ))}

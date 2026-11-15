@@ -11,6 +11,7 @@ interface Row {
   title: string;
   status: "ok" | "warning" | "error" | "info" | "skipped";
   detail?: string;
+  help?: string;
 }
 interface Job {
   rows: Row[];
@@ -25,7 +26,7 @@ interface Job {
 const STATUS: Record<Row["status"], CheckStatus> = { ok: "ok", warning: "warning", error: "error", info: "info", skipped: "pending" };
 
 export function rowItems(rows: Row[]): CheckItem[] {
-  return rows.map((r) => ({ key: r.id, status: STATUS[r.status], title: r.title, detail: r.detail }));
+  return rows.map((r) => ({ key: r.id, status: STATUS[r.status], title: r.title, detail: r.detail, help: r.help }));
 }
 
 /**

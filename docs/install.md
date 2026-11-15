@@ -196,8 +196,8 @@ questions. Enter takes the answer in brackets:
     Open TCP port 8463 in firewalld for the web interface? [Y/n]
 
 The password needs at least 10 characters and is not shown. The node question
-comes only when the machine can run VMs (hardware virtualisation, `/dev/kvm`,
-not a container) and is not a node yet. Yes runs what `sudo virticle node add`
+comes only when the machine can run VMs (hardware virtualisation, not a
+container; a missing KVM module is loaded by the node step) and is not a node yet. Yes runs what `sudo virticle node add`
 runs (see [install-node.md](install-node.md)): it installs libvirt and QEMU and
 the node command, which takes a few minutes the first time.
 

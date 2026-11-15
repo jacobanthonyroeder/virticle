@@ -1017,6 +1017,8 @@ Facts
   small test volume to check that a disk made by root can be used by the VM user.
 - A node that boots while the server is away has the pool stopped; the controller starts a stopped autostart NFS
   pool when the server answers on port 2049 and the node has been up for less than an hour.
+- `node prepare` writes `/etc/modules-load.d/virticle.conf` (the KVM module, only when it was not loaded) and never
+  changes the boot loader or kernel command line; see [install-node.md](install-node.md#kernel-modules-and-kernel-command-line).
 - `node prepare` writes `/etc/systemd/system/virtqemud.service.d/10-virticle-storage.conf` (Wants and After
   `virtstoraged.service`) on nodes with separate libvirt daemons, so the NFS pools are mounted before VMs
   autostart. Without it a VM on NFS fails to autostart with "no such file".

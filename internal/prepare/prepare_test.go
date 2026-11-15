@@ -119,7 +119,7 @@ func TestEvaluateDebian13Fresh(t *testing.T) {
 	if HasError(rows) {
 		t.Errorf("a fresh Debian 13 VM must have no error: %+v", rows)
 	}
-	if d := find(rows, "iommu").Detail; !strings.Contains(d, "intel_iommu=on") || !strings.Contains(d, "never reboots") {
+	if d := find(rows, "iommu").Detail; !strings.Contains(d, "add intel_iommu=on iommu=pt to the kernel command line") {
 		t.Errorf("iommu hint: %q", d)
 	}
 	if d := find(rows, "distro").Detail; !strings.Contains(d, "tested") {
@@ -383,7 +383,7 @@ func TestPrepareRunsStepsInOrder(t *testing.T) {
 		ids = append(ids, r.ID)
 	}
 	order := []string{"admin", "arch", "distro", "cpu", "kvm", "nested", "iommu", "space", "mac", "time", "libvirt", "controller", "packages", "firewall", "account", "guard",
-		"do-packages", "do-firewall", "do-services", "do-network", "do-pool", "do-account", "do-key", "do-nodecmd", "do-sudoers", "do-peerkey", "do-guard", "test-ssh", "summary"}
+		"do-kernel", "do-packages", "do-firewall", "do-services", "do-network", "do-pool", "do-account", "do-key", "do-nodecmd", "do-sudoers", "do-peerkey", "do-guard", "test-ssh", "summary"}
 	if strings.Join(ids, ",") != strings.Join(order, ",") {
 		t.Errorf("rows:\n%v\nwant\n%v", ids, order)
 	}

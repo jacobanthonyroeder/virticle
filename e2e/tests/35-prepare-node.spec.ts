@@ -61,6 +61,13 @@ test.describe.serial("prepare node, check only", () => {
       await expect(list.locator("strong", { hasText: new RegExp(`^${t}$`) })).toBeVisible();
     }
     await expect(list).toContainText("Existing VMs are left alone");
+    // the IOMMU row names the exact kernel arguments for this node and keeps where they go behind the help mark
+    const iommu = list.locator("li", { hasText: "IOMMU" });
+    await expect(iommu).toContainText(/(Off\. For device passthrough: add (intel|amd)_iommu=on iommu=pt to the kernel command line|On \(\d+ groups\))/);
+    if (/Off/.test((await iommu.textContent()) ?? "")) {
+      await iommu.getByRole("button", { name: "Help" }).hover();
+      await expect(page.getByRole("tooltip")).toContainText("Virticle does not change the boot loader or reboot");
+    }
     await expect(list).toContainText(/libvirt \d+\.\d+\.\d+ and QEMU \d+\.\d+\.\d+/); // the minimum is libvirt 11.0 and QEMU 10.0
     await expect(list).toContainText(/Debian GNU\/Linux 13|Rocky Linux 10/);
     await expect(res.getByRole("button", { name: "Add node", exact: true })).toBeVisible(); // Add node is there, without retyping the key
