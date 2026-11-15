@@ -164,7 +164,7 @@ The host key of the node is recorded in the controller's `known_hosts` the first
 **Upgrade.** When the controller says that a node was "prepared by an older version", run prepare again. This happens
 when the node command there reports another protocol version (after every controller upgrade that changes it), or is
 still the old shell script from 0.1.0. Prepare replaces the node command and removes the old script. The steps are in
-[install.md](install.md#upgrading).
+[install.md](install.md#upgrading). The Nodes page has **Prepare all** for every node that needs it.
 
 **Nodes prepared by 0.2.0.** They have the account `virticle` (made by prepare, with the comment "virticle service
 account"). Preparing them again keeps that account. It does not make `virticle-node`.

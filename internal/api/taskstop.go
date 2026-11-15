@@ -9,7 +9,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 )
@@ -92,7 +91,13 @@ func (s *stopper) commit() bool {
 }
 
 // stoppedErr is the error of a task that was stopped. The task list shows its text.
-func stoppedErr(what string) error { return errors.New(what + " cancelled") }
+func stoppedErr(what string) error { return stoppedError(what + " cancelled") }
+
+// stoppedError marks the end of a task the user stopped. It is not a failure of the controller: fail answers
+// it with 409 and does not log it as an internal error.
+type stoppedError string
+
+func (e stoppedError) Error() string { return string(e) }
 
 // cancelled turns the error of a stopped task into the plain message: the real error is only the
 // consequence of the stop (a killed process, a closed stream).

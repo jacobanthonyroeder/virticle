@@ -74,6 +74,8 @@ export interface NodeStatus {
   hostname?: string;
   maintenance?: boolean;
   privilege?: "root" | "helper" | "none" | "";
+  detectedPrivilege?: string;
+  privilegeNote?: string;
   migrationAddress?: string;
   migrationLimit?: string;
   capabilities?: Record<string, { ok: boolean; reason?: string }>;

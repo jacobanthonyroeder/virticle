@@ -1,0 +1,5 @@
+.s-waiting { --st: var(--muted); }
+.s-needs-prepare { --st: var(--warn); }
+.pa-why { max-width: 48ch; overflow-wrap: anywhere; }
+.prepbanner { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.prepbanner .statusline { margin: 0; }

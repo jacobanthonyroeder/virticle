@@ -9,16 +9,19 @@ import { AlertMarks, useAlerts } from "./Alerts";
 import MaintenanceActions from "./Maintenance";
 import { StatusLine } from "../Checks";
 import PrepareNode from "./PrepareNode";
+import PrepareAll, { prepareState } from "./PrepareAll";
 import RollingUpdate, { needsAttention } from "./RollingUpdate";
 
 export default function Nodes() {
   const nodes = useLive(() => get<{ nodes: NodeStatus[]; publicKey: string }>("/nodes"), "nodes");
   const [adding, setAdding] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [prepAll, setPrepAll] = useState(false);
   const admin = useRole() === "admin";
   const alerts = useAlerts();
   const roll = useLive(() => get<{ run: RollRun | null }>("/rolling-update"), "rolling", orEvents("rolling"));
-  const attention = needsAttention(roll.data?.run);
+  const needPrep = (nodes.data?.nodes ?? []).filter((n) => prepareState(n)).length;
+  const attention =needsAttention(roll.data?.run);
   return (
     <>
       <div className="head">
@@ -40,6 +43,12 @@ export default function Nodes() {
             {roll.data.run.status === "running" ? "A rolling update is running." : "The rolling update stopped. " + (roll.data.run.condition ?? "")}
           </StatusLine>
           {admin && <button onClick={() => setUpdating(true)}>Show</button>}
+        </div>
+      )}
+      {needPrep > 0 && (
+        <div className="prepbanner">
+          <StatusLine status="warning">{needPrep === 1 ? "1 node needs preparing." : `${needPrep} nodes need preparing.`}</StatusLine>
+          {admin && <button onClick={() => setPrepAll(true)}>Prepare all</button>}
         </div>
       )}
       <ErrorBox error={nodes.error} />
@@ -70,7 +79,8 @@ export default function Nodes() {
         </table></div>
       )}
       {updating && <RollingUpdate title="Update all nodes" onClose={() => setUpdating(false)} />}
-      {adding && <PrepareNode addr="" jump="" onClose={() => setAdding(false)} onRegistered={() => setAdding(false)} />}
+      {prepAll && <PrepareAll nodes={nodes.data?.nodes ?? []} onClose={() => setPrepAll(false)} />}
+      {adding &&<PrepareNode addr="" jump="" onClose={() => setAdding(false)} onRegistered={() => setAdding(false)} />}
     </>
   );
 }
@@ -99,6 +109,11 @@ function NodeRow({ n, canRemove, alerts, nodes }: { n: NodeStatus; canRemove: bo
       </td>
       <td>
         <StateBadge state={n.state} />
+        {prepareState(n) && (
+          <div>
+            <span className="badge s-needs-prepare">{prepareState(n) === "older" ? "Prepared by older version" : "Not prepared"}</span>
+          </div>
+        )}
         {n.error && <StatusLine status="error">{n.error}</StatusLine>}
       </td>
       <td>

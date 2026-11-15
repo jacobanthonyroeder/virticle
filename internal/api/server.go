@@ -359,7 +359,10 @@ func fail(w http.ResponseWriter, err error) {
 	var lv libvirt.Error
 	var br badRequest
 	var ce conflictError
+	var se stoppedError
 	switch {
+	case errors.As(err, &se):
+		code = http.StatusConflict // the user stopped the task: not an internal error
 	case errors.As(err, &ce):
 		code = http.StatusConflict
 	case errors.Is(err, store.ErrNotFound):
