@@ -54,7 +54,7 @@ test.describe.serial("migrate dialog", () => {
     refuse = false;
     await go.click();
     await expect(dlg).toBeHidden();
-    expect(sent).toMatchObject({ target: 9999 });
+    expect(typeof sent.target).toBe("number"); // the dialog offers the first other node: the made-up one, or a real second node
     // 30 s later it fails: the user who started it gets a toast that stays, with links
     const task = { id: 987654, kind: "migrate", target: `${NAME} → node-two`, node: "", user: "admin", status: "running", progress: 0.4, started: Math.floor(Date.now() / 1000) - 30, background: true };
     sockets.forEach((s) => s.send(JSON.stringify({ type: "task", task })));
