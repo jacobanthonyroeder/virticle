@@ -72,7 +72,9 @@ type Manifest struct {
 // stay out. secret.key (the one key that encrypts every stored secret) is
 // named explicitly: without it the sealed values in the database are lost.
 var (
-	topFiles = []string{"id_ed25519", "id_ed25519.pub", "known_hosts", "instance-id", "tls-cert.pem", "tls-key.pem", "secret.key"}
+	// backup-key.age is the recovery key file of the backup key (internal/backupkey): a restored controller can
+	// still decrypt the VM backups, given the passphrase.
+	topFiles = []string{"id_ed25519", "id_ed25519.pub", "known_hosts", "instance-id", "tls-cert.pem", "tls-key.pem", "secret.key", "backup-key.age"}
 	topDirs  = []string{"migration-ca", "web-own", "acme"}
 )
 

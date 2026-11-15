@@ -15,7 +15,7 @@ Virticle look the same.
 | VMs | Create from cloud images, ISOs or templates. Clone. cloud-init. UEFI by default, Secure Boot, virtual TPM. Hot-plug hardware. Speed limit per network card. Edit the libvirt XML. |
 | Consoles | VNC and serial, in the browser. |
 | Migration and updates | Live and offline migration between nodes, with a list of pre-flight checks. Node maintenance and evacuation. A migration network per node, with an automatic limit on a shared link. Rolling updates: all nodes updated one at a time, their VMs moved away first. |
-| Snapshots and backups | Manual or scheduled, with retention. Incremental backups that copy only what changed. Restore, export, import. Backup and restore of the controller itself. |
+| Snapshots and backups | Manual or scheduled, with retention. Incremental backups that copy only what changed. Encryption with age (one switch). Restore, export, import. Backup and restore of the controller itself. |
 | Replication | A copy of a VM on a standby node, kept up to date on a schedule, that starts with one click when the first node fails. Failover is by hand. |
 | Storage | Pools, volumes, uploads, an image catalogue. Shared storage over NFS: VMs move between nodes without copying their disks. |
 | Networks | One Network tab per datacenter and per node: switches, uplinks and the VMs on each network. NAT, isolated and bridged networks with start, stop, autostart, DHCP leases and reservations. Virtual switches with VLANs, several uplinks (failover or LACP), rollback if a change cuts the node off. Warnings when nodes differ. |

@@ -13,9 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"unicode/utf8"
 
 	"filippo.io/age"
+
+	"virticle/internal/backupkey"
 )
 
 // MinPassphrase is the shortest passphrase accepted for a new backup.
@@ -39,6 +42,66 @@ func Encrypt(w io.Writer, pass string) (io.WriteCloser, error) {
 		return nil, err
 	}
 	return age.Encrypt(w, rec)
+}
+
+// EncryptTo returns a writer that encrypts into w to an age X25519 recipient ("age1...", the backup key).
+func EncryptTo(w io.Writer, recipient string) (io.WriteCloser, error) {
+	rec, err := age.ParseX25519Recipient(recipient)
+	if err != nil {
+		return nil, err
+	}
+	return age.Encrypt(w, rec)
+}
+
+// KeyEncrypted reports whether the backup file at path is encrypted to a key (the backup key), not with a
+// passphrase.
+func KeyEncrypted(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 256)
+	n, _ := io.ReadFull(f, head)
+	return backupkey.Stanza(head[:n]) == "X25519"
+}
+
+// ErrNeedKey is returned by OpenWith for a backup encrypted to the backup key when no identity can be had.
+var ErrNeedKey = errors.New("this backup is encrypted with the backup key: give the recovery key file (--key FILE) and its passphrase")
+
+// Unlock says how to open an encrypted backup: Passphrase for one made with a passphrase, Identity for one
+// encrypted to the backup key. Each is called only when needed and may be nil.
+type Unlock struct {
+	Passphrase func() (string, error)
+	Identity   func() (age.Identity, error)
+}
+
+// OpenWith is Open for both kinds of encrypted backup.
+func OpenWith(r io.Reader, u Unlock) (io.Reader, error) {
+	br := bufio.NewReader(r)
+	head, _ := br.Peek(256)
+	switch backupkey.Stanza(head) {
+	case "":
+		return br, nil
+	case "X25519":
+		if u.Identity == nil {
+			return nil, ErrNeedKey
+		}
+		id, err := u.Identity()
+		if err != nil {
+			return nil, err
+		}
+		dr, err := age.Decrypt(br, id)
+		if err != nil {
+			var nm *age.NoIdentityMatchError
+			if errors.As(err, &nm) {
+				return nil, errors.New("this backup is encrypted to another backup key than the recovery key file holds")
+			}
+			return nil, fmt.Errorf("this backup cannot be decrypted: %w", err)
+		}
+		return dr, nil
+	}
+	return Open(br, u.Passphrase)
 }
 
 // ErrWrongPassphrase is returned by Open when the passphrase does not fit.

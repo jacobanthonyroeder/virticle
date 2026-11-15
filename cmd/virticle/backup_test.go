@@ -62,7 +62,7 @@ func TestBackupAndRestoreCommands(t *testing.T) {
 	for _, c := range []struct{ file, pass string }{{files[0], ""}, {enc, pf}} {
 		target := filepath.Join(root, "restored-"+filepath.Base(c.file))
 		var sb bytes.Buffer
-		if err := runRestore(c.file, target, c.pass, ctlbackup.SystemHost{}, &sb); err != nil {
+		if err := runRestore(c.file, target, c.pass, "", ctlbackup.SystemHost{}, &sb); err != nil {
 			t.Fatalf("%s: %v", c.file, err)
 		}
 		if !strings.Contains(sb.String(), "every checksum matches") || !strings.Contains(sb.String(), "systemctl start virticle") {
@@ -73,7 +73,7 @@ func TestBackupAndRestoreCommands(t *testing.T) {
 		}
 	}
 	// an encrypted backup without its passphrase file cannot be read in a test (no terminal)
-	if err := runRestore(enc, filepath.Join(root, "nope"), "", ctlbackup.SystemHost{}, &bytes.Buffer{}); err == nil {
+	if err := runRestore(enc, filepath.Join(root, "nope"), "", "", ctlbackup.SystemHost{}, &bytes.Buffer{}); err == nil {
 		t.Error("restored without a passphrase")
 	}
 	if _, err := os.Stat(filepath.Join(root, "nope")); err == nil {

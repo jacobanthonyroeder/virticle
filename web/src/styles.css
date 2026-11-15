@@ -104,6 +104,9 @@ main { padding: 22px 28px 60px; min-width: 0; max-width: 1280px; }
 
 .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 6px 0 16px; flex-wrap: wrap; }
 .head.sub { margin-top: 28px; }
+.headtitle { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.headtitle > h1, .headtitle > h2, .headtitle > h3 { margin: 0; }
+pre.recipe { white-space: pre-wrap; margin: 0 0 8px; font-size: 12px; }
 .actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 td.actions { display: table-cell; text-align: right; white-space: nowrap; }
 td.actions > * { margin-left: 6px; }
@@ -144,7 +147,8 @@ table.compact tr:hover { background: none; }
 /* Status: the dot carries the colour; the text stays in the normal colour. */
 .badge[class*=" s-"]:not(.s-template), .badge[class*=" es-"], .badge.maint, .badge.catok, .tstatus, .sev, .mark { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--text); font-size: 13px; font-weight: 400; text-transform: none; white-space: nowrap; }
 .badge[class*=" s-"]:not(.s-template)::before, .badge[class*=" es-"]::before, .badge.maint::before, .badge.catok::before, .tstatus::before, .sev::before, .mark::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; box-sizing: content-box; border: 1.5px solid var(--st, var(--muted)); background: var(--st, transparent); }
-.s-running, .s-online, .s-ok, .s-active, .s-agent-connected, .es-ok, .catok { --st: var(--ok); }
+.s-running, .s-online, .s-ok, .s-active, .s-agent-connected, .s-encrypted, .es-ok, .catok { --st: var(--ok); }
+.s-unencrypted { --st: var(--muted); }
 .s-template { color: var(--text); margin-left: 8px; }
 .s-replica { --st: var(--accent); }
 .s-stale { --st: var(--accent-2); }

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"virticle/internal/backupkey"
 	"virticle/internal/cluster"
 )
 
@@ -37,6 +38,10 @@ const (
 	// backupTPMFile holds the state of an emulated TPM 2.0 (swtpm's tpm2-00.permall, a few KiB).
 	backupTPMFile = "tpm2-state.bin"
 	backupTPMMax  = 1 << 20 // the node command copies no larger state
+	// ageSuffix ends the name of a file that is stored encrypted with age; the rest of the name is the plain file's.
+	ageSuffix = ".age"
+	// ageOverheadMax bounds what age adds to a small file (header and one tag per 64 KiB chunk).
+	ageOverheadMax = 1 << 12
 )
 
 var (
@@ -63,6 +68,12 @@ type backupDiskRec struct {
 	// Source is the disk's file in the VM when the backup was taken; with the
 	// size it tells whether the next backup can build on this one.
 	Source string `json:"source,omitempty"`
+	// Encrypted says File is stored encrypted with age to the manifest's Recipient ("<target>.qcow2.age"). Bytes
+	// and SHA256 are then those of the stored, encrypted file (so the backup can be checked without the
+	// passphrase), PlainBytes and PlainSHA256 those of the qcow2 image inside.
+	Encrypted   bool   `json:"encrypted,omitempty"`
+	PlainBytes  uint64 `json:"plainBytes,omitempty"`
+	PlainSHA256 string `json:"plainSha256,omitempty"`
 }
 
 type backupManifest struct {
@@ -100,6 +111,57 @@ type backupManifest struct {
 	// Frozen says whether the guest's file systems were frozen while the backup
 	// began (a live backup only; absent for older backups and shut-off VMs).
 	Frozen *bool `json:"frozen,omitempty"`
+	// Recipient is the public age key ("age1...") the encrypted files of this backup are encrypted to: the backup
+	// key whose recovery key file and passphrase open them. Empty when no file is encrypted. The manifest itself
+	// and domain.xml are never encrypted, so a backup is listed and checked without the passphrase.
+	Recipient string `json:"recipient,omitempty"`
+	// NVRAMEncrypted: the UEFI variables are stored encrypted ("nvram.fd.age"), with the size and SHA-256 of the
+	// stored file and of the plain one.
+	NVRAMEncrypted   bool   `json:"nvramEncrypted,omitempty"`
+	NVRAMBytes       uint64 `json:"nvramBytes,omitempty"`
+	NVRAMSHA256      string `json:"nvramSha256,omitempty"`
+	NVRAMPlainBytes  uint64 `json:"nvramPlainBytes,omitempty"`
+	NVRAMPlainSHA256 string `json:"nvramPlainSha256,omitempty"`
+	// TPMEncrypted: the TPM state is stored encrypted ("tpm2-state.bin.age"); TPMBytes and TPMSHA256 are then
+	// those of the stored file, TPMPlainBytes and TPMPlainSHA256 those of the state.
+	TPMEncrypted   bool   `json:"tpmEncrypted,omitempty"`
+	TPMPlainBytes  uint64 `json:"tpmPlainBytes,omitempty"`
+	TPMPlainSHA256 string `json:"tpmPlainSha256,omitempty"`
+}
+
+// encrypted says whether any file of the backup is stored encrypted.
+func (m *backupManifest) encrypted() bool {
+	if m.NVRAMEncrypted || m.TPMEncrypted {
+		return true
+	}
+	for _, d := range m.Disks {
+		if d.Encrypted {
+			return true
+		}
+	}
+	return false
+}
+
+// checkEncryptedFile vets the fields of one file that may be stored encrypted: its name (plain names never end in
+// .age, encrypted ones always do) and, when it is encrypted, the stored and the plain size and checksum.
+func checkEncryptedFile(what, name string, enc bool, bytes uint64, sum string, plainBytes uint64, plainSum string) error {
+	switch {
+	case !enc && strings.HasSuffix(name, ageSuffix):
+		return fmt.Errorf("manifest: %s is named like an encrypted file but not marked encrypted", what)
+	case !enc && (plainBytes != 0 || plainSum != ""):
+		return fmt.Errorf("manifest: %s has plain-file fields but is not encrypted", what)
+	case !enc:
+		return nil
+	case !strings.HasSuffix(name, ageSuffix):
+		return fmt.Errorf("manifest: the encrypted %s must be named .age", what)
+	case bytes == 0 || !sha256RE.MatchString(sum):
+		return fmt.Errorf("manifest: the encrypted %s needs the size and SHA-256 of the stored file", what)
+	case plainBytes == 0 || !sha256RE.MatchString(plainSum):
+		return fmt.Errorf("manifest: the encrypted %s needs the size and SHA-256 of the plain file", what)
+	case bytes < plainBytes:
+		return fmt.Errorf("manifest: the encrypted %s is smaller than its plain content", what)
+	}
+	return nil
 }
 
 func (m *backupManifest) createdTime() time.Time {
@@ -151,6 +213,11 @@ func parseBackupManifest(raw []byte) (*backupManifest, error) {
 			return nil, fmt.Errorf("manifest: disk %s has format %q, only qcow2 is supported", d.Target, d.Format)
 		case d.SHA256 != "" && !sha256RE.MatchString(d.SHA256):
 			return nil, fmt.Errorf("manifest: disk %s has a malformed checksum", d.Target)
+		case d.Encrypted && reservedBackupFile(strings.TrimSuffix(d.File, ageSuffix)):
+			return nil, fmt.Errorf("manifest: bad or duplicate file name %q", d.File)
+		}
+		if err := checkEncryptedFile("disk "+d.Target, d.File, d.Encrypted, d.Bytes, d.SHA256, d.PlainBytes, d.PlainSHA256); err != nil {
+			return nil, err
 		}
 		seenFile[d.File], seenDev[d.Target] = true, true
 	}
@@ -167,30 +234,54 @@ func parseBackupManifest(raw []byte) (*backupManifest, error) {
 	if len(m.FullReason) > 300 {
 		return nil, errors.New("manifest: the reason is too long")
 	}
-	if m.NVRAM != "" && m.NVRAM != backupNVRAMFile {
+	switch {
+	case m.NVRAMEncrypted && m.NVRAM != backupNVRAMFile+ageSuffix, !m.NVRAMEncrypted && m.NVRAM != "" && m.NVRAM != backupNVRAMFile:
 		return nil, fmt.Errorf("manifest: bad NVRAM file name %q", m.NVRAM)
+	case !m.NVRAMEncrypted && (m.NVRAMBytes != 0 || m.NVRAMSHA256 != ""):
+		return nil, errors.New("manifest: a size or checksum for plain UEFI variables")
+	}
+	if err := checkEncryptedFile("UEFI variable file", m.NVRAM, m.NVRAMEncrypted, m.NVRAMBytes, m.NVRAMSHA256, m.NVRAMPlainBytes, m.NVRAMPlainSHA256); err != nil {
+		return nil, err
 	}
 	if m.NVRAMFormat != "" && m.NVRAMFormat != "raw" && m.NVRAMFormat != "qcow2" {
 		return nil, fmt.Errorf("manifest: bad NVRAM format %q", m.NVRAMFormat)
 	}
+	tpmFile, tpmMax := backupTPMFile, uint64(backupTPMMax)
+	if m.TPMEncrypted {
+		tpmFile, tpmMax = backupTPMFile+ageSuffix, backupTPMMax+ageOverheadMax
+	}
 	switch {
-	case m.TPMState == "" && (m.TPMBytes != 0 || m.TPMSHA256 != ""):
+	case m.TPMState == "" && (m.TPMBytes != 0 || m.TPMSHA256 != "" || m.TPMEncrypted):
 		return nil, errors.New("manifest: a size or checksum for TPM state, but no file")
 	case m.TPMState == "":
-	case m.TPMState != backupTPMFile:
+	case m.TPMState != tpmFile:
 		return nil, fmt.Errorf("manifest: bad TPM state file name %q", m.TPMState)
 	case !m.TPM:
 		return nil, errors.New("manifest: TPM state, but the VM has no TPM")
-	case m.TPMBytes == 0 || m.TPMBytes > backupTPMMax:
+	case m.TPMBytes == 0 || m.TPMBytes > tpmMax || m.TPMPlainBytes > backupTPMMax:
 		return nil, errors.New("manifest: the TPM state has an impossible size")
 	case !sha256RE.MatchString(m.TPMSHA256):
 		return nil, errors.New("manifest: the TPM state needs its SHA-256")
+	}
+	if m.TPMState != "" {
+		if err := checkEncryptedFile("TPM state", m.TPMState, m.TPMEncrypted, m.TPMBytes, m.TPMSHA256, m.TPMPlainBytes, m.TPMPlainSHA256); err != nil {
+			return nil, err
+		}
+	} else if m.TPMPlainBytes != 0 || m.TPMPlainSHA256 != "" {
+		return nil, errors.New("manifest: plain-file fields for TPM state, but no file")
+	}
+	switch {
+	case m.encrypted() && !backupkey.ValidRecipient(m.Recipient):
+		return nil, errors.New("manifest: encrypted files need the public key they are encrypted to")
+	case !m.encrypted() && m.Recipient != "":
+		return nil, errors.New("manifest: a key, but no encrypted file")
 	}
 	return &m, nil
 }
 
 func reservedBackupFile(n string) bool {
-	return n == "manifest.json" || n == "domain.xml" || n == backupNVRAMFile || n == backupTPMFile
+	return n == "manifest.json" || n == "domain.xml" || n == backupNVRAMFile || n == backupTPMFile ||
+		n == backupNVRAMFile+ageSuffix || n == backupTPMFile+ageSuffix
 }
 
 // files lists every file a backup directory consists of.

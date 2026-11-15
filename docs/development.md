@@ -7,7 +7,7 @@
 | `cmd/virticle` | Entry point and subcommands. |
 | `cmd/virticle-node` | The node command: the one program a node lets the controller run as root. Tiny main. |
 | `internal/` | API, libvirt access over SSH, scheduler, store (SQLite, pure Go). |
-| `internal/nodecmd` | All node-side code (verbs, path confinement). Standard library and `x/sys` only; it must not import the controller packages. Start with its `doc.go`. |
+| `internal/nodecmd` | All node-side code (verbs, path confinement). Standard library, `x/sys` and `filippo.io/age` (the backup encryption verbs) only; it must not import the controller packages. Start with its `doc.go`. |
 | `internal/nodebin` | Embeds the built node command for linux/amd64 and linux/arm64. |
 | `web/` | React and TypeScript UI, embedded into the binary from `web/dist`. |
 | `third_party/go-libvirt` | Vendored libvirt RPC client. |

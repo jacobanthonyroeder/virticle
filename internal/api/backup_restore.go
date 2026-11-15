@@ -31,6 +31,9 @@ type restoreReq struct {
 	Pool       string `json:"pool"`
 	Replace    bool   `json:"replace"` // original: replace an existing, shut-off VM of the same name on the target node
 	Start      bool   `json:"start"`
+	// Passphrase of the backup key, for a backup with encrypted files. It is used for this request only: never
+	// stored, logged or put into the task.
+	Passphrase string `json:"passphrase,omitempty"`
 }
 
 type restorePlan struct {
@@ -54,6 +57,8 @@ type restorePlan struct {
 	ep      migEndpoint       // how the source reaches the target node
 	st      *stopper          // a stop request from the task list (nil: the restore cannot be stopped)
 	warn    []string
+	needKey bool   // the chain has encrypted files
+	id      []byte // the identity that decrypts them, for this restore only (wiped when it ends)
 }
 
 var reNvramPath = regexp.MustCompile(`<nvram\b[^>]*>([^<]*)</nvram>`)
@@ -92,6 +97,9 @@ func (s *Server) planRestore(src *backupRef, req restoreReq) (*restorePlan, erro
 			ld, ok := l.diskOf(d.Target)
 			if !ok {
 				return nil, badRequest("the backup " + l.Dir + " that this one builds on has no disk " + d.Target)
+			}
+			if ld.Encrypted {
+				continue // checked once decrypted
 			}
 			info, err := bkQemuInfo(src.h, l.path(src)+"/"+ld.File) // refuses backing files and the like
 			if err != nil {
@@ -168,6 +176,25 @@ func (s *Server) planRestore(src *backupRef, req restoreReq) (*restorePlan, erro
 			return nil, err
 		}
 	}
+	var decrypted uint64 // the plain copies of encrypted files that are put together or sent on
+	if p.needKey = chainNeedsKey(p.chain); p.needKey {
+		if err := s.checkRecipients(p.chain); err != nil {
+			return nil, err
+		}
+		if err := src.h.CanAge(); err != nil {
+			return nil, badRequest("this backup is encrypted, but " + err.Error())
+		}
+		for _, l := range p.chain {
+			for _, d := range l.Man.Disks {
+				if d.Encrypted && (len(p.chain) > 1 || p.remote) {
+					decrypted += d.PlainBytes
+				}
+			}
+		}
+		if !p.remote {
+			need += decrypted
+		}
+	}
 	if man.NVRAM != "" {
 		if err := p.planNVRAM(md); err != nil {
 			return nil, err
@@ -192,11 +219,14 @@ func (s *Server) planRestore(src *backupRef, req restoreReq) (*restorePlan, erro
 			return nil, err
 		}
 	}
-	if len(p.chain) > 1 {
-		// An incremental backup is put together on the node that holds the backups first.
-		var flat uint64 = importFreeMargin
+	if len(p.chain) > 1 || (p.remote && decrypted > 0) {
+		// An incremental backup is put together on the node that holds the backups first, and encrypted files
+		// are decrypted there.
+		var flat uint64 = importFreeMargin + decrypted
 		for _, d := range man.Disks {
-			flat += p.chainBytes(d.Target)
+			if len(p.chain) > 1 {
+				flat += p.chainBytes(d.Target)
+			}
 		}
 		if sf, err := bkFreeBytes(src.h, src.pd.Dir); err != nil || uint64(sf) < flat {
 			return nil, badRequest(fmt.Sprintf("not enough free space in %s on %s to put the incremental backup together: about %s needed", src.pd.Dir, src.h.Name, fmtBytes(flat)))
@@ -389,6 +419,8 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 			release()
 		}
 	}()
+	pass := req.Passphrase
+	req.Passphrase = ""
 	p, err := s.planRestore(src, req)
 	if err != nil {
 		fail(w, err)
@@ -399,10 +431,19 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		fail(w, badRequest("cannot prepare the VM definition: "+err.Error()))
 		return
 	}
+	if p.needKey {
+		// A wrong passphrase is refused here, before anything is changed.
+		if p.id, err = s.unlockBackupKey(r, pass); err != nil {
+			fail(w, err)
+			return
+		}
+		infoOf(r).detail = "restore of an encrypted backup"
+	}
 	p.st = newStopper(context.Background())
 	rel := release
 	id, _, err := s.startBackgroundStop(r, "restore", p.name+" ← "+src.name, p.dst.Name, taskStop{operator, p.st.stop}, func(progress func(float64)) error {
 		defer rel()
+		defer wipe(p.id)
 		_, err := p.run(progress)
 		return err
 	})
@@ -410,6 +451,7 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		release = nil // the task releases it
 	}
 	if err != nil {
+		wipe(p.id)
 		fail(w, err)
 		return
 	}
@@ -489,7 +531,7 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 	// A restore of an incremental backup puts the chain together on the node
 	// that holds the backups, in a work directory of its own.
 	var srcWd *bkWork
-	if len(p.chain) > 1 && p.remote {
+	if (len(p.chain) > 1 || p.needKey) && p.remote {
 		if srcWd, err = newWork(src, p.src.pd.Dir, "rs"); err != nil {
 			return "", err
 		}
@@ -497,16 +539,47 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 		srcWd.stop = st.Stopped
 		defer st.onStop(func() { srcWd.remove() })()
 	}
+	// Encrypted files are decrypted on the node that holds the backup: into the restore's work directory there.
+	decWd := wd
+	if p.remote {
+		decWd = srcWd
+	}
 	for _, d := range p.man.Disks {
 		if st.Stopped() {
 			return "", stoppedErr("restore")
 		}
 		stage := wd.file(p.vols[d.Target])
-		var files []string
-		for _, l := range p.chain {
+		base, span := done, p.chainBytes(d.Target)+1
+		prog := func(f float64) { progress(0.02 + 0.8*(float64(base)+f*float64(span))/float64(total)) }
+		var files, temps []string
+		// A single encrypted backup restored on its own node is decrypted straight into place; otherwise the
+		// decryption takes the first half of the disk's share of the bar.
+		direct := len(p.chain) == 1 && !p.remote && p.chain[0].hasEncryptedDisk(d.Target)
+		decShare := 0.5
+		if direct {
+			decShare = 1
+		}
+		var read uint64
+		for i, l := range p.chain {
 			ld, _ := l.diskOf(d.Target)
 			f := l.path(p.src) + "/" + ld.File
-			if ld.SHA256 != "" {
+			if ld.Encrypted {
+				out := stage
+				if !direct {
+					out = decWd.file(fmt.Sprintf("dec%d-%s", i, strings.TrimSuffix(ld.File, ageSuffix)))
+					temps = append(temps, out)
+				}
+				at := read
+				if derr := decryptFile(st, src, f, out, diskSums(ld), p.id, func(n uint64) {
+					prog(decShare * float64(at+n) / float64(span))
+				}); derr != nil {
+					return "", st.cancelled("restore", fmt.Errorf("decrypting %s of the backup %s: %w", ld.File, l.Dir, derr))
+				}
+				if info, ierr := bkQemuInfo(src, out); ierr != nil || info.Format != "qcow2" { // refuses backing files and the like
+					return "", fmt.Errorf("%s of the backup %s does not decrypt to a qcow2 image", ld.File, l.Dir)
+				}
+				f = out
+			} else if ld.SHA256 != "" {
 				sum, serr := src.SHA256Ctx(st.Ctx(), f)
 				if serr != nil {
 					return "", serr
@@ -515,14 +588,20 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 					return "", fmt.Errorf("%s of the backup %s is damaged: its SHA-256 is %s, the manifest says %s", ld.File, l.Dir, sum, ld.SHA256)
 				}
 			}
+			read += ld.Bytes
 			files = append(files, f)
 		}
-		base, span := done, p.chainBytes(d.Target)+1
-		prog := func(f float64) { progress(0.02 + 0.8*(float64(base)+f*float64(span))/float64(total)) }
+		if len(temps) > 0 {
+			// What follows (putting together, sending) moves the bar from the end of the decryption.
+			at := prog
+			prog = func(f float64) { at(0.5 + 0.5*f) }
+		}
 		switch {
+		case direct:
+			// decrypted into place
 		case p.remote && len(p.chain) == 1:
 			if cerr := copyToNode(st.Ctx(), src, dst, p.ep, files[0], stage, "600", func(sent uint64) {
-				progress(0.02 + 0.8*(float64(base)+float64(sent))/float64(total))
+				prog(float64(sent) / float64(span))
 			}); cerr != nil {
 				return "", fmt.Errorf("copying %s to %s failed: %w", d.File, dst.Name, cerr)
 			}
@@ -542,6 +621,9 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 				return "", fmt.Errorf("copying %s: %w", d.File, cerr)
 			}
 		}
+		for _, t := range temps {
+			_ = src.Remove(t) // the plain copies go as soon as the disk is staged (the work directory goes anyway)
+		}
 		if info, ierr := bkQemuInfo(dst, stage); ierr != nil || info.Format != "qcow2" {
 			return "", fmt.Errorf("the copy of %s is not a valid qcow2 image on %s", d.File, dst.Name)
 		}
@@ -554,16 +636,19 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 		nvramStage = wd.file(backupNVRAMFile)
 		srcFile := p.src.dir + "/" + p.man.NVRAM
 		var cerr error
-		if p.remote {
+		switch {
+		case p.man.NVRAMEncrypted:
+			cerr = p.stageEncrypted(st, srcFile, nvramStage, srcWd, fileSums{Bytes: p.man.NVRAMBytes, SHA: p.man.NVRAMSHA256, PlainBytes: p.man.NVRAMPlainBytes, PlainSHA: p.man.NVRAMPlainSHA256})
+		case p.remote:
 			cerr = copyToNode(st.Ctx(), src, dst, p.ep, srcFile, nvramStage, "600", nil)
-		} else {
+		default:
 			cerr = dst.Copy(srcFile, nvramStage)
 		}
 		if cerr != nil {
-			return "", fmt.Errorf("copying the UEFI variables: %s", impFirstLine(cerr.Error()))
+			return "", st.cancelled("restore", fmt.Errorf("copying the UEFI variables: %s", impFirstLine(cerr.Error())))
 		}
 	}
-	tpmStage, err := p.stageTPM(st.Ctx(), wd)
+	tpmStage, err := p.stageTPM(st, wd, srcWd)
 	if err != nil {
 		return "", st.cancelled("restore", err)
 	}

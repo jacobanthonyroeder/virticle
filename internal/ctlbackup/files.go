@@ -38,6 +38,22 @@ func FileName(host string, t time.Time, encrypted bool) string {
 // it is complete. pass, when not empty, encrypts it. It returns the manifest
 // and the size of the file.
 func WriteFile(path string, src Source, pass string) (Manifest, int64, error) {
+	if pass == "" {
+		return writeFile(path, src, nil)
+	}
+	return writeFile(path, src, func(w io.Writer) (io.WriteCloser, error) { return Encrypt(w, pass) })
+}
+
+// WriteFileTo is WriteFile for a file encrypted to the backup key (an age recipient "age1..."), as the scheduled
+// copies are while backup encryption is on; recipient "" writes a plain file.
+func WriteFileTo(path string, src Source, recipient string) (Manifest, int64, error) {
+	if recipient == "" {
+		return writeFile(path, src, nil)
+	}
+	return writeFile(path, src, func(w io.Writer) (io.WriteCloser, error) { return EncryptTo(w, recipient) })
+}
+
+func writeFile(path string, src Source, encrypt func(io.Writer) (io.WriteCloser, error)) (Manifest, int64, error) {
 	var m Manifest
 	dir := filepath.Dir(path)
 	if _, err := os.Lstat(path); err == nil {
@@ -50,8 +66,8 @@ func WriteFile(path string, src Source, pass string) (Manifest, int64, error) {
 	defer os.Remove(tmp.Name())
 	var w io.Writer = tmp
 	var enc io.WriteCloser
-	if pass != "" {
-		if enc, err = Encrypt(tmp, pass); err != nil {
+	if encrypt != nil {
+		if enc, err = encrypt(tmp); err != nil {
 			tmp.Close()
 			return m, 0, err
 		}

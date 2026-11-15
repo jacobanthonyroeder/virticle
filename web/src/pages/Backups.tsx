@@ -8,7 +8,8 @@ import { useRole } from "../auth";
 import { useLive } from "../live";
 import PoolSelect from "../PoolSelect";
 import Select from "../Select";
-import { ErrorBox, Field, Modal, NodePicker, Progress, useAction, useConfirm } from "../ui";
+import { ErrorBox, Field, Modal, NodePicker, Progress, useAction, useConfirm, usePrompt } from "../ui";
+import { EncDot, NewBackupsDot } from "../BackupKey";
 import { StatusLine } from "../Checks";
 import SubNav, { SubPage } from "../SubNav";
 
@@ -21,7 +22,9 @@ interface Manifest {
   tpm: boolean;
   /** The file with the state of the VM's emulated TPM 2.0; absent when the backup does not hold it. */
   tpmState?: string;
-  disks: { target: string; file: string; virtualSize: number; bytes: number; sha256?: string }[];
+  disks: { target: string; file: string; virtualSize: number; bytes: number; sha256?: string; encrypted?: boolean }[];
+  /** The backup key its encrypted files are encrypted to; absent for a backup without encrypted files. */
+  recipient?: string;
   nvram?: string;
   notes: string[];
   /** "full" or "incremental"; backups from before incremental backups have none and are full. */
@@ -48,6 +51,8 @@ export interface BackupEntry {
   chainError?: string;
   /** Later backups that build on this one and go with it when it is deleted. */
   dependents?: number;
+  /** A restore reads an encrypted file (this backup or one it builds on): it asks for the passphrase. */
+  needsKey?: boolean;
 }
 
 const isIncremental = (b: BackupEntry) => b.manifest?.kind === "incremental";
@@ -229,6 +234,7 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
   const [node, setNode] = useState(b.node);
   const [pool, setPool] = useState(b.pool);
   const [start, setStart] = useState(true);
+  const [passphrase, setPassphrase] = useState("");
   const [task, setTask] = useState(0);
   const [warnings, setWarnings] = useState<string[]>([]);
   // Replacing needs the original VM on the target node and shut off.
@@ -250,7 +256,8 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
       if (!ok) return;
     }
     return act.run(async () => {
-      const r = await post<{ task: number; warnings: string[] }>(`${url(b)}/restore`, { mode: doReplace ? "original" : "new", name, targetNode: node, pool, replace: doReplace, start });
+      const r = await post<{ task: number; warnings: string[] }>(`${url(b)}/restore`, { mode: doReplace ? "original" : "new", name, targetNode: node, pool, replace: doReplace, start, ...(b.needsKey ? { passphrase } : {}) });
+      setPassphrase("");
       setWarnings(r.warnings ?? []);
       setTask(r.task);
     });
@@ -288,6 +295,11 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
               <input value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
           )}
+          {b.needsKey && (
+            <Field label="Backup key passphrase" hint="Encrypted backup.">
+              <input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} autoComplete="off" />
+            </Field>
+          )}
           <label className="check">
             <input type="checkbox" checked={start} onChange={(e) => setStart(e.target.checked)} /> Start the VM afterwards
           </label>
@@ -296,7 +308,7 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
           </DialogAdvanced>
           <ErrorBox error={act.error} />
           <div className="actions">
-            <button className="primary" disabled={act.busy || !pool} onClick={submit}>
+            <button className="primary" disabled={act.busy || !pool || (!!b.needsKey && !passphrase)} onClick={submit}>
               Restore
             </button>
           </div>
@@ -311,6 +323,22 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
   const [restoring, setRestoring] = useState<BackupEntry | undefined>();
   const [deleting, setDeleting] = useState<BackupEntry | undefined>();
   const act = useAction();
+  const prompt = usePrompt();
+  // An encrypted incremental backup is put together for the export, which needs the key: the passphrase is checked
+  // first and buys a ticket for the one download.
+  const exportKeyed = async (b: BackupEntry) => {
+    const passphrase = await prompt.ask({ title: "Export encrypted backup", label: "Backup key passphrase", hint: "Put together and encrypted again.", confirm: "Export", type: "password" });
+    if (!passphrase) return;
+    await act.run(async () => {
+      const r = await post<{ ticket: string }>(url(b) + "/export-key", { passphrase });
+      const a = document.createElement("a");
+      a.href = "/api" + url(b) + "/export?ticket=" + encodeURIComponent(r.ticket);
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+  };
   const remove = async (b: BackupEntry) => {
     if (await act.run(() => del(url(b) + (hasLaterOnes(b.dependents) ? "?withLater=1" : "")))) {
       setDeleting(undefined);
@@ -320,6 +348,7 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
   return (
     <>
       <ErrorBox error={act.error} />
+      {prompt.dialog}
       <table>
         <thead>
           <tr>
@@ -349,6 +378,11 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
                 {b.manifest && <strong>{isIncremental(b) ? "Incremental" : "Full"}</strong>}
                 {b.manifest && isIncremental(b) && <div className="muted">changes only; needs {b.chain ? b.chain - 1 : "?"} earlier {b.chain === 2 ? "backup" : "backups"}</div>}
                 {b.manifest && !isIncremental(b) && b.manifest.fullReason && <div className="muted">{b.manifest.fullReason}</div>}
+                {b.manifest && (
+                  <div title={b.manifest.recipient ? "Encrypted to the backup key " + b.manifest.recipient : undefined}>
+                    <EncDot on={!!b.manifest.recipient} />
+                  </div>
+                )}
                 {b.chainError && <StatusLine status="error">Cannot be restored: {b.chainError}</StatusLine>}
               </td>
               <td title={b.path}>
@@ -363,8 +397,13 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
                       Restore
                     </button>
                   )}
-                  {b.manifest && role !== "viewer" && !b.chainError && (
-                    <a className="button" href={"/api" + url(b) + "/export"} download title="Download as one tar file">
+                  {b.manifest && role !== "viewer" && !b.chainError && isIncremental(b) && b.needsKey && (
+                    <button onClick={() => exportKeyed(b)} title="Download as one tar file; needs the passphrase to put it together">
+                      Export
+                    </button>
+                  )}
+                  {b.manifest && role !== "viewer" && !b.chainError && !(isIncremental(b) && b.needsKey) && (
+                    <a className="button" href={"/api" + url(b) + "/export"} download title={b.manifest.recipient ? "Download as one tar file; the files stay encrypted" : "Download as one tar file"}>
                       Export
                     </a>
                   )}
@@ -546,7 +585,10 @@ export default function BackupsTab({ d }: { d: VMDetail; base: string }) {
           ) : (
             <>
               <div className="head" style={{ marginTop: 0 }}>
-                <h3>Backups</h3>
+                <div className="headtitle">
+                  <h3>Backups</h3>
+                  <NewBackupsDot />
+                </div>
                 <div className="actions">
                   <button className="primary" onClick={() => setMaking(true)}>
                     Back up now
@@ -629,7 +671,10 @@ export function BackupsSection() {
   return (
     <section>
       <div className="head">
-        <h2>Backups</h2>
+        <div className="headtitle">
+          <h2>Backups</h2>
+          <NewBackupsDot />
+        </div>
         <div className="actions">
           <button onClick={() => setImporting(true)}>Import from file</button>
         </div>

@@ -304,6 +304,7 @@ test.describe.serial("visual pass", () => {
         ["/tasks", "tasks", "Tasks"],
         ["/users", "users", "Users"],
         ["/audit", "audit", "Audit log"],
+        ["/backup-encryption", "backup-encryption", "Backup encryption"],
         ["/account", "account", "My account"],
         ["/cloudinit-profiles", "cloudinit-profiles", "Cloud-init profiles"],
       ] as const) {

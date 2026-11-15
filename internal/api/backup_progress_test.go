@@ -5,7 +5,7 @@ import "testing"
 func TestBackupPhasesInOrder(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		for _, hashing := range []bool{false, true} {
-			p := bkPhasesFor(remote, hashing)
+			p := bkPhasesFor(remote, hashing, false)
 			seq := []float64{0, p.copyLo, p.copyHi, p.hashHi, p.sendHi, p.storedAt, p.checkpointsAt}
 			for i := 1; i < len(seq); i++ {
 				if seq[i] < seq[i-1] {
@@ -23,6 +23,22 @@ func TestBackupPhasesInOrder(t *testing.T) {
 			}
 			if remote != (p.sendHi > p.hashHi) {
 				t.Errorf("remote %v hashing %v: the copy to the other node has room %v", remote, hashing, p.sendHi-p.hashHi)
+			}
+		}
+	}
+}
+
+// Encryption reads and writes every byte again: the bar gives it room after the copy, also when no checksum
+// pass was asked for (it takes the checksums anyway), and keeps room for the copy to another node.
+func TestBackupPhasesWithEncryption(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		for _, hashing := range []bool{false, true} {
+			p := bkPhasesFor(remote, hashing, true)
+			if p.hashHi-p.copyHi < 0.3 {
+				t.Errorf("remote %v: encryption has too little room: %v", remote, p)
+			}
+			if p.copyHi <= p.copyLo || p.hashHi > p.sendHi || p.sendHi > p.storedAt || remote != (p.sendHi > p.hashHi) {
+				t.Errorf("remote %v: phases out of order: %+v", remote, p)
 			}
 		}
 	}

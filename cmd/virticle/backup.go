@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"filippo.io/age"
 	"golang.org/x/term"
 
+	"virticle/internal/backupkey"
 	"virticle/internal/buildinfo"
 	"virticle/internal/ctlbackup"
 	"virticle/internal/retention"
@@ -21,7 +23,7 @@ import (
 
 const backupUsage = `usage: virticle backup [-data DIR] [-o FILE|DIR] [--encrypt] [--passphrase-file FILE]
                        [--keep-last N] [--keep-hourly N] [--keep-daily N] [--keep-weekly N] [--keep-monthly N]
-       virticle restore [-data DIR] [--passphrase-file FILE] FILE
+       virticle restore [-data DIR] [--passphrase-file FILE] [--key FILE] FILE
 
 backup writes the controller's own data (users, node list, SSH key, certificates)
 to one file. It works while the controller runs. restore puts it back and needs
@@ -29,7 +31,12 @@ the controller stopped.
 
 With -o DIR and a --keep flag, backup then deletes the older backups in DIR that
 the rules do not keep (only files named virticle-backup-*.tar.gz[.age]; periods
-in local time). Without --keep flags nothing is deleted.`
+in local time). Without --keep flags nothing is deleted.
+
+A scheduled backup made while backup encryption is on is encrypted to the backup
+key. restore then needs the recovery key file and its passphrase: --key FILE
+(the virticle-backup-key.age you downloaded), or the key in the data directory
+when it is still there.`
 
 // controllerSource is what a backup of the data directory takes.
 func controllerSource(data string) ctlbackup.Source {
@@ -246,7 +253,8 @@ func restoreCommand(args []string) int {
 	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, backupUsage) }
 	data := fs.String("data", "", "the data directory to restore into (default: "+systemDataDir+" on a packaged install, else data)")
-	passFile := fs.String("passphrase-file", "", "read the passphrase of an encrypted backup from this file")
+	passFile := fs.String("passphrase-file", "", "read the passphrase of an encrypted backup (or of the backup key) from this file")
+	keyFile := fs.String("key", "", "the recovery key file (virticle-backup-key.age) for a backup encrypted to the backup key")
 	pos, err := parseMixed(fs, args)
 	if err != nil {
 		if err == flag.ErrHelp {
@@ -262,21 +270,51 @@ func restoreCommand(args []string) int {
 	if dir == "" {
 		dir = restoreDataDir()
 	}
-	if err := runRestore(pos[0], dir, *passFile, ctlbackup.SystemHost{}, os.Stdout); err != nil {
+	if err := runRestore(pos[0], dir, *passFile, *keyFile, ctlbackup.SystemHost{}, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "restore failed:", err)
 		return 1
 	}
 	return 0
 }
 
-func runRestore(file, dir, passFile string, host ctlbackup.Host, out io.Writer) error {
+// backupIdentity opens the recovery key file for a backup encrypted to the backup key: the file given with --key,
+// else the key in the data directory being restored (a machine that still has it). The key lives inside the very
+// backup it opens, so a lost data directory needs the downloaded file.
+func backupIdentity(keyFile, dir, passFile string) (age.Identity, error) {
+	var blob []byte
+	var err error
+	if keyFile != "" {
+		if blob, err = os.ReadFile(keyFile); err != nil {
+			return nil, err
+		}
+	} else if blob, err = backupkey.Read(dir); err != nil {
+		if errors.Is(err, backupkey.ErrNoKey) {
+			return nil, ctlbackup.ErrNeedKey
+		}
+		return nil, err
+	} else {
+		fmt.Fprintf(os.Stderr, "Using the backup key in %s.\n", filepath.Join(dir, backupkey.FileName))
+	}
+	if passFile == "" && term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Fprint(os.Stderr, "Passphrase of the backup key. ")
+	}
+	pass, err := backupPassphrase(passFile, false)
+	if err != nil {
+		return nil, err
+	}
+	return backupkey.Unwrap(blob, pass)
+}
+
+func runRestore(file, dir, passFile, keyFile string, host ctlbackup.Host, out io.Writer) error {
 	f, err := os.Open(file)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	ask := func() (string, error) { return backupPassphrase(passFile, false) }
-	plain, err := ctlbackup.Open(f, ask)
+	plain, err := ctlbackup.OpenWith(f, ctlbackup.Unlock{Passphrase: ask, Identity: func() (age.Identity, error) {
+		return backupIdentity(keyFile, dir, passFile)
+	}})
 	if err != nil {
 		return err
 	}

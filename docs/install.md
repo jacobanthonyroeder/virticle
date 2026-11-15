@@ -301,6 +301,14 @@ file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
 
+### From 0.3.0 to the next release
+
+Nodes need to be prepared again: the node command has protocol 21 (it was 20), for the encryption of backups. Until you
+do, a node's **Settings** page says "This node was prepared by an older version, so features that need root are off", and
+migration, backups, replication and the other features that need root stop on it. VMs keep running. Prepare each node as in
+step 4 below (**Settings > Prepare this node**, or `virticle node prepare admin@host`). Backup encryption is off until an
+administrator turns it on.
+
 ### From 0.2.0 to 0.3.0
 
 Nodes need to be prepared again, because the node command has a new version (protocol 20, it was 10). Until you do, a node
