@@ -92,6 +92,11 @@ To add another host:
 
 ![Add node dialog](img/add-node.png)
 
+The same from a shell on the controller's machine: `sudo virticle node add root@host` (without a host: this machine).
+`sudo virticle node list` and `sudo virticle node remove NAME` list and remove nodes, and `sudo virticle status`
+shows what needs attention. An open Nodes page shows a node added this way at once. See
+[reference.md](reference.md#commands).
+
 When the node's **Settings** say it was prepared by an older version, choose
 **Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
 

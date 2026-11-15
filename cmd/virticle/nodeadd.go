@@ -148,16 +148,23 @@ func addNode(q addReq, in credIO) int {
 	// dialog's "Already prepared", decided here.
 	user := ""
 	if !local {
-		account := q.opts.ServiceUser()
-		res, _ := mgr.TestConnect(store.Node{Addr: addr, User: account, Jump: q.jump}, 20*time.Second)
-		switch stage, detail := firstFailure(res); {
-		case res.OK && res.Privilege != "" && res.Privilege != "none":
-			fmt.Fprintf(out, "%s is prepared for this controller: it signs in as %s.\n", where, account)
-			user = account
-		case stage == "address":
-			return errorLine(1, "unknown host %s: %s", addr, detail)
-		case stage == "reach" || stage == "jump":
-			return errorLine(1, "cannot reach %s: %s", addr, detail)
+		accounts := []string{q.opts.ServiceUser()}
+		if q.opts.User == "" && !q.opts.AllowRoot {
+			accounts = append(accounts, prepare.LegacyUser) // the account of a node that 0.2.0 prepared
+		}
+	probe:
+		for _, account := range accounts {
+			res, _ := mgr.TestConnect(store.Node{Addr: addr, User: account, Jump: q.jump}, 20*time.Second)
+			switch stage, detail := firstFailure(res); {
+			case res.OK && res.Privilege != "" && res.Privilege != "none":
+				fmt.Fprintf(out, "%s is prepared for this controller: it signs in as %s.\n", where, account)
+				user = account
+				break probe
+			case stage == "address":
+				return errorLine(1, "unknown host: %s", detail)
+			case stage == "reach" || stage == "jump":
+				return errorLine(1, "cannot reach %s: %s", addr, detail)
+			}
 		}
 	}
 	takeOver := q.opts.TakeOver
@@ -182,7 +189,8 @@ func addNode(q addReq, in credIO) int {
 		rows := runPrepare(r, o, mgr, addr, q.jump)
 		if otherController(rows) && !o.TakeOver {
 			if q.ask == nil || !askYes(q.ask, "Take over the node from the other controller? [y/N] ", false) {
-				return errorLine(1, "%s is managed by another Virticle controller. To take it over, run this again with --take-over", where)
+				again := strings.TrimSpace("sudo virticle node add --take-over " + addCommandArgs(q.target, q.jump, q.opts.ServiceUser()))
+				return errorLine(1, "%s is managed by another Virticle controller. To take it over (that controller loses it): %s", where, again)
 			}
 			o.TakeOver, takeOver = true, true
 			rows = runPrepare(r, o, mgr, addr, q.jump)
