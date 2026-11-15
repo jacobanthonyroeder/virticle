@@ -302,7 +302,9 @@ Details: [reference](reference.md#guest-setup-on-clone).
   at the next start.
 - **Passthrough** lists the host's PCI devices. A device shares its IOMMU
   group with others; the dialog shows what moves together. The host needs
-  IOMMU enabled in firmware and on the kernel command line. A graphics card
+  IOMMU enabled in firmware and on the kernel command line. A node without it
+  says which arguments to add (the help mark says where they go); Virticle does not
+  change the boot loader. A graphics card
   that the host itself is using cannot be attached.
 - **Speed limit**: in the network interfaces list, **Edit** a card and enter a
   **Speed limit (Mbit/s)**; empty means no limit. It limits both directions and

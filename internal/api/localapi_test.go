@@ -94,8 +94,11 @@ func TestLocalProblem(t *testing.T) {
 	if p := fakeLocal(fakeLocalRoot(t, "vmx", "dev/kvm")).problem(); p != "" {
 		t.Errorf("capable: %q", p)
 	}
-	if p := fakeLocal(fakeLocalRoot(t, "vmx")).problem(); p == "" {
-		t.Error("no /dev/kvm is a problem")
+	if p := fakeLocal(fakeLocalRoot(t, "vmx")).problem(); p != "" {
+		t.Errorf("no /dev/kvm is no problem, prepare loads the module: %q", p)
+	}
+	if p := fakeLocal(fakeLocalRoot(t, "")).problem(); p == "" {
+		t.Error("a CPU without virtualisation is a problem")
 	}
 	if p := fakeLocal(fakeLocalRoot(t, "vmx", ".dockerenv", "dev/kvm")).problem(); p != "This is a container" {
 		t.Errorf("container: %q", p)

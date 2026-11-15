@@ -321,4 +321,21 @@ test.describe.serial("VM page polish", () => {
     await expect(dlg.locator("tr", { hasText: "0000:0b:00.0" }).getByRole("button", { name: "Attach" })).toBeEnabled();
     await page.keyboard.press("Escape");
   });
+
+  test("a node without IOMMU says which kernel arguments to add, and where they go behind the help mark", async ({ page }) => {
+    await page.route(/\/hostdevs$/, async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const advice = { text: "Add amd_iommu=on iommu=pt to the kernel command line", where: "Run grubby --update-kernel=ALL --args=\"amd_iommu=on iommu=pt\" and reboot. Virticle does not change the boot loader or reboot." };
+      await route.fulfill({ json: { devices: [], attached: [], iommu: false, iommuAdvice: advice, factsKnown: true, vm: vm.uuid, warning: "" } });
+    });
+    await openVM(page, vm, "hardware", "passthrough");
+    await page.getByRole("button", { name: "Add host device" }).click();
+    const dlg = dialog(page, "Host devices of this node");
+    await expect(dlg).toContainText("no active IOMMU");
+    await expect(dlg).toContainText("Add amd_iommu=on iommu=pt to the kernel command line.");
+    await expect(dlg).not.toContainText("intel_iommu");
+    await dlg.getByRole("button", { name: "Help" }).hover();
+    await expect(page.getByRole("tooltip")).toContainText("grubby --update-kernel=ALL");
+    await page.keyboard.press("Escape");
+  });
 });

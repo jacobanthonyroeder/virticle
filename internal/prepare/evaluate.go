@@ -63,14 +63,23 @@ func Evaluate(p Plan, o Options) []Row {
 		add("cpu", "CPU virtualisation", Error, "no vmx or svm flag; turn on hardware virtualisation in the firmware")
 	}
 
-	// /dev/kvm
+	// /dev/kvm: a missing KVM module is loaded by the kernel modules step; a kernel argument that blocks it is
+	// only named.
+	k := f.KernelInfo()
 	switch {
 	case f.KVMDev != "":
 		add("kvm", "KVM device", OK, "/dev/kvm present ("+f.KVMDev+")")
 	case f.CPUVirt == "":
 		add("kvm", "KVM device", Error, "/dev/kvm is missing")
+	case len(ModulesWanted(f)) > 0 && len(k.KVMBlocks()) > 0:
+		what, where, _ := k.KVMBlockFix()
+		rows = append(rows, Row{ID: "kvm", Title: "KVM device", Status: Error, Detail: "/dev/kvm is missing and the kernel command line keeps " + ModulesWanted(f)[0] + " from loading: " + what, Help: where})
+	case len(ModulesWanted(f)) > 0 && modBlocked(f) != "":
+		add("kvm", "KVM device", Error, "/dev/kvm is missing: "+modBlocked(f))
+	case len(ModulesWanted(f)) > 0:
+		add("kvm", "KVM device", Info, "/dev/kvm is missing; prepare loads "+strings.Join(ModulesWanted(f), " ")+" and lists it in "+ModulesFile+" so that it loads at boot")
 	default:
-		add("kvm", "KVM device", Error, "/dev/kvm is missing although the CPU supports virtualisation; load the kvm_intel or kvm_amd module, or check the firmware")
+		add("kvm", "KVM device", Error, "/dev/kvm is missing although "+kvmModule(f.CPUVirt)+" is loaded; look at the kernel log (dmesg) and the firmware setting for virtualisation")
 	}
 
 	// Nested virtualisation: information, only when this host is itself a VM.
@@ -85,14 +94,16 @@ func Evaluate(p Plan, o Options) []Row {
 		}
 	}
 
-	// IOMMU: information, for device passthrough.
+	// IOMMU: information, for device passthrough. The kernel command line is never changed: the row names what to add.
 	switch {
 	case f.IOMMUGroups > 0:
 		add("iommu", "IOMMU", Info, fmt.Sprintf("On (%d groups); device passthrough is possible", f.IOMMUGroups))
-	case f.CPUVirt == "svm":
-		add("iommu", "IOMMU", Info, "Off. For device passthrough add amd_iommu=on iommu=pt to the kernel command line and reboot; prepare does not change it and never reboots")
 	default:
-		add("iommu", "IOMMU", Info, "Off. For device passthrough add intel_iommu=on iommu=pt to the kernel command line and reboot; prepare does not change it and never reboots")
+		if what, where, ok := k.IOMMUAdvice(); ok {
+			rows = append(rows, Row{ID: "iommu", Title: "IOMMU", Status: Info, Detail: "Off. For device passthrough: " + what, Help: where})
+		} else {
+			add("iommu", "IOMMU", Info, "Off although the kernel command line is right. For device passthrough: "+k.IOMMUFirmware())
+		}
 	}
 
 	// Space under the default pool path
@@ -174,6 +185,17 @@ func Evaluate(p Plan, o Options) []Row {
 	// Start guard
 	rows = append(rows, guardRow(p, o))
 	return rows
+}
+
+// modBlocked says why the module prepare would load cannot work, when a modprobe.d line blacklists it or replaces its
+// load ("" when nothing does).
+func modBlocked(f Facts) string {
+	for _, m := range ModulesWanted(f) {
+		if file, kind := f.ModuleBlock(m); file != "" {
+			return ModuleFailure(m, "", "", file, kind, f.KernelInfo())
+		}
+	}
+	return ""
 }
 
 // versionRow checks libvirt and QEMU against the minimum. What is installed

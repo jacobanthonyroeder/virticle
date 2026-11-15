@@ -459,6 +459,9 @@ func printRow(r prepare.Row) {
 	} else {
 		fmt.Printf("%-8s %s\n", word, r.Title)
 	}
+	if r.Help != "" && r.Status != prepare.Skipped {
+		fmt.Printf("         %s\n", r.Help)
+	}
 }
 
 func exitCode(rows []prepare.Row) int {

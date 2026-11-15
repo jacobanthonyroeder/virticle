@@ -4,6 +4,7 @@ import { api, del, get, VMDetail } from "../api";
 import { ErrorBox, Modal, useAction, useConfirm } from "../ui";
 import { OneLine, SectionFrame } from "./Disclosure";
 import { StatusLine } from "../Checks";
+import Help from "../Help";
 
 interface Dev {
   kind: "pci" | "usb";
@@ -27,6 +28,7 @@ interface Listing {
   devices: Dev[];
   attached: { key: string; kind: string; label: string; present: boolean }[];
   iommu: boolean;
+  iommuAdvice?: { text: string; where?: string };
   factsKnown: boolean;
   vm: string;
   warning: string;
@@ -132,7 +134,8 @@ function Picker({ l, vm, busy, running, onClose, onAttach, error }: { l: Listing
       <StatusLine status="warning">{l.warning}</StatusLine>
       {!l.iommu && (
         <StatusLine status="error">
-          This node has no active IOMMU, so no PCI device can be passed through (enable intel_iommu=on or amd_iommu=on and reboot). USB devices are not affected.
+          This node has no active IOMMU, so no PCI device can be passed through. {l.iommuAdvice ? l.iommuAdvice.text + "." : ""} USB devices are not affected.
+          {l.iommuAdvice?.where && <Help>{l.iommuAdvice.where}</Help>}
         </StatusLine>
       )}
       {!l.factsKnown && <StatusLine status="warning">The node's network and storage layout could not be read; devices that might belong to the host are refused.</StatusLine>}
