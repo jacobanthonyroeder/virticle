@@ -575,7 +575,10 @@ pruning it down to keep-last alone.
   average of the recent ones, plus or minus 20%; without an incremental one measured, 2 to 20% of a full backup each;
   with no backup at all, the allocated size of the disks.
 - `GET/PUT /api/controller-backup`: `daily` (on), `mode` (`daily` or `interval`), `at` (HH:MM, server time),
-  `everyHours` (1 to 168), the five `keep*` fields, `zone`, `nextRun`. Fields left out of a PUT keep their values.
+  `everyHours` (1 to 168), the five `keep*` fields, `dir` (the folder of the scheduled copies; empty or the default
+  `backups` in the data directory), `zone`, `nextRun`. Fields left out of a PUT keep their values. A new `dir` must be a
+  full path outside the data directory; the controller creates it and writes a test file there before it saves, and
+  refuses it with the reason otherwise.
   Stored settings from before have only `daily`: daily at 03:30 with `keepDaily 7`. The old field `keep` is gone.
 
 ## Node access
@@ -887,4 +890,12 @@ The update log is `/var/lib/virticle-update/update.log` on the node. dnf: `check
 - A VM keeps one kind of snapshot until all its snapshots are deleted (libvirt cannot delete a tree that mixes internal and external ones). On a node that confines QEMU with AppArmor (Debian) external snapshots cannot be reliably deleted, so a running VM there can only take snapshots that save the running state; a live snapshot without it is always external.
 - A UEFI VM made before qcow2 variable stores keeps a raw one: its snapshots are external, and reverting a snapshot does not bring back the UEFI variables of that moment (internal snapshots of a qcow2 store do).
 - No automatic failover and no fencing: a failover to a replica is started by a person ([backlog-ha.md](backlog-ha.md)). Nothing starts the VMs of a dead node on shared storage ([backlog-storage.md](backlog-storage.md)). Shared storage means NFS only.
+- A bridge set up by hand stays not editable when it has STP on, is defined in cloud-init's netplan file
+  (`50-cloud-init.yaml`) while cloud-init manages the network, or has any setting outside the switch model
+  ([Host bridges](#host-bridges-virtual-switches)). It can still carry networks and VM interfaces.
+- Guest setup on clone written into the disk was not tried on SUSE, Ubuntu or a guest installed from a real ISO. NixOS
+  and other systems are refused; Windows goes its own way (an answer file).
+  Packages are installed at the clone's first start; a failed install shows only inside the guest.
+- The clock sync after a start (guests with a local-time hardware clock) needs the guest agent, and does not cover VMs the
+  node starts at boot.
 - Not verified end to end: ACME issuance, arm64. See [ROADMAP.md](../ROADMAP.md).
