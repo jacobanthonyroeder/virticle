@@ -15,13 +15,21 @@ import (
 // systemDataDir is where the packages keep the controller's data.
 const systemDataDir = "/var/lib/virticle"
 
-// defaultDataDir is the -data value when none is given: the packages' data
-// directory if it exists and holds a controller database (so that "virticle
-// web show" on an installed machine reads the real settings), else "data".
-func defaultDataDir() string { return pickDataDir(systemDataDir) }
+// packagedUnit is the service file the packages install.
+const packagedUnit = "/usr/lib/systemd/system/virticle.service"
 
-func pickDataDir(system string) string {
+// defaultDataDir is the -data value when none is given: the packages' data
+// directory if it holds a controller database (so that "virticle web show" on
+// an installed machine reads the real settings) or the package is installed
+// (so that "virticle setup" before the first start of the service sets up the
+// service's directory), else "data".
+func defaultDataDir() string { return pickDataDir(systemDataDir, packagedUnit) }
+
+func pickDataDir(system, unit string) string {
 	if st, err := os.Stat(system); err == nil && st.IsDir() && store.HasDatabase(system) {
+		return system
+	}
+	if _, err := os.Stat(unit); err == nil {
 		return system
 	}
 	return "data"

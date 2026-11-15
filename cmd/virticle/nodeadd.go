@@ -201,6 +201,8 @@ func addNode(q addReq, in credIO) int {
 		user = r.User
 	}
 
+	// The administrator's sign-in recorded the host key here as root; the controller must be able to read it now.
+	chownLike(q.data, knownHosts)
 	var n store.Node
 	if err := c.call("POST", "/api/nodes", map[string]any{"addr": addr, "user": user, "jump": q.jump, "takeOver": takeOver}, &n); err != nil {
 		return errorLine(1, "%s is prepared, but adding it failed: %v", where, err)
