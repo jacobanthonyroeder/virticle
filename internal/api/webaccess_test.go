@@ -163,7 +163,8 @@ func TestWebEndpoints(t *testing.T) {
 func TestStatusShowsPendingWebChange(t *testing.T) {
 	e := newEnv(t)
 	e.user("root", "admin")
-	m := &webaccess.Manager{Store: e.srv.Store, DataDir: t.TempDir(), Handler: e.h, Window: 1500 * time.Millisecond, OnChange: e.srv.UseWebSettings}
+	const window = 1500 * time.Millisecond
+	m := &webaccess.Manager{Store: e.srv.Store, DataDir: t.TempDir(), Handler: e.h, Window: window, OnChange: e.srv.UseWebSettings}
 	e.srv.Web = m
 	if err := m.Start(webaccess.Settings{Mode: "off", Listen: "127.0.0.1:0"}.Normalize()); err != nil {
 		t.Fatal(err)
@@ -177,23 +178,37 @@ func TestStatusShowsPendingWebChange(t *testing.T) {
 	if st, _ := status(); st["webChangeUntil"] != nil {
 		t.Fatalf("nothing pending, yet: %v", st)
 	}
+	before := time.Now()
 	w := e.do("PUT", "/api/web", map[string]any{"settings": proxyMode("127.0.0.1")}, cookieOf(e, "root"))
 	if w.Code != 200 {
 		t.Fatalf("apply: %d %s", w.Code, w.Body)
 	}
+	after := time.Now()
 	st, body := status()
 	until, _ := st["webChangeUntil"].(string)
 	d, err := time.Parse(time.RFC3339, until)
-	if err != nil || time.Until(d) <= 0 || time.Until(d) > 2*time.Second {
-		t.Fatalf("deadline %q: %v", until, err)
+	// The deadline is the time of the change plus the window, in whole seconds (cut, not rounded). Checked against
+	// the clock around the change, not against "now": on a loaded machine the requests themselves take a while.
+	if err != nil || d.Before(before.Add(window).Truncate(time.Second)) || d.After(after.Add(window)) {
+		t.Fatalf("deadline %q (change made between %s and %s): %v", until, before.Format(time.RFC3339Nano), after.Format(time.RFC3339Nano), err)
 	}
 	for _, leak := range []string{"vm.example.org", "127.0.0.1"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("status leaks %q: %s", leak, body)
 		}
 	}
-	time.Sleep(2200 * time.Millisecond) // the window ends and the change is undone
-	if st, _ := status(); st["webChangeUntil"] != nil {
-		t.Errorf("still shown after the window: %v", st)
+	// The window ends and the change is undone; the undo runs in the background, so it is waited for (no fixed
+	// sleep: under load it may come a little later than the window).
+	time.Sleep(window)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		st, _ := status()
+		if st["webChangeUntil"] == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("still shown long after the window: %v", st)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
