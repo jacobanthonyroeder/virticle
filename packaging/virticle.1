@@ -112,10 +112,22 @@ takes a file or a directory.
 .B \-\-encrypt
 asks for a passphrase (or reads it with
 .BR \-\-passphrase\-file ).
+With
+.B \-o
+DIR and one of
+.BR \-\-keep\-last ,
+.BR \-\-keep\-hourly ,
+.BR \-\-keep\-daily ,
+.BR \-\-keep\-weekly ,
+.B \-\-keep\-monthly
+N, older backups in DIR that the rules do not keep are deleted.
 .TP
 .B virticle restore
 Put such a file back. The controller must be stopped. An existing data
 directory is moved aside, never overwritten.
+A scheduled backup made while backup encryption is on needs
+.B \-\-key
+FILE, the recovery key file, and its passphrase.
 .TP
 .B virticle web
 Read (\fBshow\fR), change (\fBset\fR) or reset to plain HTTP on

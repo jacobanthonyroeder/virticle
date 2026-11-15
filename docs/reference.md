@@ -796,5 +796,4 @@ The update log is `/var/lib/virticle-update/update.log` on the node. dnf: `check
 - A VM keeps one kind of snapshot until all its snapshots are deleted (libvirt cannot delete a tree that mixes internal and external ones). On a node that confines QEMU with AppArmor (Debian) external snapshots cannot be reliably deleted, so a running VM there can only take snapshots that save the running state; a live snapshot without it is always external.
 - A UEFI VM made before qcow2 variable stores keeps a raw one: its snapshots are external, and reverting a snapshot does not bring back the UEFI variables of that moment (internal snapshots of a qcow2 store do).
 - No automatic failover and no fencing: a failover to a replica is started by a person ([backlog-ha.md](backlog-ha.md)). Nothing starts the VMs of a dead node on shared storage ([backlog-storage.md](backlog-storage.md)). Shared storage means NFS only.
-- Not verified end to end: ACME issuance, the packages and the systemd service
-  on a clean machine, arm64. See [ROADMAP.md](../ROADMAP.md).
+- Not verified end to end: ACME issuance, arm64. See [ROADMAP.md](../ROADMAP.md).
