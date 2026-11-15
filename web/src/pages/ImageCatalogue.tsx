@@ -72,7 +72,7 @@ export default function ImageCatalogue(props: { node: number; nodeName?: string;
   return (
     <Modal title="Image catalogue" onClose={props.onClose} wide>
       <p className="muted catnote">
-        The checksum comes from the same project as the image: it detects a damaged download, not a compromised mirror.
+        Downloads into <b>{props.pool}</b>. The checksum comes from the same project as the image: it detects a damaged download, not a compromised mirror.
       </p>
       {confirm.dialog}
       <ErrorBox error={list.error ?? act.error ?? failure} />

@@ -122,7 +122,7 @@ test.describe.serial("users and roles", () => {
     expect((await (await new Api(ctx.request).get(`/nodes/${vm.node}/vms/${vm.uuid}`)).state)).toBe("shutoff");
     // /users is not reachable for a viewer either
     await page.goto("/users");
-    await expect(page.getByText(/nothing at this address/)).toBeVisible();
+    await expect(page.getByText("Not found", { exact: true })).toBeVisible();
     await ctx.close();
   });
 
@@ -140,7 +140,7 @@ test.describe.serial("users and roles", () => {
     const status = await ctx.request.get("/api/users");
     expect(status.status()).toBe(403);
     await page.goto("/audit");
-    await expect(page.getByText(/nothing at this address/)).toBeVisible();
+    await expect(page.getByText("Not found", { exact: true })).toBeVisible();
     await ctx.close();
   });
 

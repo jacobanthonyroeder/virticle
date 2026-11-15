@@ -168,7 +168,9 @@ test.describe.serial("storage", () => {
 
     // A copy of the Debian image from pool default (read only) into this pool: first put a big volume here.
     const big = `${P}stop-big.qcow2`;
-    await api.post(`/nodes/${n1}/pools/default/volumes/${encodeURIComponent(env.debian)}/action`, { action: "clone", name: `${P}stop-src.qcow2` });
+    // This copy is not stopped and the call waits for it: give it more than the default 15 s on a busy node.
+    const made = await api.ctx.fetch(`/api/nodes/${n1}/pools/default/volumes/${encodeURIComponent(env.debian)}/action`, { method: "POST", data: { action: "clone", name: `${P}stop-src.qcow2` }, timeout: 120_000 });
+    expect(made.ok(), await made.text()).toBe(true);
     try {
       r = await stopTask(api, "clone volume", () => api.post(`/nodes/${n1}/pools/default/volumes/${encodeURIComponent(`${P}stop-src.qcow2`)}/action`, { action: "clone", name: big }), 400);
       expect(r.seconds).toBeLessThan(10);
