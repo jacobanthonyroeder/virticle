@@ -337,7 +337,7 @@ export interface AgentHelp {
 
 export interface Alert {
   id: string;
-  kind: "node-down" | "pool-usage" | "host-memory" | "failed-job" | "vm-state" | "tls-expiry" | "scheduler-conflict" | "net-link" | "net-bond" | "net-drift" | "storage-unavailable" | "rolling-update" | "replica-age" | "stale-copy";
+  kind: "node-down" | "pool-usage" | "host-memory" | "failed-job" | "vm-state" | "tls-expiry" | "scheduler-conflict" | "net-link" | "net-bond" | "net-drift" | "storage-unavailable" | "rolling-update" | "replica-age" | "stale-copy" | "guest-frozen";
   severity: "warning" | "critical";
   title: string;
   message: string;

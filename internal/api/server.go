@@ -495,6 +495,7 @@ func (s *Server) taskStop(r *http.Request, kind, target, node string, stop taskS
 	if errors.As(err, &dn) {
 		err = nil
 	}
+	err = s.explainBusy(err)
 	s.Store.FinishTaskNote(&t, err, string(dn))
 	s.pokeAlertsOnFail(err)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})

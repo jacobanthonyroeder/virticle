@@ -20,7 +20,7 @@ import (
 
 type Alert struct {
 	ID       string `json:"id"`
-	Kind     string `json:"kind"`     // node-down | pool-usage | host-memory | failed-job | vm-state | tls-expiry | scheduler-conflict | net-link | net-bond | net-drift | storage-unavailable | rolling-update | replica-age | stale-copy
+	Kind     string `json:"kind"`     // node-down | pool-usage | host-memory | failed-job | vm-state | tls-expiry | scheduler-conflict | net-link | net-bond | net-drift | storage-unavailable | rolling-update | replica-age | stale-copy | guest-frozen
 	Severity string `json:"severity"` // warning | critical
 	Title    string `json:"title"`
 	Message  string `json:"message"`
@@ -93,6 +93,14 @@ type alertStale struct {
 	Name, To       string
 }
 
+// alertFrozen is a guest whose file systems a backup froze and could not thaw (backup_frozen.go).
+type alertFrozen struct {
+	Node           int64
+	NodeName, UUID string
+	Name, Err      string
+	At             time.Time
+}
+
 type alertVM struct {
 	Node           int64
 	NodeName, UUID string
@@ -116,6 +124,7 @@ type alertInput struct {
 	Pools      []alertPool
 	Mem        []alertMem
 	VMs        []alertVM
+	Frozen     []alertFrozen
 	Replicas   []alertReplica
 	Stale      []alertStale
 	Jobs       []store.Task    // tasks of the scheduler and of users in the window
@@ -202,6 +211,12 @@ func (t *alertTracker) step(in alertInput, now time.Time) (raised, cleared, all 
 		add(Alert{ID: fmt.Sprintf("vm:%d:%s", v.Node, v.UUID), Kind: "vm-state", Severity: "critical", Node: v.Node,
 			Title: v.Name + " " + v.Why, Link: fmt.Sprintf("/vm/%d/%s", v.Node, v.UUID),
 			Message: fmt.Sprintf("VM %s on %s is %s.", v.Name, v.NodeName, v.Why)})
+	}
+	for _, f := range in.Frozen {
+		add(Alert{ID: fmt.Sprintf("frozen:%d:%s", f.Node, f.UUID), Kind: "guest-frozen", Severity: "critical", Node: f.Node,
+			Title: fmt.Sprintf("%s may be frozen", f.Name), Link: fmt.Sprintf("/vm/%d/%s", f.Node, f.UUID),
+			Message: fmt.Sprintf("A backup froze the file systems of %s on %s at %s and could not thaw them (%s): writes in the guest may hang. The thaw is tried again every minute; virsh domfsthaw %s thaws it now. The alert clears when the guest agent reports the file systems thawed or the VM stops.",
+				f.Name, f.NodeName, f.At.Format("15:04:05"), f.Err, f.Name)})
 	}
 	for _, rp := range in.Replicas {
 		if rp.Last.IsZero() || rp.Every <= 0 {
