@@ -61,7 +61,7 @@ func TestTraceRecordsExec(t *testing.T) {
 	var s sinkRec
 	tr := New(s.add)
 	tr.Exec("n", "sudo -n /usr/local/libexec/virticle-node clone-disk 'a' 'b'")(0, nil)
-	tr.Exec("n", "timeout 5 getent ahostsv4 'nfs.lan'")(2, errors.New("Process exited with status 2"))
+	tr.Exec("n", "timeout 5 ssh-keyscan 'nfs.lan'")(2, errors.New("Process exited with status 2"))
 	tr.Exec("n", "virt-customize --root-password password:hunter2")(-1, context.Canceled)
 	if len(s.ops) != 3 {
 		t.Fatalf("ops %+v", s.ops)
@@ -69,7 +69,7 @@ func TestTraceRecordsExec(t *testing.T) {
 	if o := s.ops[0]; o.API != "virticle-node clone-disk" || !o.OK || o.Kind != KindExec {
 		t.Errorf("op 1 %+v", o)
 	}
-	if o := s.ops[1]; o.API != "getent" || o.OK || o.Error != "exit status 2" {
+	if o := s.ops[1]; o.API != "ssh-keyscan" || o.OK || o.Error != "exit status 2" {
 		t.Errorf("op 2 %+v", o)
 	}
 	if o := s.ops[2]; strings.Contains(o.Cmd, "hunter2") || o.Error != "stopped" || o.OK {
@@ -85,7 +85,7 @@ func TestTraceBounds(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if done := tr.Exec("n", "true"); done != nil {
+			if done := tr.Exec("n", "touch /x"); done != nil {
 				done(0, nil)
 			}
 		}()
