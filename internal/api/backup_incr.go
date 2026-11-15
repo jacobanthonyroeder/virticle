@@ -20,7 +20,7 @@ const whyNoList = "libvirt could not tell what it has tracked of this VM so far,
 // planIncremental decides between a full and an incremental backup of the
 // running or shut-off VM m.
 func (s *Server) planIncremental(m *bkRun, pd poolDir, allQcow2 bool) backupPlan {
-	in := incrInput{Live: m.live, AllQcow2: allQcow2, Target: m.target, Checkpoints: map[string]bool{}}
+	in := incrInput{Live: m.live, AllQcow2: allQcow2, Target: m.target, Checkpoints: map[string]bool{}, Sched: m.req.point}
 	for _, d := range m.disks {
 		in.Layout = append(in.Layout, diskLayout{Target: d.Target, Source: d.Base, Virt: d.Virt})
 	}

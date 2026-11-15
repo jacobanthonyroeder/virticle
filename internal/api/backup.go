@@ -52,6 +52,9 @@ type backupReq struct {
 	// policy is the retention the run prunes with; nil means keep the newest KeepLast. A scheduled run, and a
 	// manual one into the target of the VM's schedule, use the schedule's policy.
 	policy *retention.Policy
+	// point is set, with policy, for a backup into the target of an enabled schedule: decideBackup then makes the
+	// run full when the schedule keeps it as a weekly or monthly point.
+	point *pointSched
 }
 
 // retention is the policy a run prunes the target with.
@@ -351,8 +354,9 @@ func (s *Server) vmBackup(w http.ResponseWriter, r *http.Request) {
 	// A backup into the target of the VM's schedule is pruned by the schedule's policy, not by keepLast: one
 	// manual backup must not thin out the schedule's weeklies and monthlies, and the schedule's next run would
 	// apply its policy anyway.
-	if pol, ok := s.schedulePolicyFor(h, dom, srcID, req.TargetNode, req.Pool); ok {
-		req.policy = &pol
+	if bs := s.scheduleFor(h, dom, srcID, req.TargetNode, req.Pool); bs != nil {
+		pol := bs.policy()
+		req.policy, req.point = &pol, bs.pointAt(time.Now())
 	}
 	m, err := s.planBackup(srcID, h, dom, req)
 	if err != nil {

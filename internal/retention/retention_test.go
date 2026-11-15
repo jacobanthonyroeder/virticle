@@ -372,9 +372,15 @@ func TestProjectPruneCadence(t *testing.T) {
 			runs := s.Runs(got.From, now, MaxSimRuns)
 			var items []Item
 			var full []bool
+			chainLen := 0
 			for n, tm := range runs {
 				it := Item{Time: tm, Parent: -1}
-				f := n%7 == 0
+				f := chainLen == 0 || chainLen >= 7 || PointFull(p, runs[n-1], tm, s.nextRun(runs, n), loc)
+				if f {
+					chainLen = 1
+				} else {
+					chainLen++
+				}
 				if !f && len(items) > 0 {
 					it.Parent = len(items) - 1
 				}

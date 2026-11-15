@@ -63,16 +63,16 @@ func readingIn(_ string, poolDir string) map[string]bool {
 	return out
 }
 
-// schedulePolicyFor returns the retention of the VM's backup schedule when its target is the given one (target
-// node 0 = the VM's node).
-func (s *Server) schedulePolicyFor(h *hostconn.Host, dom libvirt.Domain, srcID, targetNode int64, pool string) (retention.Policy, bool) {
+// scheduleFor returns the VM's backup schedule when its target is the given one (target node 0 = the VM's node), nil
+// otherwise.
+func (s *Server) scheduleFor(h *hostconn.Host, dom libvirt.Domain, srcID, targetNode int64, pool string) *backupSchedule {
 	meta, err := domainMeta(h, dom)
 	if err != nil {
-		return retention.Policy{}, false
+		return nil
 	}
 	bs, err := parseBackupSchedule(meta)
 	if err != nil || bs == nil {
-		return retention.Policy{}, false
+		return nil
 	}
 	a, b := bs.TargetNode, targetNode
 	if a == 0 {
@@ -82,9 +82,9 @@ func (s *Server) schedulePolicyFor(h *hostconn.Host, dom libvirt.Domain, srcID, 
 		b = srcID
 	}
 	if a != b || bs.Pool != pool {
-		return retention.Policy{}, false
+		return nil
 	}
-	return bs.policy(), true
+	return bs
 }
 
 // --- projection ---

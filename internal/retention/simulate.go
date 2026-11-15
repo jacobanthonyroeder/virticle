@@ -13,11 +13,14 @@ type Sim struct {
 	// Step is the usual time between two runs (an interval, or a day).
 	Step time.Duration
 	// Chain is how many backups a chain holds: a full one, then Chain-1 that build each on the one before
-	// (1 or less: every backup stands alone).
+	// (1 or less: every backup stands alone). A run that PointFull picks starts a new chain as well, as the
+	// scheduler does.
 	Chain  int
 	Policy Policy
 	Loc    *time.Location
 	Now    time.Time
+	// rotationOnly leaves PointFull out (tests: what the chains cost without it).
+	rotationOnly bool
 }
 
 // Point is one backup of the steady state.
@@ -116,9 +119,18 @@ func Project(s Sim) Projection {
 		}
 		items, full = ni, nf
 	}
+	chainLen := 0 // backups in the current chain
 	for n, t := range runs {
 		it := Item{Time: t, Parent: -1}
-		isFull := s.Chain <= 1 || n%s.Chain == 0
+		isFull := s.Chain <= 1 || chainLen == 0 || chainLen >= s.Chain
+		if !isFull && !s.rotationOnly {
+			isFull = PointFull(s.Policy, runs[n-1], t, s.nextRun(runs, n), s.Loc)
+		}
+		if isFull {
+			chainLen = 1
+		} else {
+			chainLen++
+		}
 		if !isFull && len(items) > 0 {
 			it.Parent = len(items) - 1 // the newest backup is always kept, so the chain goes on from it
 		}
@@ -135,6 +147,18 @@ func Project(s Sim) Projection {
 		}
 	}
 	return pr
+}
+
+// nextRun is the run after runs[n]: the next one in the list, or for the last one the first the schedule has after it.
+func (s Sim) nextRun(runs []time.Time, n int) time.Time {
+	if n+1 < len(runs) {
+		return runs[n+1]
+	}
+	t := runs[n]
+	if next := s.Runs(t.Add(time.Nanosecond), t.Add(2*s.Step+48*time.Hour), 1); len(next) > 0 {
+		return next[0]
+	}
+	return t.Add(s.Step)
 }
 
 // IntervalRuns are the run times of a schedule that runs every step, aligned so that one run is at anchor.

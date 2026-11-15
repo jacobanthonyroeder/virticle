@@ -100,6 +100,17 @@ func (b backupSchedule) validate() error {
 	return nil
 }
 
+// pointAt is what decideBackup needs to make a run at now full when the schedule keeps it as a weekly or monthly
+// point: the schedule's next run, if this backup were the newest one (a manual backup counts as a run too, since
+// the schedule times its next run from the newest backup). nil for a paused schedule.
+func (b backupSchedule) pointAt(now time.Time) *pointSched {
+	next, ok := b.timing().NextRun(now, now)
+	if !ok {
+		return nil
+	}
+	return &pointSched{Policy: b.policy(), Now: now, Next: next, Loc: time.Local}
+}
+
 // due reports whether a backup should start now, given the creation time of
 // the newest backup of the VM in the target (zero if none).
 func (b backupSchedule) due(now, last time.Time) bool { return b.timing().Due(now, last) }
@@ -265,7 +276,7 @@ func (s *Server) runBackupSchedule(srcID int64, h *hostconn.Host, dom libvirt.Do
 		return
 	}
 	pol := bs.policy()
-	m, err := s.planBackup(srcID, h, dom, backupReq{TargetNode: bs.TargetNode, Pool: bs.Pool, KeepLast: bs.KeepLast, SHA256: &no, policy: &pol})
+	m, err := s.planBackup(srcID, h, dom, backupReq{TargetNode: bs.TargetNode, Pool: bs.Pool, KeepLast: bs.KeepLast, SHA256: &no, policy: &pol, point: bs.pointAt(now)})
 	if err != nil {
 		failed(err)
 		return

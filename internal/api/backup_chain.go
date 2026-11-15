@@ -64,6 +64,7 @@ const (
 	whyLayout       = "The disks changed since the last backup (added, removed, resized or moved)."
 	whyDamaged      = "An earlier backup this one would build on is missing or damaged."
 	whyRotation     = "A new full copy is made after every 7 backups, which keeps restores short."
+	whyPoint        = "The schedule keeps this backup as a weekly or monthly one, so it is full and keeps no older backups with it."
 	whyNoCheckpoint = "libvirt could not start tracking changes, so the disks were copied whole."
 	whyRefused      = "libvirt could not build on the earlier backup (the VM may have stopped unexpectedly), so the disks were copied whole."
 )
@@ -130,6 +131,17 @@ type incrInput struct {
 	Backups []chainBackup
 	// Intact tells whether a backup's files are all there with the sizes its manifest records.
 	Intact func(dir string) bool
+	// Sched is set for a backup into the target of the VM's schedule: a run that will be one of its weekly or
+	// monthly points is made full (retention.PointFull).
+	Sched *pointSched
+}
+
+// pointSched is what retention.PointFull needs besides the backups: the schedule's rules, the time of this run, the
+// schedule's next run after it and the zone retention counts in.
+type pointSched struct {
+	Policy    retention.Policy
+	Now, Next time.Time
+	Loc       *time.Location
 }
 
 // backupPlan is the outcome.
@@ -189,6 +201,17 @@ func decideBackup(in incrInput) backupPlan {
 	}
 	if len(chain) >= chainBackups {
 		return full(whyRotation, true)
+	}
+	if sc := in.Sched; sc != nil {
+		var prev time.Time
+		for _, b := range in.Backups {
+			if t := b.M.createdTime(); t.After(prev) {
+				prev = t
+			}
+		}
+		if retention.PointFull(sc.Policy, prev, sc.Now, sc.Next, sc.Loc) {
+			return full(whyPoint, true)
+		}
 	}
 	return backupPlan{Kind: kindIncremental, Parent: base.Dir, ParentCheckpoint: base.M.Checkpoint, Checkpoint: true}
 }
