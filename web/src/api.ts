@@ -246,6 +246,7 @@ export interface Task {
   started: number;
   finished?: number;
   cancel?: Role; // set while the task runs and can be stopped: the role that may stop it
+  background?: boolean; // on its events: the task runs after its request was answered
 }
 export interface ServerEvent {
   type: "node" | "domain" | "network" | "pool" | "task" | "alert" | "tags" | "cpubaseline" | "rolling" | "backupkey";
@@ -254,6 +255,8 @@ export interface ServerEvent {
   uuid?: string;
   detail?: string;
   task?: Task;
+  /** On an "alert" event with detail "raised": the alert that was just raised. */
+  alert?: Alert;
 }
 
 export function bytes(n: number): string {
@@ -339,6 +342,8 @@ export interface Alert {
   node?: number;
   link?: string;
   since: number;
+  /** The person whose action failed, for an alert about a task they started; empty for the scheduler and the rest. */
+  user?: string;
 }
 export interface EvacVM {
   uuid: string;

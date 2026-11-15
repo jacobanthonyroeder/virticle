@@ -177,8 +177,10 @@ function SetupDialog(props: { d: VMDetail; base: string; nodes: NodeStatus[]; cu
   const save = () =>
     act.run(async () => {
       const r = await put<{ warnings?: string[]; note?: string; task?: number }>(`${props.base}/replication`, { targetNode: Number(target), everyMinutes: Number(every) });
-      setResult({ warnings: r.warnings ?? [], note: r.note, task: r.task });
       props.onDone();
+      // The first copy runs as a task in the Tasks dock. Only warnings or a note of the setup keep the dialog open to be read.
+      if (r.warnings?.length || r.note) setResult({ warnings: r.warnings ?? [], note: r.note, task: r.task });
+      else props.onClose();
     });
   const close = () => {
     props.onDone();

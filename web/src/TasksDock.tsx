@@ -4,15 +4,17 @@
 // hidden. A collapsed dock keeps only the running count and renders no table. The only timer ticks every
 // few seconds while the dock is open, visible and something is running, so durations count up.
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { get, Task } from "./api";
-import { Inventory, useInventory } from "./inventory";
+import { useInventory } from "./inventory";
 import { useEvents } from "./live";
 import { setPref, usePref } from "./prefs";
-import { absTime, duration, orderTasks, relTime, StopTask, TaskNode, TaskStatus, TaskTarget, useStopTask } from "./taskView";
+import TaskDetail from "./TaskDetail";
+import TaskTable from "./TaskTable";
+import { orderTasks, useStopTask } from "./taskView";
 import "./tasksdock.css";
-import { StatusDot, StatusLine } from "./Checks";
+import { StatusLine } from "./Checks";
 
 const SHOWN = 50; // rows kept in the DOM
 const KEPT = 150; // tasks kept in memory
@@ -28,54 +30,6 @@ export function useDockOpen(): boolean {
   return v ? v === "open" : !isPhone();
 }
 
-interface RowProps {
-  t: Task;
-  inv: Inventory;
-  now: number;
-  expanded: boolean;
-  toggle: (id: number) => void;
-  stopping: boolean;
-  stop: (t: Task) => void;
-}
-
-const Row = memo(function Row({ t, inv, now, expanded, toggle, stopping, stop }: RowProps) {
-  return (
-    <div className="dk-row" role="row" data-status={t.status}>
-      <div className="dk-cell" role="cell">
-        <TaskStatus status={t.status} />
-      </div>
-      <div role="cell" className="dk-cell c-kind">{t.kind}</div>
-      <div role="cell" className="dk-cell c-target">
-        <TaskTarget task={t} inv={inv} />
-      </div>
-      <div role="cell" className="dk-cell c-node">
-        <TaskNode task={t} inv={inv} />
-      </div>
-      <div role="cell" className="dk-cell c-user">{t.user}</div>
-      <div role="cell" className="dk-cell c-when num" title={absTime(t.started)}>
-        {relTime(t.started, now)}
-      </div>
-      <div role="cell" className="dk-cell c-dur num">{duration(t, now)}</div>
-      <div role="cell" className="dk-cell c-res">
-        {t.status === "running" ? (
-          <span className="dk-prog" title={t.progress > 0 ? `${(t.progress * 100).toFixed(0)}%` : "no progress reported"}>
-            <span className="dk-bar">
-              <span style={{ width: `${Math.round(Math.min(1, t.progress) * 100)}%` }} />
-            </span>
-            <span className="num">{t.progress > 0 ? `${(t.progress * 100).toFixed(0)}%` : ""}</span>
-            <StopTask task={t} asked={stopping} onStop={stop} />
-          </span>
-        ) : t.error || t.note ? (
-          <button type="button" className={"dk-err" + (expanded ? " open" : "")} title={t.error || t.note} aria-expanded={expanded} onClick={() => toggle(t.id)}>
-            <StatusDot status={t.error ? "error" : "info"} />
-            {t.error || t.note}
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-});
-
 export default function TasksDock() {
   const open = useDockOpen();
   const inv = useInventory();
@@ -84,7 +38,7 @@ export default function TasksDock() {
   const [tick, setTick] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [detail, setDetail] = useState(0);
   const [visible, setVisible] = useState(!hidden());
   const fetchedAt = useRef(0);
   const timer = useRef<number>();
@@ -179,15 +133,8 @@ export default function TasksDock() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const rows = useMemo(() => (open ? orderTasks(tasks.current.values()).slice(0, SHOWN) : []), [open, tick]);
   const now = Math.floor(Date.now() / TICK_MS) * TICK_MS; // coarse, so rows that did not change are not redrawn
-  const toggle = useCallback(
-    (id: number) =>
-      setExpanded((s) => {
-        const n = new Set(s);
-        n.has(id) ? n.delete(id) : n.add(id);
-        return n;
-      }),
-    [],
-  );
+  const stopping = useCallback((id: number) => stopper.asked.has(id), [stopper.asked]);
+  const shown = detail ? tasks.current.get(detail) : undefined;
 
   return (
     <section className={"dock " + (open ? "open" : "closed")} aria-label="Tasks panel">
@@ -211,28 +158,11 @@ export default function TasksDock() {
           ) : rows.length === 0 ? (
             <div className="dock-note">No tasks</div>
           ) : (
-            <div className="dock-table" role="table" aria-label="Recent tasks">
-              <div className="dk-head" role="rowgroup">
-                <div className="dk-row" role="row">
-                  <div role="columnheader" className="dk-cell c-status">Status</div>
-                  <div role="columnheader" className="dk-cell c-kind">Action</div>
-                  <div role="columnheader" className="dk-cell c-target">Target</div>
-                  <div role="columnheader" className="dk-cell c-node">Node</div>
-                  <div role="columnheader" className="dk-cell c-user">By</div>
-                  <div role="columnheader" className="dk-cell c-when">Started</div>
-                  <div role="columnheader" className="dk-cell c-dur">Duration</div>
-                  <div role="columnheader" className="dk-cell c-res">Result</div>
-                </div>
-              </div>
-              <div className="dk-rows" role="rowgroup">
-                {rows.map((t) => (
-                  <Row key={t.id} t={t} inv={inv} now={now} expanded={expanded.has(t.id)} toggle={toggle} stopping={stopper.asked.has(t.id)} stop={stopper.stop} />
-                ))}
-              </div>
-            </div>
+            <TaskTable tasks={rows} inv={inv} now={now} open={setDetail} stopping={stopping} stop={stopper.stop} />
           )}
         </div>
       )}
+      {shown && <TaskDetail task={shown} inv={inv} now={now} stopping={stopper.asked.has(shown.id)} stop={stopper.stop} onClose={() => setDetail(0)} />}
       {stopper.dialog}
     </section>
   );

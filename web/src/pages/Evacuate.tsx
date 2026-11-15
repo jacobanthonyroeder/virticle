@@ -1,19 +1,16 @@
 import { useEffect, useState } from "react";
-import { bytes, EvacPlan, EvacRun, get, NodeStatus, post } from "../api";
+import { bytes, EvacPlan, NodeStatus, post } from "../api";
 import DialogAdvanced from "./DialogAdvanced";
-import { ErrorBox, Modal, StateBadge, useAction, useConfirm } from "../ui";
-import { CheckList, StatusLine } from "../Checks";
+import { ErrorBox, Modal, StateBadge, useAction } from "../ui";
+import { CheckList } from "../Checks";
 
-/** Plan and run the evacuation of one node. */
+/** Plan the evacuation of one node. Once the server accepted it the dialog closes; the Tasks dock follows the evacuation and its moves, and stops it. */
 export default function Evacuate({ node, nodes, onClose }: { node: NodeStatus; nodes: NodeStatus[]; onClose: () => void }) {
   const [targets, setTargets] = useState<Record<number, boolean>>({});
   const [plan, setPlan] = useState<EvacPlan | undefined>();
   const [picked, setPicked] = useState<Record<string, boolean>>({});
-  const [run, setRun] = useState<EvacRun | undefined>();
   const check = useAction();
   const start = useAction();
-  const cancel = useAction();
-  const confirm = useConfirm();
   const others = nodes.filter((n) => n.id !== node.id);
   const eligible = (n: NodeStatus) => n.state === "online" && !n.maintenance;
   const chosen = others.filter((n) => eligible(n) && targets[n.id] !== false).map((n) => n.id);
@@ -33,146 +30,81 @@ export default function Evacuate({ node, nodes, onClose }: { node: NodeStatus; n
 
   // The check runs when the dialog opens and again when the choice of targets changes.
   useEffect(() => {
-    if (!run && chosen.length > 0) runCheck();
+    if (chosen.length > 0) runCheck();
   }, [chosenKey]);
-
-  // Pick up a run that is already going (or just ended) when the dialog opens.
-  useEffect(() => {
-    get<{ run: EvacRun | null }>(`/nodes/${node.id}/evacuate`).then(
-      (r) => r.run && r.run.running && setRun(r.run),
-      () => {},
-    );
-  }, [node.id]);
-  useEffect(() => {
-    if (!run?.running) return;
-    const t = setInterval(() => get<{ run: EvacRun | null }>(`/nodes/${node.id}/evacuate`).then((r) => r.run && setRun(r.run), () => {}), 2000);
-    return () => clearInterval(t);
-  }, [run?.running, node.id]);
 
   const go = async () => {
     const vms = Object.keys(picked).filter((u) => picked[u]);
-    await start.run(async () => {
-      await post(`/nodes/${node.id}/evacuate`, { targets: chosen, vms, includeShutOff: true });
-      const r = await get<{ run: EvacRun | null }>(`/nodes/${node.id}/evacuate`);
-      if (r.run) setRun(r.run);
-    });
+    if (await start.run(() => post(`/nodes/${node.id}/evacuate`, { targets: chosen, vms, includeShutOff: true }))) onClose();
   };
 
-  const done = run ? run.results.filter((r) => r.status === "ok" || r.status === "failed" || r.status === "blocked" || r.status === "skipped").length : 0;
   return (
     <Modal title={`Evacuate ${name}`} onClose={onClose} wide>
-      {!run && (
-        <>
-          <p>Migrates the VMs to the other nodes; nodes in maintenance are not used.</p>
-          {others.length === 0 && <div className="muted">No other node</div>}
-          {others.length > 0 && chosen.length === 0 && <div className="muted">No target available</div>}
-          {check.busy && !plan && <p className="muted">Checking</p>}
-          <ErrorBox error={check.error} />
-          {plan && (
-            <div className="evacplan">
-              <table className="compact">
-                <thead>
-                  <tr>
-                    <th />
-                    <th>VM</th>
-                    <th>State</th>
-                    <th>Memory</th>
-                    <th>Goes to</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plan.assignments.map((a) => (
-                    <tr key={a.vm.uuid}>
-                      <td>
-                        <input type="checkbox" checked={!!picked[a.vm.uuid]} onChange={(e) => setPicked({ ...picked, [a.vm.uuid]: e.target.checked })} aria-label={`Move ${a.vm.name}`} />
-                      </td>
-                      <td>{a.vm.name}</td>
-                      <td>{a.vm.state}</td>
-                      <td>{bytes(a.vm.memoryKiB * 1024)}</td>
-                      <td>{a.targetName}</td>
-                    </tr>
-                  ))}
-                  {plan.blocked.map((b) => (
-                    <tr key={b.vm.uuid} className="blockedrow">
-                      <td>
-                        <span className="sev critical">Blocked</span>
-                      </td>
-                      <td>{b.vm.name}</td>
-                      <td>{b.vm.state}</td>
-                      <td>{bytes(b.vm.memoryKiB * 1024)}</td>
-                      <td>
-                        <CheckList summary={false} label="Why it is blocked" items={b.reasons.map((r) => ({ status: "error", detail: r }))} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {plan.assignments.length + plan.blocked.length === 0 && <div className="muted">No virtual machines</div>}
-            </div>
-          )}
-          <DialogAdvanced>
-            <strong>Targets</strong>
-            {others.map((n) => (
-              <label key={n.id} className="check">
-                <input type="checkbox" checked={eligible(n) && targets[n.id] !== false} disabled={!eligible(n)} onChange={(e) => setTargets({ ...targets, [n.id]: e.target.checked })} />
-                {n.hostname || n.addr}
-                {n.state !== "online" && <StateBadge state={n.state} />}
-                {n.maintenance && <span className="badge maint">Maintenance</span>}
-              </label>
-            ))}
-          </DialogAdvanced>
-          <ErrorBox error={start.error} />
-          <footer>
-            <button onClick={onClose}>Close</button>
-            <button className="primary" onClick={go} disabled={start.busy || !plan || plan.assignments.every((a) => !picked[a.vm.uuid])}>
-              Evacuate {plan ? plan.assignments.filter((a) => picked[a.vm.uuid]).length : 0} VM(s)
-            </button>
-          </footer>
-        </>
-      )}
-      {run && (
-        <>
-          <div className="bar" title={`${done} of ${run.results.length}`}>
-            <div style={{ width: `${(done / Math.max(1, run.results.length)) * 100}%` }} />
-          </div>
-          <p>
-            {run.running ? (run.cancelled ? "Cancelling: no further VMs will be started." : `Evacuating ${done} of ${run.results.length} finished.`) : run.cancelled ? "Cancelled." : "Finished."}
-          </p>
+      <p>Migrates the VMs to the other nodes; nodes in maintenance are not used.</p>
+      {others.length === 0 && <div className="muted">No other node</div>}
+      {others.length > 0 && chosen.length === 0 && <div className="muted">No target available</div>}
+      {check.busy && !plan && <p className="muted">Checking</p>}
+      <ErrorBox error={check.error} />
+      {plan && (
+        <div className="evacplan">
           <table className="compact">
             <thead>
               <tr>
+                <th />
                 <th>VM</th>
+                <th>State</th>
+                <th>Memory</th>
                 <th>Goes to</th>
-                <th>Result</th>
               </tr>
             </thead>
             <tbody>
-              {run.results.map((r) => (
-                <tr key={r.uuid}>
-                  <td>{r.name}</td>
-                  <td>{r.targetName ?? ""}</td>
+              {plan.assignments.map((a) => (
+                <tr key={a.vm.uuid}>
                   <td>
-                    <span className={"badge es-" + r.status}>{r.status === "ok" ? "Ok" : r.status === "failed" ? "Error" : r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span> {r.error && <StatusLine status="error">{r.error}</StatusLine>}
-                    {r.reasons && (
-                      <CheckList summary={false} label="Reasons" items={r.reasons.map((x) => ({ status: "warning", detail: x }))} />
-                    )}
+                    <input type="checkbox" checked={!!picked[a.vm.uuid]} onChange={(e) => setPicked({ ...picked, [a.vm.uuid]: e.target.checked })} aria-label={`Move ${a.vm.name}`} />
+                  </td>
+                  <td>{a.vm.name}</td>
+                  <td>{a.vm.state}</td>
+                  <td>{bytes(a.vm.memoryKiB * 1024)}</td>
+                  <td>{a.targetName}</td>
+                </tr>
+              ))}
+              {plan.blocked.map((b) => (
+                <tr key={b.vm.uuid} className="blockedrow">
+                  <td>
+                    <span className="sev critical">Blocked</span>
+                  </td>
+                  <td>{b.vm.name}</td>
+                  <td>{b.vm.state}</td>
+                  <td>{bytes(b.vm.memoryKiB * 1024)}</td>
+                  <td>
+                    <CheckList summary={false} label="Why it is blocked" items={b.reasons.map((r) => ({ status: "error", detail: r }))} />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {confirm.dialog}
-          <ErrorBox error={cancel.error} />
-          <footer>
-            {run.running && (
-              <button className="danger" disabled={cancel.busy || run.cancelled} onClick={async () => (await confirm.ask({ title: "Stop the evacuation", message: `No further VMs of ${name} are moved. Moves that are already running finish.`, confirm: "Stop evacuation" })) && cancel.run(() => post(`/nodes/${node.id}/evacuate/cancel`))}>
-                Stop starting new moves
-              </button>
-            )}
-            <button onClick={onClose}>Close</button>
-          </footer>
-        </>
+          {plan.assignments.length + plan.blocked.length === 0 && <div className="muted">No virtual machines</div>}
+        </div>
       )}
+      <DialogAdvanced>
+        <strong>Targets</strong>
+        {others.map((n) => (
+          <label key={n.id} className="check">
+            <input type="checkbox" checked={eligible(n) && targets[n.id] !== false} disabled={!eligible(n)} onChange={(e) => setTargets({ ...targets, [n.id]: e.target.checked })} />
+            {n.hostname || n.addr}
+            {n.state !== "online" && <StateBadge state={n.state} />}
+            {n.maintenance && <span className="badge maint">Maintenance</span>}
+          </label>
+        ))}
+      </DialogAdvanced>
+      <ErrorBox error={start.error} />
+      <footer>
+        <button onClick={onClose}>Close</button>
+        <button className="primary" onClick={go} disabled={start.busy || !plan || plan.assignments.every((a) => !picked[a.vm.uuid])}>
+          Evacuate {plan ? plan.assignments.filter((a) => picked[a.vm.uuid]).length : 0} VM(s)
+        </button>
+      </footer>
     </Modal>
   );
 }

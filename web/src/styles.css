@@ -206,8 +206,15 @@ footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px
 .signin .card { width: 360px; max-width: 100%; display: grid; gap: 4px; }
 .signin h1 { margin-bottom: 4px; }
 
-.toasts { position: fixed; right: 18px; bottom: calc(var(--dock-h, 0px) + 12px); display: grid; gap: 8px; z-index: 500; max-width: 440px; }
-.toast { background: var(--panel); border: 1px solid var(--danger); border-left-width: 4px; border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--shadow-pop); cursor: pointer; word-break: break-word; }
+.toasts { position: fixed; right: 18px; bottom: calc(var(--dock-h, 0px) + 12px); display: grid; gap: 8px; z-index: 500; width: 440px; max-width: calc(100vw - 24px); max-height: 60dvh; overflow-y: auto; }
+.toast { display: flex; align-items: flex-start; gap: 8px; background: var(--panel); border: 1px solid var(--danger); border-left-width: 4px; border-radius: var(--radius); padding: 10px 8px 10px 12px; box-shadow: var(--shadow-pop); }
+.toast.warning { border-color: var(--warn); }
+.toast-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-text { margin-top: 2px; }
+.toast-links { display: flex; gap: 14px; margin-top: 6px; }
+.toast-x { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 4px; }
+.toast-x:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.toast-more { justify-self: end; padding: 3px 10px; }
 
 @media (max-width: 760px) {
   main { padding: 16px; }
