@@ -35,7 +35,7 @@ const nodeShort = `  sudo virticle node add [user@]host         prepare a host i
 const nodeUsage = `usage:
   sudo virticle node add [user@]host[:port]   prepare a host if needed and add it as a node
   sudo virticle node add                      the same for this machine
-  sudo virticle node list [--json]            the nodes: name, address, state, node command
+  sudo virticle node list [--json]            the nodes: name, address, state
   sudo virticle node remove NAME              stop managing a node (NAME: its host name or address)
 
 node add signs in to the host as the administrator (root, or a user that may use sudo) and prepares it, the
