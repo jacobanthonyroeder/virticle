@@ -94,7 +94,8 @@ copy on keeps it, with 7 dailies.
 (`/mnt/backup/virticle`). The folder is created and checked when you save: the
 controller must be able to write there. An installed controller may write below
 `/var/lib/virticle`, `/mnt`, `/media` and `/srv`; the folder must be writable by the
-account `virticle`. A folder inside the data directory other than the default is
+account `virticle`. `/mnt`, `/media` and `/srv` belong to root, so make the folder first:
+`sudo install -d -o virticle -g virticle /mnt/backup/virticle`. A folder inside the data directory other than the default is
 refused. Backups already in the old folder stay there and are no longer thinned out.
 
 While [backup encryption](user-guide.md#encrypted-backups) is off, these files are

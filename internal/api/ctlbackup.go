@@ -77,7 +77,7 @@ func (s *Server) cbCheckDir(dir string) error {
 	why := func(err error) error {
 		msg := err.Error()
 		if errors.Is(err, unix.EROFS) || errors.Is(err, os.ErrPermission) {
-			msg += ". The folder must be writable by the account the controller runs as; an installed controller may write below /var/lib/virticle, /mnt, /media and /srv"
+			msg += ". The folder must be writable by the account the controller runs as; an installed controller may write below /var/lib/virticle, /mnt, /media and /srv. Make it first: sudo install -d -o virticle -g virticle " + dir
 		}
 		return errors.New(msg)
 	}
