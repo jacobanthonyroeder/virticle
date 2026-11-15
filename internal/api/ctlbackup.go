@@ -222,9 +222,42 @@ type cbDownloadReq struct {
 	Passphrase string `json:"passphrase"`
 }
 
-func (s *Server) ctlBackupDownload(w http.ResponseWriter, r *http.Request) {
+// recheckPassword asks for the signed-in user's password again (and a two-step code when the user has two-step
+// sign-in on), for what hands out keys. It needs a web session, not an API token. On false the answer is written.
+func (s *Server) recheckPassword(w http.ResponseWriter, r *http.Request, password, code string) bool {
 	p, _, ok := accountSession(w, r)
 	if !ok {
+		return false
+	}
+	key := "pw:" + p.User.Username
+	if wait := s.limiter.locked(key); wait > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		deny(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		return false
+	}
+	if !s.verifyPassword(p.User, password) {
+		s.limiter.fail(key, limPair)
+		deny(w, http.StatusForbidden, "the password is not right")
+		return false
+	}
+	if p.User.TwoStep {
+		good, _, err := s.checkSecondStep(p.User.ID, code)
+		if err != nil {
+			fail(w, err)
+			return false
+		}
+		if !good {
+			s.limiter.fail(key, limPair)
+			deny(w, http.StatusForbidden, "the two-step code is not right")
+			return false
+		}
+	}
+	s.limiter.reset(key)
+	return true
+}
+
+func (s *Server) ctlBackupDownload(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := accountSession(w, r); !ok {
 		return
 	}
 	var req cbDownloadReq
@@ -243,30 +276,9 @@ func (s *Server) ctlBackupDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	key := "pw:" + p.User.Username
-	if wait := s.limiter.locked(key); wait > 0 {
-		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
-		deny(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+	if !s.recheckPassword(w, r, req.Password, req.Code) {
 		return
 	}
-	if !s.verifyPassword(p.User, req.Password) {
-		s.limiter.fail(key, limPair)
-		deny(w, http.StatusForbidden, "the password is not right")
-		return
-	}
-	if p.User.TwoStep {
-		good, _, err := s.checkSecondStep(p.User.ID, req.Code)
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		if !good {
-			s.limiter.fail(key, limPair)
-			deny(w, http.StatusForbidden, "the two-step code is not right")
-			return
-		}
-	}
-	s.limiter.reset(key)
 
 	src.Now = time.Now
 	name := ctlbackup.FileName(src.Host, src.Now(), req.Passphrase != "")
@@ -416,7 +428,7 @@ func (s *Server) dailyBackupRun() error {
 		}
 		s.Store.FinishTaskNote(&t, err, note)
 	}
-	rec := ctlbackup.Record{Time: time.Now(), OK: err == nil, Size: size}
+	rec := ctlbackup.Record{Time: time.Now(), OK: err == nil, Size: size, Encrypted: err == nil && s.backupRecipient() != ""}
 	if err != nil {
 		rec.Error = err.Error()
 		logf("daily controller backup failed: %v", err)
@@ -438,8 +450,11 @@ func (s *Server) writeDailyBackup() (int64, int, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return 0, 0, err
 	}
-	name := ctlbackup.FileName(src.Host, src.Now(), false)
-	_, size, err := ctlbackup.WriteFile(filepath.Join(dir, name), src, "")
+	// With backup encryption on, the copy is encrypted to the backup key: written with nobody present, opened
+	// only with the recovery key file and its passphrase (virticle restore --key).
+	rec := s.backupRecipient()
+	name := ctlbackup.FileName(src.Host, src.Now(), rec != "")
+	_, size, err := ctlbackup.WriteFileTo(filepath.Join(dir, name), src, rec)
 	if err != nil {
 		return 0, 0, err
 	}

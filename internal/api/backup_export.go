@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -58,12 +59,24 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var chain []chainLink
+	var id []byte
 	if m.kindOf() == kindIncremental {
 		if chain, err = b.loadChain(m); err != nil {
 			fail(w, err)
 			return
 		}
+		if chainNeedsKey(chain) {
+			// Putting encrypted backups together needs the key: the passphrase was checked a moment ago
+			// (export-key) and its ticket is good for this one download.
+			if id = takeExportTicket(r.URL.Query().Get("ticket"), userOf(r), b.dir); id == nil {
+				fail(w, badRequest("this export puts encrypted backups together, which needs the passphrase of the backup key"))
+				return
+			}
+			defer wipe(id)
+			infoOf(r).detail = "export of an encrypted backup"
+		}
 	}
+	// A full backup is exported as it is stored: encrypted files stay encrypted, the manifest says so.
 	var total uint64
 	names := m.files()
 	for _, d := range m.Disks {
@@ -80,7 +93,7 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 		if chain != nil {
 			// An export is one self-contained file, so an incremental backup is put
 			// together with the ones it builds on first (a full backup in the export).
-			flat, fm, err := b.flatten(m, chain, st, func(f float64) { progress(f * 0.5) })
+			flat, fm, err := b.flatten(m, chain, st, id, func(f float64) { progress(f * 0.5) })
 			if err != nil {
 				return err
 			}
@@ -104,8 +117,10 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 
 // flatten puts the disks of an incremental backup together with the backups it
 // builds on, into a work directory in the same pool, with a manifest that
-// describes a full backup. The caller removes the directory.
-func (b *backupRef) flatten(m *backupManifest, chain []chainLink, st *stopper, progress func(float64)) (wd *bkWork, fm *backupManifest, err error) {
+// describes a full backup. The caller removes the directory. When the chain holds
+// encrypted files, id decrypts them, and each disk that is put together is encrypted
+// again to the same key: the export is as protected as the backups it comes from.
+func (b *backupRef) flatten(m *backupManifest, chain []chainLink, st *stopper, id []byte, progress func(float64)) (wd *bkWork, fm *backupManifest, err error) {
 	// w, not wd: a failing return sets the named result wd to nil before the deferred functions run.
 	w, err := newWork(b.h, b.pd.Dir, "ex")
 	if err != nil {
@@ -123,28 +138,77 @@ func (b *backupRef) flatten(m *backupManifest, chain []chainLink, st *stopper, p
 	cp := *m
 	cp.Format, cp.Kind, cp.Parent, cp.Checkpoint, cp.Disks = backupFormat, kindFull, "", "", nil
 	cp.FullReason = fmt.Sprintf("Put together from %d backups when exported.", len(chain))
+	// The key the put-together disks are encrypted to: this backup's, else that of the backups it builds on.
+	rec := m.Recipient
+	for _, l := range chain {
+		if rec == "" {
+			rec = l.Man.Recipient
+		}
+	}
 	for i, d := range m.Disks {
+		plain := strings.TrimSuffix(d.File, ageSuffix)
+		lo, n := float64(i), float64(len(m.Disks))
+		part := func(a, z float64) func(float64) {
+			return func(f float64) { progress((lo + a + (z-a)*f) / n) }
+		}
 		var files []string
-		for _, l := range chain {
+		for j, l := range chain {
 			ld, ok := l.diskOf(d.Target)
 			if !ok {
 				return nil, nil, badRequest("the backup " + l.Dir + " has no disk " + d.Target)
 			}
-			files = append(files, l.path(b)+"/"+ld.File)
+			f := l.path(b) + "/" + ld.File
+			if ld.Encrypted {
+				out := wd.file(fmt.Sprintf("dec%d-%s", j, plain))
+				dp := part(0, 0.3)
+				if err = decryptFile(st, b.h, f, out, diskSums(ld), id, func(k uint64) { dp(float64(k) / float64(ld.Bytes+1)) }); err != nil {
+					return nil, nil, fmt.Errorf("decrypting %s of the backup %s: %w", ld.File, l.Dir, err)
+				}
+				if info, ierr := bkQemuInfo(b.h, out); ierr != nil || info.Format != "qcow2" {
+					return nil, nil, fmt.Errorf("%s of the backup %s does not decrypt to a qcow2 image", ld.File, l.Dir)
+				}
+				f = out
+			}
+			files = append(files, f)
 		}
-		lo, n := float64(i), float64(len(m.Disks))
-		if err = wd.convertChain(files, wd.file(d.File), func(f float64) { progress((lo + f) / n) }); err != nil {
+		convert := part(0, 1)
+		if rec != "" {
+			convert = part(0.3, 0.7)
+		}
+		if err = wd.convertChain(files, wd.file(plain), convert); err != nil {
 			return nil, nil, fmt.Errorf("putting %s together: %w", d.File, err)
 		}
-		info, err := bkQemuInfo(b.h, wd.file(d.File))
+		for j := range chain {
+			_ = b.h.Remove(wd.file(fmt.Sprintf("dec%d-%s", j, plain)))
+		}
+		info, err := bkQemuInfo(b.h, wd.file(plain))
 		if err != nil {
 			return nil, nil, err
 		}
-		st, err := b.h.Stat(wd.file(d.File))
-		if err != nil || !st[0].Exists {
-			return nil, nil, fmt.Errorf("cannot read %s: %v", d.File, err)
+		fst, err := b.h.Stat(wd.file(plain))
+		if err != nil || !fst[0].Exists {
+			return nil, nil, fmt.Errorf("cannot read %s: %v", plain, err)
 		}
-		cp.Disks = append(cp.Disks, backupDiskRec{Target: d.Target, File: d.File, Format: "qcow2", VirtualSize: uint64(info.VirtualSize), Bytes: st[0].Size, Source: d.Source})
+		dr := backupDiskRec{Target: d.Target, File: plain, Format: "qcow2", VirtualSize: uint64(info.VirtualSize), Bytes: fst[0].Size, Source: d.Source}
+		if rec != "" {
+			ep := part(0.7, 1)
+			sums, err := b.h.AgeEncrypt(st.Ctx(), wd.file(plain), wd.file(plain+ageSuffix), rec, func(k, t uint64) { ep(float64(k) / float64(t+1)) })
+			if err != nil {
+				return nil, nil, fmt.Errorf("encrypting %s: %w", plain, err)
+			}
+			if err = checkSealed(b.h, wd.file(plain), wd.file(plain+ageSuffix), sums); err != nil {
+				return nil, nil, err
+			}
+			if err = b.h.Remove(wd.file(plain)); err != nil {
+				return nil, nil, err
+			}
+			dr.File, dr.Bytes, dr.SHA256, dr.Encrypted, dr.PlainBytes, dr.PlainSHA256 = plain+ageSuffix, sums.StoredBytes, sums.StoredSHA, true, sums.PlainBytes, sums.PlainSHA
+		}
+		cp.Disks = append(cp.Disks, dr)
+	}
+	cp.Recipient = ""
+	if cp.encrypted() {
+		cp.Recipient = rec
 	}
 	if err = b.h.Copy(b.dir+"/domain.xml", wd.file("domain.xml")); err != nil {
 		return nil, nil, err
@@ -282,6 +346,9 @@ func finishImport(h *hostconn.Host, pd poolDir, wd *bkWork, got []string, res *m
 		return badRequest("domain.xml is not a valid domain definition: " + err.Error())
 	}
 	for _, d := range m.Disks {
+		if d.Encrypted {
+			continue // stays encrypted; a restore checks it once decrypted
+		}
 		info, err := bkQemuInfo(h, wd.path+"/"+d.File)
 		if err != nil {
 			return fmt.Errorf("%s: %w", d.File, err)

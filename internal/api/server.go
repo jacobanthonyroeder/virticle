@@ -139,6 +139,11 @@ func (s *Server) Handler() http.Handler {
 	auth("PUT /api/controller-backup", s.putCtlBackup)
 	auth("POST /api/controller-backup/preview", s.previewCtlBackup)
 	auth("POST /api/controller-backup/download", s.ctlBackupDownload)
+	auth("GET /api/backup-encryption", s.getBackupEncryption)
+	auth("POST /api/backup-encryption/on", s.backupEncryptionOn)
+	auth("POST /api/backup-encryption/off", s.backupEncryptionOff)
+	auth("POST /api/backup-encryption/passphrase", s.backupEncryptionPassphrase)
+	auth("POST /api/backup-encryption/key", s.backupEncryptionKey)
 	s.webRoutes(auth)
 
 	auth("GET /api/nodes", s.listNodes)
@@ -283,6 +288,7 @@ func (s *Server) Handler() http.Handler {
 	auth("POST /api/nodes/{node}/backups/import", s.needs("backups", s.importBackup))
 	auth("POST /api/nodes/{node}/backups/{pool}/{name}/restore", s.needs("backups", s.restoreBackup))
 	auth("GET /api/nodes/{node}/backups/{pool}/{name}/export", s.needs("backups", s.exportBackup))
+	auth("POST /api/nodes/{node}/backups/{pool}/{name}/export-key", s.needs("backups", s.exportBackupKey))
 	auth("DELETE /api/nodes/{node}/backups/{pool}/{name}", s.needs("backups", s.deleteBackup))
 
 	auth("GET /api/nodes/{node}/pools", s.listPools)

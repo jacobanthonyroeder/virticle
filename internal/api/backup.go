@@ -74,34 +74,42 @@ type bkDisk struct {
 	// when snapshots come and go. Whether a backup can build on an earlier one is judged
 	// by it, not by the top image (see diskLayout).
 	Base string
+	// Encrypted: File is the age-encrypted copy, Size and SHA are the stored file's, PlainSize and PlainSHA
+	// those of the qcow2 image inside (see seal).
+	Encrypted bool
+	PlainSize uint64
+	PlainSHA  string
 }
 
 type bkRun struct {
-	s         *Server
-	src, dst  *hostconn.Host
-	dom       libvirt.Domain
-	req       backupReq
-	name      string // VM name
-	uuid      string
-	live      bool
-	domXML    string // inactive definition
-	md        migDomain
-	disks     []bkDisk
-	skip      []string // targets of disks left out of the job
-	srcDir    string   // pool directory the disks' work happens in on src
-	dstDir    string   // target pool directory
-	dstPool   string
-	ep        migEndpoint // how the source reaches the target node
-	remote    bool
-	plan      backupPlan    // full or incremental, and on what (see decideBackup)
-	target    string        // targetKey of the destination
-	ckName    string        // the checkpoint this run created ("" = none yet)
-	fz        freezeOutcome // what the last backup-begin did to the guest's file systems
-	thawErr   error         // set when a thaw failed on every try: the guest may be frozen
-	changed   uint64        // bytes libvirt expects an incremental backup to copy
-	progress  func(float64)
-	ph        bkPhases        // where on the progress bar each phase ends
-	tpmNote   string          // why the TPM state of a VM with a TPM is not in the backup ("" when it is, or there is no TPM)
+	s        *Server
+	src, dst *hostconn.Host
+	dom      libvirt.Domain
+	req      backupReq
+	name     string // VM name
+	uuid     string
+	live     bool
+	domXML   string // inactive definition
+	md       migDomain
+	disks    []bkDisk
+	skip     []string // targets of disks left out of the job
+	srcDir   string   // pool directory the disks' work happens in on src
+	dstDir   string   // target pool directory
+	dstPool  string
+	ep       migEndpoint // how the source reaches the target node
+	remote   bool
+	plan     backupPlan    // full or incremental, and on what (see decideBackup)
+	target   string        // targetKey of the destination
+	ckName   string        // the checkpoint this run created ("" = none yet)
+	fz       freezeOutcome // what the last backup-begin did to the guest's file systems
+	thawErr  error         // set when a thaw failed on every try: the guest may be frozen
+	changed  uint64        // bytes libvirt expects an incremental backup to copy
+	progress func(float64)
+	ph       bkPhases // where on the progress bar each phase ends
+	tpmNote  string   // why the TPM state of a VM with a TPM is not in the backup ("" when it is, or there is no TPM)
+	// enc is the age recipient (the backup key) the files are encrypted to, "" for a plain backup. Only planBackup
+	// sets it: a replication run, which shares the copy code, never encrypts (its standby must be able to start).
+	enc       string
 	pruneNote string          // how many older backups retention deleted ("" for none)
 	ctx       context.Context // cancelled by cancel(); ends a running node to node transfer
 	stopCtx   context.CancelFunc
@@ -195,6 +203,13 @@ func (s *Server) planBackup(srcID int64, src *hostconn.Host, dom libvirt.Domain,
 		return nil, err
 	}
 	m.target = targetKey(m.dst.Name, req.Pool)
+	if m.enc = s.backupRecipient(); m.enc != "" {
+		// The node that makes the files encrypts them; one with an older node command cannot, and a backup is
+		// never stored plain while encryption is on.
+		if err := src.CanAge(); err != nil {
+			return nil, badRequest("backup encryption is on, but " + err.Error())
+		}
+	}
 	m.plan = s.planIncremental(m, pd, allQcow2)
 	if m.plan.Kind == kindIncremental {
 		// Only the changed blocks are copied; libvirt knows how many.
@@ -202,6 +217,9 @@ func (s *Server) planBackup(srcID int64, src *hostconn.Host, dom libvirt.Domain,
 			m.changed = n
 			need = n + n/8 + importFreeMargin
 		}
+	}
+	if m.enc != "" && !m.remote {
+		need += sealSpace(m.disks) // a plain file and its encrypted copy exist together for a moment
 	}
 	if uint64(free) < need {
 		return nil, badRequest(fmt.Sprintf("not enough free space in %s on %s: %s available, about %s needed", pd.Dir, m.dst.Name, fmtBytes(uint64(free)), fmtBytes(need)))
@@ -223,7 +241,11 @@ func (s *Server) planBackup(srcID int64, src *hostconn.Host, dom libvirt.Domain,
 		if !safePathRE.MatchString(m.srcDir) {
 			return nil, badRequest("unsupported characters in the pool directory " + m.srcDir)
 		}
-		if sf, err := bkFreeBytes(src, m.srcDir); err != nil || uint64(sf) < need {
+		stage := need
+		if m.enc != "" {
+			stage += sealSpace(m.disks)
+		}
+		if sf, err := bkFreeBytes(src, m.srcDir); err != nil || uint64(sf) < stage {
 			return nil, badRequest(fmt.Sprintf("not enough free space in %s on %s to stage the backup", m.srcDir, src.Name))
 		}
 		dn, _ := s.nodeStatus(dstID)
@@ -517,7 +539,7 @@ func (m *bkRun) run() (err error) {
 		}
 	}()
 
-	m.ph = bkPhasesFor(m.remote, m.hashing())
+	m.ph = bkPhasesFor(m.remote, m.hashing(), m.enc != "")
 	if m.live {
 		// QEMU's user must be able to enter the directory it writes into.
 		if err := m.src.ChmodWork(srcWork.path, "711"); err != nil {
@@ -585,8 +607,18 @@ func (m *bkRun) run() (err error) {
 	if err = m.measure(srcWork, m.ph.copyHi, m.ph.hashHi); err != nil {
 		return err
 	}
+	if m.enc != "" {
+		// Encrypted where the files were made, before anything is sent: plaintext never reaches the target.
+		if err = m.seal(srcWork, man, m.ph.copyHi, m.ph.hashHi); err != nil {
+			return err
+		}
+	}
 	for _, d := range m.disks {
-		man.Disks = append(man.Disks, backupDiskRec{Target: d.Target, File: d.File, Format: "qcow2", VirtualSize: d.Virt, Bytes: d.Size, SHA256: d.SHA, Source: d.Base})
+		rec := backupDiskRec{Target: d.Target, File: d.File, Format: "qcow2", VirtualSize: d.Virt, Bytes: d.Size, SHA256: d.SHA, Source: d.Base}
+		if d.Encrypted {
+			rec.Encrypted, rec.PlainBytes, rec.PlainSHA256 = true, d.PlainSize, d.PlainSHA
+		}
+		man.Disks = append(man.Disks, rec)
 	}
 
 	dstWork = srcWork
@@ -859,8 +891,8 @@ func (m *bkRun) measure(wd *bkWork, lo, hi float64) error {
 		d.Size = st[0].Size
 		total += d.Size
 	}
-	if !m.hashing() {
-		return nil
+	if !m.hashing() || m.enc != "" {
+		return nil // an encrypted backup takes the checksums while it encrypts (seal)
 	}
 	var done uint64
 	for i := range m.disks {
@@ -1000,6 +1032,9 @@ type backupEntry struct {
 	Chain      int    `json:"chain,omitempty"`
 	ChainError string `json:"chainError,omitempty"`
 	Dependents int    `json:"dependents,omitempty"`
+	// NeedsKey says a restore reads an encrypted file: this backup or one it builds on has one, so the restore
+	// asks for the passphrase of the backup key.
+	NeedsKey bool `json:"needsKey,omitempty"`
 }
 
 // scanPool lists the backups in one pool directory (one find on the node).
@@ -1148,10 +1183,14 @@ func annotateChains(list []backupEntry) {
 			continue
 		}
 		p := pools[key(*e)]
+		e.NeedsKey = e.Manifest.encrypted()
 		if chain, err := chainOf(p.by, e.Dir); err != nil {
 			e.ChainError = err.Error()
 		} else {
 			e.Chain = len(chain)
+			for _, d := range chain {
+				e.NeedsKey = e.NeedsKey || p.by[d].encrypted()
+			}
 		}
 		e.Dependents = len(dependentsOf(p.all, e.Dir))
 	}
@@ -1229,6 +1268,9 @@ func loadBackup(h *hostconn.Host, dir string) (*backupManifest, error) {
 	}
 	if m.TPMState != "" && bytesOf[m.TPMState] != strconv.FormatUint(m.TPMBytes, 10) {
 		return nil, badRequest("the backup is damaged: " + m.TPMState + " has " + bytesOf[m.TPMState] + " bytes, the manifest says " + strconv.FormatUint(m.TPMBytes, 10))
+	}
+	if m.NVRAMEncrypted && bytesOf[m.NVRAM] != strconv.FormatUint(m.NVRAMBytes, 10) {
+		return nil, badRequest("the backup is damaged: " + m.NVRAM + " has " + bytesOf[m.NVRAM] + " bytes, the manifest says " + strconv.FormatUint(m.NVRAMBytes, 10))
 	}
 	return m, nil
 }

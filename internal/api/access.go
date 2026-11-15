@@ -51,6 +51,13 @@ var routeLevels = map[string]string{
 	"POST /api/controller-backup/preview":  admin,
 	"POST /api/controller-backup/download": admin,
 
+	// The state of backup encryption is shown on every backup page; the key is the administrator's.
+	"GET /api/backup-encryption":             viewer,
+	"POST /api/backup-encryption/on":         admin,
+	"POST /api/backup-encryption/off":        admin,
+	"POST /api/backup-encryption/passphrase": admin,
+	"POST /api/backup-encryption/key":        admin,
+
 	"GET /api/version": viewer,
 	"GET /api/events":  viewer,
 	"GET /api/tasks":   viewer,
@@ -224,6 +231,7 @@ var routeLevels = map[string]string{
 	"POST /api/nodes/{node}/backups/import":                     operator,
 	"POST /api/nodes/{node}/backups/{pool}/{name}/restore":      operator,
 	"GET /api/nodes/{node}/backups/{pool}/{name}/export":        operator, // the export holds the disk contents
+	"POST /api/nodes/{node}/backups/{pool}/{name}/export-key":   operator,
 	"DELETE /api/nodes/{node}/backups/{pool}/{name}":            operator,
 	"GET /api/nodes/{node}/pools":                               viewer,
 	"POST /api/nodes/{node}/pools":                              operator,

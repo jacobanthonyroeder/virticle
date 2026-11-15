@@ -11,7 +11,7 @@ import "sync"
 // bkPhases are the points of the progress bar (0..1) where the phases of a backup run end.
 type bkPhases struct {
 	copyLo, copyHi float64 // the disks are copied into the work directory
-	hashHi         float64 // checksums of the copies (from copyHi)
+	hashHi         float64 // checksums of the copies, or their encryption, which takes the checksums too (from copyHi)
 	sendHi         float64 // the copy to another node (from hashHi; the same as hashHi on one node)
 	storedAt       float64 // the backup is in place; older checkpoints are deleted next
 	checkpointsAt  float64 // then retention, until the task ends
@@ -21,10 +21,16 @@ type bkPhases struct {
 // QEMU's backup job writes into the page cache and is done first; the SHA-256 reads every byte back from the
 // disk and takes two to three times as long; a copy to another node about as long as the checksums. The
 // manifest, the move into place, the checkpoints and retention take a second together. hashing is false when no
-// checksums are taken (a scheduled backup that starts no chain): the copy then has that room.
-func bkPhasesFor(remote, hashing bool) bkPhases {
+// checksums are taken (a scheduled backup that starts no chain): the copy then has that room. enc says the files
+// are encrypted: that pass reads every byte and writes it again (taking the checksums on the way), about half as
+// long again as the checksums alone.
+func bkPhasesFor(remote, hashing, enc bool) bkPhases {
 	p := bkPhases{copyLo: 0.02, storedAt: 0.95, checkpointsAt: 0.97}
 	switch {
+	case remote && enc:
+		p.copyHi, p.hashHi, p.sendHi = 0.15, 0.60, 0.93
+	case enc:
+		p.copyHi, p.hashHi, p.sendHi = 0.25, 0.93, 0.93
 	case remote && hashing:
 		p.copyHi, p.hashHi, p.sendHi = 0.18, 0.55, 0.93
 	case remote:

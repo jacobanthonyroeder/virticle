@@ -9,7 +9,7 @@
 // # Adding a verb
 //
 // A verb group lives in its own file (verbs_files.go, verbs_migtls.go,
-// verbs_peer.go, verbs_backup.go, verbs_pool.go, verbs_net.go) and registers in init:
+// verbs_peer.go, verbs_backup.go, verbs_age.go, verbs_pool.go, verbs_net.go) and registers in init:
 //
 //	func init() { Register("df", verbDF) }
 //
