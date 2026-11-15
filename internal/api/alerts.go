@@ -202,6 +202,10 @@ func (s *Server) gatherAlertInput(now time.Time) alertInput {
 	}
 	in.Conflicts = s.currentConflicts()
 	in.Rolling = s.rollingAlert()
+	in.Leftovers = s.gatherLeftovers()
+	if len(in.Leftovers) > 0 {
+		go s.retryMigLeftovers(0) // files of failed migrations: tried again at most every migRetryGap each
+	}
 	if jobs, err := s.Store.TasksSince(now.Add(-24 * time.Hour).Unix()); err == nil {
 		in.Jobs = jobs
 	} else {

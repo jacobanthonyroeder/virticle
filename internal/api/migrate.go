@@ -36,6 +36,7 @@ import (
 
 	"virticle/internal/cluster"
 	"virticle/internal/hostconn"
+	"virticle/internal/store"
 )
 
 type migReq struct {
@@ -655,7 +656,7 @@ func (s *Server) preflight(srcID int64, src *hostconn.Host, dom libvirt.Domain, 
 	}
 
 	s.markShared(src, dst, plan, &c)
-	s.checkTargetFiles(dst, plan, &c)
+	s.checkTargetFiles(req.Target, dst, plan, &c)
 
 	// Which network the data uses, and the limit on it.
 	s.checkMigrationNetwork(src, dst, req, plan, &c)
@@ -721,7 +722,7 @@ var safeIfRE = hostRE
 
 // checkTargetFiles verifies pools, free space and name clashes for every file
 // the VM needs on the target.
-func (s *Server) checkTargetFiles(dst *hostconn.Host, plan *migPlan, c *checkList) {
+func (s *Server) checkTargetFiles(dstID int64, dst *hostconn.Host, plan *migPlan, c *checkList) {
 	files := append([]*migFile{}, plan.Files.list...)
 	if plan.NVRAM != nil {
 		files = append(files, plan.NVRAM)
@@ -746,6 +747,11 @@ func (s *Server) checkTargetFiles(dst *hostconn.Host, plan *migPlan, c *checkLis
 		}
 		if f.Owned || f.Active || f == plan.NVRAM {
 			hint := ""
+			if left := s.leftoverOf(dstID, f.Path); left != "" {
+				c.bad("Volume "+path.Base(f.Path), "already exists on "+dst.Name+" at "+f.Path+": it is left from "+left+" (see Alerts)")
+				clash = true
+				continue
+			}
 			if f.Active {
 				hint = ". If both nodes mount the same NFS share there, this is one file seen twice: set the share up with Storage, Add shared storage (not as a directory pool) and no disk is copied"
 			}
@@ -927,7 +933,7 @@ func (s *Server) launchMigration(r *http.Request, srcID int64, h *hostconn.Host,
 		return nil, pre, badRequest(err.Error())
 	}
 	ep.RateBps = plan.rateBps(req)
-	m := &migRun{s: s, src: h, dst: dst, dom: dom, plan: plan, req: req, ep: ep}
+	m := &migRun{s: s, src: h, dst: dst, dom: dom, plan: plan, req: req, ep: ep, srcID: srcID}
 	migRuns.Lock()
 	if _, busy := migRuns.m[plan.UUID]; busy {
 		migRuns.Unlock()
@@ -954,6 +960,7 @@ func (s *Server) launchMigration(r *http.Request, srcID int64, h *hostconn.Host,
 			}
 		}
 		err := m.run()
+		m.journalEnd()
 		// The VM is no longer "being migrated" from here: the first copy back is a replication run, which refuses a VM
 		// that is. (The deferred delete above stays, it does nothing twice.)
 		migRuns.Lock()
@@ -1061,7 +1068,7 @@ func (s *Server) migrateCancel(w http.ResponseWriter, r *http.Request) {
 func (m *migRun) cancel() {
 	m.cancelled.Store(true)
 	m.cancelCopy()
-	if m.inJob.Load() {
+	if m.inJob.Load() && !m.settling.Load() {
 		if err := m.src.DomainAbortJob(m.dom); err != nil {
 			// The poll loop retries; report only that cancelling was requested.
 			log.Printf("abort job: %v", err)
@@ -1082,7 +1089,13 @@ type migRun struct {
 
 	cancelled atomic.Bool
 	inJob     atomic.Bool
-	created   []string // paths created on the target, for rollback
+	// settling is set while the end of a hand-over whose answer was lost is being found out: the job must not be
+	// aborted then, or the source would resume a VM that may run on the target.
+	settling atomic.Bool
+	srcID    int64
+	// jid is the run's entry in the journal (migjournal.go); created are the files it made on the target.
+	jid     int64
+	created []store.MigFile
 
 	copyMu     sync.Mutex
 	copyCancel context.CancelFunc // ends the file copy in flight
@@ -1151,11 +1164,16 @@ func (m *migRun) copyFiles(lo, hi float64) error {
 		if err := m.checkCancel(); err != nil {
 			return err
 		}
-		m.created = append(m.created, f.Path) // recorded first: a half-written file must be removed too
+		// The node command writes into a hidden part file and gives it the name only when it is complete, never
+		// over an existing file; it answers with the identity of the file it made, and only then is the file
+		// recorded as this run's (a half-written part file is removed by the node command itself).
+		if err := m.recordPending(f.Path); err != nil {
+			return err
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		m.setCopyCancel(cancel)
 		base := done
-		err := copyToNode(ctx, m.src, m.dst, m.ep, f.Path, f.Path, f.Mode, func(sent uint64) {
+		id, err := copyToNodeID(ctx, m.src, m.dst, m.ep, f.Path, f.Path, f.Mode, func(sent uint64) {
 			if sent > f.Size {
 				sent = f.Size
 			}
@@ -1164,10 +1182,14 @@ func (m *migRun) copyFiles(lo, hi float64) error {
 		m.setCopyCancel(nil)
 		cancel()
 		if err != nil {
+			m.recordUnsure(f.Path, err)
 			if m.cancelled.Load() {
 				return errCancelled
 			}
 			return fmt.Errorf("copying %s to %s failed: %w", f.Path, m.dst.Name, err)
+		}
+		if err := m.recordFile(f.Path, id, f.Size); err != nil {
+			return err
 		}
 		done += f.Size
 		m.spread(lo, hi, float64(done)/float64(total))
@@ -1196,6 +1218,26 @@ func (m *migRun) createActive() error {
 		if !ok || !pl.active {
 			return fmt.Errorf("no active storage pool for %s on %s", path.Dir(top.Path), m.dst.Name)
 		}
+		if top.Format == "raw" || top.Format == "qcow2" {
+			// Made by the node command: never over an existing file, with the identity of what it made.
+			var backing, bfmt string
+			if len(d.Chain) > 1 {
+				backing, bfmt = d.Chain[1].Path, d.Chain[1].Format
+			}
+			if err := m.recordPending(top.Path); err != nil {
+				return err
+			}
+			id, err := m.dst.ImageNew(top.Path, top.Format, top.VirtualSize, backing, bfmt)
+			if err != nil {
+				m.recordUnsure(top.Path, err)
+				return fmt.Errorf("creating %s on %s: %w", top.Path, m.dst.Name, err)
+			}
+			if err := m.recordFile(top.Path, id, 0); err != nil {
+				return err
+			}
+			continue
+		}
+		// Another format: libvirt makes it (it refuses a name that exists) and the identity is taken right after.
 		var b strings.Builder
 		fmt.Fprintf(&b, "<volume><name>%s</name><capacity unit='bytes'>%d</capacity>", esc(path.Base(top.Path)), top.VirtualSize)
 		if top.Format == "raw" {
@@ -1206,11 +1248,26 @@ func (m *migRun) createActive() error {
 			fmt.Fprintf(&b, "<backingStore><path>%s</path><format type='%s'/></backingStore>", esc(d.Chain[1].Path), esc(d.Chain[1].Format))
 		}
 		b.WriteString("</volume>")
-		m.created = append(m.created, top.Path)
+		if err := m.recordPending(top.Path); err != nil {
+			return err
+		}
 		if _, err := m.dst.StorageVolCreateXML(pl.pool, b.String(), 0); err != nil {
+			if libvirtAnswered(err) {
+				m.recordUnsure(top.Path, errors.New("already exists")) // libvirt refused it: nothing was made by this run
+			} else {
+				m.recordUnsure(top.Path, err)
+			}
 			return fmt.Errorf("creating %s on %s: %w", top.Path, m.dst.Name, err)
 		}
+		id := ""
+		if ids, err := m.dst.FileIDs(top.Path); err == nil && len(ids) == 1 {
+			id = ids[0].ID
+		}
+		if err := m.recordFile(top.Path, id, 0); err != nil {
+			return err
+		}
 	}
+	m.refreshDst()
 	return nil
 }
 
@@ -1229,34 +1286,15 @@ func (m *migRun) createNVRAM() error {
 	if ex, err := m.dst.Exists(d.NVRAM); err != nil || ex[d.NVRAM] {
 		return fmt.Errorf("the UEFI variable file %s already exists on %s", d.NVRAM, m.dst.Name)
 	}
-	m.created = append(m.created, d.NVRAM)
-	if err := m.dst.NewNVRAM(d.NVRAMTemplate, d.NVRAM); err != nil {
+	if err := m.recordPending(d.NVRAM); err != nil {
+		return err
+	}
+	id, err := m.dst.NewNVRAMID(d.NVRAMTemplate, d.NVRAM)
+	if err != nil {
+		m.recordUnsure(d.NVRAM, err)
 		return fmt.Errorf("creating the UEFI variable store on %s (is the same OVMF package installed there?): %w", m.dst.Name, err)
 	}
-	return nil
-}
-
-// rollbackDst removes what this run created on the target and describes
-// anything it could not remove.
-func (m *migRun) rollbackDst() string {
-	var left []string
-	for i := len(m.created) - 1; i >= 0; i-- {
-		p := m.created[i]
-		if vol, err := m.dst.StorageVolLookupByPath(p); err == nil {
-			if err := m.dst.StorageVolDelete(vol, 0); err == nil {
-				continue
-			}
-		}
-		if err := m.dst.Remove(p); err != nil {
-			left = append(left, p+" ("+err.Error()+")")
-		}
-	}
-	m.created = nil
-	m.refreshDst()
-	if len(left) > 0 {
-		return "files left behind on " + m.dst.Name + ": " + strings.Join(left, ", ")
-	}
-	return ""
+	return m.recordFile(d.NVRAM, id, 0)
 }
 
 func withNote(err error, notes ...string) error {
@@ -1304,95 +1342,11 @@ func redefineSnapshots(h *hostconn.Host, dom libvirt.Domain, snaps []migSnap) er
 	return nil
 }
 
-func (m *migRun) runOnline() error {
-	p := m.plan
-	if err := m.checkCancel(); err != nil {
-		return err
-	}
-	autostart, _ := m.src.DomainGetAutostart(m.dom)
-
-	if err := m.copyFiles(0.02, 0.25); err != nil {
-		return withNote(err, m.rollbackDst())
-	}
-	if err := m.createActive(); err != nil {
-		return withNote(err, m.rollbackDst())
-	}
-	if err := m.createNVRAM(); err != nil {
-		return withNote(err, m.rollbackDst())
-	}
-	if err := m.checkCancel(); err != nil {
-		return withNote(err, m.rollbackDst())
-	}
-
-	// libvirt refuses to migrate a domain that has snapshot metadata. Take
-	// the records off the source for the duration; the files stay.
-	var removed []migSnap
-	if len(p.Snaps) > 0 {
-		var err error
-		if removed, err = deleteSnapshotMetadata(m.src, m.dom, p.Snaps); err != nil {
-			if rerr := redefineSnapshots(m.src, m.dom, removed); rerr != nil {
-				err = fmt.Errorf("%w (restoring snapshots on the source failed: %v)", err, rerr)
-			}
-			return withNote(err, m.rollbackDst())
-		}
-	}
-
-	flags := libvirt.MigratePersistDest | libvirt.MigrateUndefineSource | p.mirrorFlag()
-	if p.Mode == "live" {
-		flags |= libvirt.MigrateLive | libvirt.MigrateAutoConverge
-	}
-	if p.TLS {
-		flags |= libvirt.MigrateTLS
-	}
-	err := m.perform(flags, 0.25, 0.95)
-	if err != nil {
-		// A lost connection can hide a migration that actually completed.
-		if d, derr := m.dst.DomainLookupByUUID(m.dom.UUID); derr == nil {
-			if active, _ := m.dst.DomainIsActive(d); active != 0 {
-				log.Printf("migrate %s: error %v but the VM is active on %s", p.Name, err, m.dst.Name)
-				return fmt.Errorf("libvirt reported an error (%v) but the VM is running on %s; nothing was cleaned up, check both nodes", err, m.dst.Name)
-			}
-		}
-		var notes []string
-		if len(removed) > 0 {
-			if rerr := redefineSnapshots(m.src, m.dom, removed); rerr != nil {
-				notes = append(notes, "restoring snapshot metadata on the source failed: "+rerr.Error())
-				for _, sn := range removed {
-					log.Printf("migrate %s: snapshot %s XML (restore manually with virsh snapshot-create --redefine):\n%s", p.Name, sn.Name, sn.XML)
-				}
-			}
-		}
-		notes = append(notes, m.rollbackDst())
-		return withNote(err, notes...)
-	}
-
-	moved, err := m.dst.DomainLookupByUUID(m.dom.UUID)
-	if err != nil {
-		return fmt.Errorf("migration finished but the VM was not found on %s: %w", m.dst.Name, err)
-	}
-	if autostart != 0 {
-		if err := m.dst.DomainSetAutostart(moved, 1); err != nil {
-			log.Printf("migrate %s: could not restore autostart on %s: %v", p.Name, m.dst.Name, err)
-		}
-	}
-	if len(removed) > 0 {
-		if err := redefineSnapshots(m.dst, moved, removed); err != nil {
-			for _, sn := range removed {
-				log.Printf("migrate %s: snapshot %s XML:\n%s", p.Name, sn.Name, sn.XML)
-			}
-			return fmt.Errorf("the VM moved to %s but its snapshots could not be recreated there: %w; the snapshot files were kept on the source", m.dst.Name, err)
-		}
-	}
-	m.progress(0.97)
-	m.s.autoSyncClock("system", "migration", m.dst, moved)
-	return m.cleanSource()
-}
-
 // perform runs the migration phases (migclient.go) and, while they are in
 // flight, turns libvirt's job statistics into task progress.
-func (m *migRun) perform(flags libvirt.DomainMigrateFlags, lo, hi float64) error {
+func (m *migRun) perform(flags libvirt.DomainMigrateFlags, lo, hi float64) (handover, error) {
 	if err := m.checkCancel(); err != nil {
-		return err
+		return handNone, err
 	}
 	var params []libvirt.TypedParam
 	if bw := m.plan.bandwidthMiB(m.req); bw > 0 {
@@ -1417,17 +1371,24 @@ func (m *migRun) perform(flags libvirt.DomainMigrateFlags, lo, hi float64) error
 	}
 	m.inJob.Store(true)
 	defer m.inJob.Store(false)
-	done := make(chan error, 1)
-	go func() { done <- m.performFromController(flags, params) }()
+	type result struct {
+		hand handover
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		h, err := m.performFromController(flags, params)
+		done <- result{h, err}
+	}()
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 	downtimeSet, aborted := m.req.MaxDowntimeMs == 0, false
 	for {
 		select {
-		case err := <-done:
-			return err
+		case r := <-done:
+			return r.hand, r.err
 		case <-tick.C:
-			if m.cancelled.Load() && !aborted {
+			if m.cancelled.Load() && !aborted && !m.settling.Load() {
 				aborted = m.src.DomainAbortJob(m.dom) == nil
 			}
 			jt, ps, err := m.src.DomainGetJobStats(m.dom, 0)
@@ -1469,112 +1430,4 @@ func toFloat(v any) float64 {
 		return n
 	}
 	return 0
-}
-
-// runOffline moves a shut-off VM: copy every file, define it on the target,
-// recreate snapshots there, and only then take it off the source.
-func (m *migRun) runOffline() error {
-	p := m.plan
-	autostart, _ := m.src.DomainGetAutostart(m.dom)
-	if err := m.copyFiles(0.02, 0.80); err != nil {
-		return withNote(err, m.rollbackDst())
-	}
-	if err := m.checkCancel(); err != nil {
-		return withNote(err, m.rollbackDst())
-	}
-	moved, err := m.dst.DomainDefineXMLFlags(p.PersistXML, 0)
-	if err != nil {
-		return withNote(fmt.Errorf("defining the VM on %s: %w", m.dst.Name, err), m.rollbackDst())
-	}
-	undoDst := func(err error) error {
-		uf := libvirt.DomainUndefineSnapshotsMetadata | libvirt.DomainUndefineNvram | libvirt.DomainUndefineManagedSave
-		var notes []string
-		if uerr := m.dst.DomainUndefineFlags(moved, uf); uerr != nil {
-			notes = append(notes, "could not undefine the VM on "+m.dst.Name+": "+uerr.Error())
-		}
-		return withNote(err, append(notes, m.rollbackDst())...)
-	}
-	m.progress(0.85)
-	if err := redefineSnapshots(m.dst, moved, p.Snaps); err != nil {
-		return undoDst(err)
-	}
-	uf := libvirt.DomainUndefineSnapshotsMetadata | libvirt.DomainUndefineManagedSave | libvirt.DomainUndefineCheckpointsMetadata
-	if p.NVRAM != nil {
-		if m.req.KeepSourceDisks {
-			uf |= libvirt.DomainUndefineKeepNvram
-		} else {
-			uf |= libvirt.DomainUndefineNvram
-		}
-	}
-	if err := m.src.DomainUndefineFlags(m.dom, uf); err != nil {
-		return undoDst(fmt.Errorf("removing the VM from %s: %w", m.src.Name, err))
-	}
-	if autostart != 0 {
-		if err := m.dst.DomainSetAutostart(moved, 1); err != nil {
-			log.Printf("migrate %s: could not restore autostart on %s: %v", p.Name, m.dst.Name, err)
-		}
-	}
-	m.progress(0.95)
-	return m.cleanSource()
-}
-
-// cleanSource deletes the source files that belonged to this VM. Read-only
-// media and shared base images are never touched, and neither is a file that
-// another domain on the source still refers to.
-func (m *migRun) cleanSource() error {
-	if m.req.KeepSourceDisks {
-		return nil
-	}
-	// A live migration recreates the UEFI variable store on the target, but
-	// undefining the source leaves its file behind.
-	if nv := path.Clean(m.plan.Dom.NVRAM); m.plan.active() && strings.HasPrefix(nv, "/var/lib/libvirt/qemu/nvram/") && safePathRE.MatchString(nv) {
-		if err := m.src.Remove(nv); err != nil {
-			log.Printf("migrate %s: could not remove %s on %s: %v", m.plan.Name, nv, m.src.Name, err)
-		}
-	}
-	var others []string
-	if doms, _, err := m.src.ConnectListAllDomains(1, 0); err == nil {
-		for _, d := range doms {
-			if d.Name == m.plan.Name {
-				continue
-			}
-			if x, err := m.src.DomainGetXMLDesc(d, libvirt.DomainXMLInactive); err == nil {
-				others = append(others, x)
-			}
-		}
-	}
-	var left []string
-	refreshed := false
-	for _, f := range m.plan.Files.list {
-		if !f.Owned || f.Shared {
-			continue // a shared file is the one the VM now uses on the target: never delete it
-		}
-		used := false
-		for _, x := range others {
-			if strings.Contains(x, "'"+f.Path+"'") || strings.Contains(x, `"`+f.Path+`"`) {
-				used = true
-			}
-		}
-		if used {
-			left = append(left, f.Path+" (in use by another VM)")
-			continue
-		}
-		vol, err := m.src.StorageVolLookupByPath(f.Path)
-		if err != nil && !refreshed {
-			refreshed = true
-			refreshLive(m.src)
-			vol, err = m.src.StorageVolLookupByPath(f.Path)
-		}
-		if err != nil {
-			left = append(left, f.Path+" (not in a storage pool)")
-			continue
-		}
-		if err := m.src.StorageVolDelete(vol, 0); err != nil {
-			left = append(left, f.Path+" ("+err.Error()+")")
-		}
-	}
-	if len(left) > 0 {
-		return fmt.Errorf("the VM was moved to %s, but these source files were left in place: %s", m.dst.Name, strings.Join(left, ", "))
-	}
-	return nil
 }

@@ -391,10 +391,18 @@ func (r *Ref) PartName() string { return r.Name + ".virticle-part." + strconv.It
 // part file is removed in every case, also when the process is killed. Errors
 // from fill are returned as they are.
 func (c *Ctx) CreateNew(r *Ref, mode uint32, fill func(f *os.File) error) error {
+	_, err := c.CreateNewID(r, mode, fill)
+	return err
+}
+
+// CreateNewID is CreateNew that also returns the identity of the file it made (verbs_fileid.go; "" when the file
+// system offers none). The identity is taken from the open part file, which is the same inode as the final name,
+// so it names the file this call made even if another file took the name the instant after.
+func (c *Ctx) CreateNewID(r *Ref, mode uint32, fill func(f *os.File) error) (string, error) {
 	part := r.PartName()
 	fd, err := openat(r.dirfd, part, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
-		return Fail("cannot write %s: %v", r.Arg, err)
+		return "", Fail("cannot write %s: %v", r.Arg, err)
 	}
 	f := os.NewFile(uintptr(fd), part)
 	dirfd := r.dirfd
@@ -404,22 +412,23 @@ func (c *Ctx) CreateNew(r *Ref, mode uint32, fill func(f *os.File) error) error 
 	defer remove()
 	if err := fill(f); err != nil {
 		f.Close()
-		return err
+		return "", err
 	}
 	if err := f.Chmod(os.FileMode(mode)); err != nil {
 		f.Close()
-		return Fail("chmod failed: %v", err)
+		return "", Fail("chmod failed: %v", err)
 	}
+	id := fdIdentity(int(f.Fd()))
 	if err := f.Close(); err != nil {
-		return Fail("cannot write %s: %v", r.Arg, err)
+		return "", Fail("cannot write %s: %v", r.Arg, err)
 	}
 	if err := unix.Linkat(dirfd, part, dirfd, r.Name, 0); err != nil {
 		if errors.Is(err, unix.EEXIST) {
-			return Fail("%s appeared meanwhile; nothing was overwritten", r.Arg)
+			return "", Fail("%s appeared meanwhile; nothing was overwritten", r.Arg)
 		}
-		return Fail("cannot create %s: %v", r.Arg, err)
+		return "", Fail("cannot create %s: %v", r.Arg, err)
 	}
-	return nil
+	return id, nil
 }
 
 // CopySparse copies size bytes of src to dst, skipping the holes of src so a

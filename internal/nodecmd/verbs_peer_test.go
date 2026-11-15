@@ -241,7 +241,7 @@ func TestPeerRecv(t *testing.T) {
 	if got := n.ok("virticle-peer 1 ping\n", "peer-recv"); got != "@@pong "+Version {
 		t.Errorf("ping: %q", got)
 	}
-	if got := n.ok(hdr("600", "5", newImg)+"hello", "peer-recv"); got != "@@received 5" {
+	if got := n.ok(hdr("600", "5", newImg)+"hello", "peer-recv"); got != "@@received 5 "+n.ok("", "file-id", newImg)[:strings.Index(n.ok("", "file-id", newImg), "|")] {
 		t.Errorf("recv: %q", got)
 	}
 	if b, _ := os.ReadFile(newImg); string(b) != "hello" {
@@ -324,7 +324,7 @@ func TestPeerSendReachesPeerRecv(t *testing.T) {
 		src := n.pool("disk.img")
 		dst := r.pool("disk.img")
 		out := n.ok("", "peer-send", "10.1.2.3", "22", "virticle", src, dst, "600")
-		if !strings.HasSuffix(out, "@@done "+itoaT(len(data))) {
+		if !strings.Contains(out, "@@done "+itoaT(len(data))+" fh-") && !strings.Contains(out, "@@done "+itoaT(len(data))+" ib-") {
 			t.Errorf("peer-send output: %q", out)
 		}
 		if b, _ := os.ReadFile(dst); string(b) != data {
