@@ -138,7 +138,7 @@ export function PrivateNetworkDialog({ node, onClose, onDone }: { node: number; 
           />
         </Field>
         {mode === "xml" ? (
-          <Field label="Network definition" hint="Checked against libvirt's schema.">
+          <Field label="Network definition" help="Checked against libvirt's schema.">
             <textarea spellCheck={false} rows={12} value={f.xml} onChange={set("xml")} required placeholder="Network definition (XML)" autoFocus />
           </Field>
         ) : (
@@ -164,7 +164,7 @@ export function PrivateNetworkDialog({ node, onClose, onDone }: { node: number; 
               )}
               {dhcp && address !== "" && (
                 <div className="grid2">
-                  <Field label="DHCP range start" hint="Defaults to the first free address.">
+                  <Field label="DHCP range start" help="Defaults to the first free address.">
                     <input value={f.dhcpStart} onChange={set("dhcpStart")} placeholder={rangeHint("2")} />
                   </Field>
                   <Field label="DHCP range end">
@@ -173,7 +173,7 @@ export function PrivateNetworkDialog({ node, onClose, onDone }: { node: number; 
                 </div>
               )}
               <div className="grid2">
-                <Field label="Bridge name (optional)" hint="Created by libvirt; automatic if empty.">
+                <Field label="Bridge name (optional)" help="Created by libvirt; automatic if empty.">
                   <input value={f.bridgeName} onChange={set("bridgeName")} placeholder="virbr1" maxLength={15} />
                 </Field>
                 <Field label="DNS domain (optional)">

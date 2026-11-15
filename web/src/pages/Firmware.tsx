@@ -220,7 +220,6 @@ export default function FirmwareCard({ d, base, onChanged, bare }: { d: VMDetail
       </div>
       <OneLine
         text="Firmware is fixed for an existing VM."
-        summary="Why not"
         details="The guest's boot setup depends on it. Create a new VM with the other firmware and attach the disk."
       />
       {outcome && <p className="muted">{outcome}</p>}

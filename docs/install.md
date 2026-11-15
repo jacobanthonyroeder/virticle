@@ -304,6 +304,35 @@ file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
 
+### From 0.4.x to 0.5.0
+
+1. **Upgrade the controller** as above. Stop the old controller first; two controllers of different versions must never
+   manage the same nodes. The database schema stays at 6, so no copy of the database is made.
+2. **Prepare each node again.** The node command has protocol 22 (0.4.x had 21). After the upgrade every node is marked
+   **Outdated**, and the **Nodes** page shows "N nodes need preparing" with **Prepare all**. Until a node is prepared,
+   migration, backups, replication and the other features that need root stop on it; VMs keep running. Choose
+   **Prepare all** (one administrator login for all nodes), or **Settings > Prepare this node** on each node, or run
+   `virticle node prepare admin@host` (add `--root` for a Root node). On a node itself: `sudo virticle node prepare`.
+
+What changes by itself:
+
+| What | After the upgrade |
+| --- | --- |
+| Bridges set up on a node by hand (NetworkManager, netplan) | Once the node is prepared, a bridge that fits Virticle's switch model is a normal virtual switch you can change. The others stay usable and say why they are not editable. Nothing changes on the node until you change such a bridge. |
+| Console | The VM page has no **Console** tab. The console opens in the **Console** card on the **Overview**; old links with `?tab=console` open it there. |
+| Network tab | The node's address is in the header of its switch. **Edit** on a switch or card sets which address carries management and migration; the **Use for migration** links are gone. VMs show their IPv4 address where one is known. |
+| Backups | The guest freeze waits up to 2 minutes, and a freeze that lands later is thawed at once. New manifests record the real Virticle version. |
+| Guests with a local-time clock (Windows) | The clock is synced after a start from Virticle and after a restore that starts the VM, when the guest agent answers. |
+| Controller backup | Scheduled copies stay in the same folder. **Folder** under **Settings > Controller backup** can move them. |
+| VM backup schedules, encryption, web access | Kept as they were. |
+
+What to check:
+
+- **Nodes**: no node is marked **Outdated** any more.
+- **Network** tab of each node with bridges you made yourself: each one is either a switch with **Actions**, or says why
+  it is not editable (details under **?**). Change such a bridge only when you can reach the node's console, as for
+  any change to the management network.
+
 ### From 0.3.x to 0.4.0
 
 The same steps for 0.3.0, 0.3.1 and 0.3.2.
@@ -333,8 +362,8 @@ What stays as it was:
 
 ### From 0.2.0 to 0.3.0
 
-From 0.2.0 straight to 0.4.0: follow these steps, and read [From 0.3.x to 0.4.0](#from-03x-to-040) first. The node
-command then has protocol 21.
+From 0.2.0 straight to 0.5.0: follow these steps, and read [From 0.3.x to 0.4.0](#from-03x-to-040) and
+[From 0.4.x to 0.5.0](#from-04x-to-050) first. The node command then has protocol 22.
 
 Nodes need to be prepared again, because the node command has a new version (protocol 20, it was 10). Until you do, a node
 shows "prepared by an older version" and the features that need root on it are off: migration, backups, replication,

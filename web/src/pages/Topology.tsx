@@ -1,16 +1,18 @@
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import ChevronDown from "lucide-react/icons/chevron-down";
 import ChevronRight from "lucide-react/icons/chevron-right";
-import { get, NodeStatus, put } from "../api";
+import { get, NodeStatus } from "../api";
 import { CheckItem } from "../Checks";
 import { useLive } from "../live";
 import { useLiveDebounced } from "../liveDebounced";
 import { PRESETS } from "../tagColor";
 import { atLeast, useRole } from "../auth";
 import { DropdownMenu, MenuEntry } from "../Menu";
-import { ErrorBox, StateBadge, useAction } from "../ui";
-import { MigNetResult, MigrationResult, resultItems } from "./MigrationNetwork";
+import { ErrorBox, StateBadge } from "../ui";
+import Help from "../Help";
+import { AddressEditDialog, EditAddr } from "./AddressEdit";
+import { MigrationResult } from "./MigrationNetwork";
 import { NodeFilter, netEvents, nodeEvents } from "./dcShared";
 import HostInterfaces, { NodeHostInterfaces } from "./HostNics";
 import { modeName, NetTarget, NetworkDetailDialog, useNetworkActions } from "./NetworkDetail";
@@ -99,34 +101,33 @@ function accent(name: string): string {
 
 const speed = (m?: number) => (m ? (m >= 1000 ? `${m / 1000} Gbit/s` : `${m} Mbit/s`) : "");
 
-/** "Use for migration" on an address (administrators): `can` says for which address it is offered. */
-interface UseMigration {
-  can: (a: Addr) => boolean;
-  run: (a: Addr) => void;
-  busy: boolean;
+const shownOf = (list: Addr[]) => list.filter((a) => a.address && !/^fe80:/i.test(a.address));
+
+/** Edit: which address of the switch or card carries management and migration (administrators, where the node has an address). */
+function EditButton({ name, onEdit }: { name: string; onEdit: () => void }) {
+  return (
+    <button onClick={onEdit} aria-label={`Edit ${name}`} data-topo-edit={name}>
+      Edit
+    </button>
+  );
 }
 
-function Addrs({ list, use }: { list: Addr[]; use?: UseMigration }) {
+function Addrs({ list }: { list: Addr[] }) {
   return (
     <>
       {list.filter((a) => !/^fe80:/i.test(a.address)).map((a) => (
         <span key={a.iface ?? "" + a.address} className="mono topoaddr">
           {a.vlan ? <span className="muted">VLAN {a.vlan} </span> : null}
           {a.address || <span className="muted">waiting for an address</span>}
-          {a.management && <span className="topomgmt"> Management</span>}
-          {a.migration && <span className="topomgmt"> Migration</span>}
-          {use?.can(a) && (
-            <button className="link topouse" onClick={() => use.run(a)} disabled={use.busy} data-topo-use={a.address.split("/")[0]}>
-              Use for migration
-            </button>
-          )}
+          {a.management && <> <span className="topomgmt">Management</span></>}
+          {a.migration && <> <span className="topomgmt">Migration</span></>}
         </span>
       ))}
     </>
   );
 }
 
-function UplinkBox({ u, action, use }: { u: Uplink; action?: ReactNode; use?: UseMigration }) {
+function UplinkBox({ u, action, onEdit }: { u: Uplink; action?: ReactNode; onEdit?: () => void }) {
   // The mark sits by the address when the card shows that address; by the name only when no address carries it.
   const shown = u.addresses.filter((a) => !/^fe80:/i.test(a.address));
   const markManagement = u.management && !shown.some((a) => a.management);
@@ -139,6 +140,11 @@ function UplinkBox({ u, action, use }: { u: Uplink; action?: ReactNode; use?: Us
         {speed(u.speedMbps) && <span className="muted">{speed(u.speedMbps)}</span>}
         {markManagement && <span className="topomgmt">Management</span>}
         {markMigration && <span className="topomgmt">Migration</span>}
+        {onEdit && shown.length > 0 && (
+          <span className="vsacts">
+            <EditButton name={u.name} onEdit={onEdit} />
+          </span>
+        )}
       </div>
       <div className="muted">
         {u.type === "bond" ? "Bond" : u.type === "vlan" ? "VLAN device" : "Network card"}
@@ -166,7 +172,7 @@ function UplinkBox({ u, action, use }: { u: Uplink; action?: ReactNode; use?: Us
       )}
       {u.addresses.length > 0 && (
         <div>
-          <Addrs list={u.addresses} use={use} />
+          <Addrs list={u.addresses} />
         </div>
       )}
       {action}
@@ -179,8 +185,13 @@ function IfaceRow({ node, i }: { node: number; i: Iface }) {
     <li className="topoif">
       <StateBadge state={i.state} />
       <Link to={`/vm/${node}/${i.uuid}`}>{i.vm}</Link>
-      <span className="mono muted">{i.mac}</span>
-      {i.ips.length > 0 && <span className="mono">{i.ips.join(", ")}</span>}
+      {i.ips.length > 0 ? (
+        <span className="mono" title={i.mac}>
+          {i.ips.join(", ")}
+        </span>
+      ) : (
+        <span className="mono muted">{i.mac}</span>
+      )}
       {i.linkDown && <span className="topodown">Link down</span>}
     </li>
   );
@@ -249,12 +260,13 @@ interface SwitchActions {
   onRemove: () => void;
 }
 
-function SwitchBox({ node, s, accents, act, use, ctl, onAddNetwork, folded }: { node: number; s: Switch; accents: boolean; act?: SwitchActions; use?: UseMigration; ctl: NetControls; onAddNetwork?: () => void; folded: boolean }) {
+function SwitchBox({ node, s, accents, act, onEdit, ctl, onAddNetwork, folded }: { node: number; s: Switch; accents: boolean; act?: SwitchActions; onEdit?: () => void; ctl: NetControls; onAddNetwork?: () => void; folded: boolean }) {
   const [shut, setShut] = useState(folded);
   const closed = shut && folded; // a filter opens every switch it found something in
   const stopped = s.portGroups.filter((g) => g.kind === "network" && !g.active).length;
   const info = act?.info;
   const inUse = info ? [...(info.networks.length ? [`${info.networks.length} ${info.networks.length === 1 ? "network" : "networks"}`] : []), ...(info.vms.length ? [`${info.vms.length} ${info.vms.length === 1 ? "VM" : "VMs"}`] : [])] : [];
+  const editable = !!onEdit && shownOf(s.hostAddresses).length > 0;
   const removeWhy = info && inUse.length ? `The virtual switch is used by ${inUse.join(" and ")}. Remove or move them first.` : "";
   return (
     <section className="toposwitch" data-topo-id={s.id} aria-label={`Switch ${s.name}`}>
@@ -266,18 +278,29 @@ function SwitchBox({ node, s, accents, act, use, ctl, onAddNetwork, folded }: { 
         )}
         <h4>{s.name}</h4>
         <span className="muted">{KIND[s.kind]}</span>
+        {s.hostAddresses.some((a) => !/^fe80:/i.test(a.address)) && (
+          <span className="topohdraddr" data-topo-id={`host:${s.name}`}>
+            <Addrs list={s.hostAddresses} />
+          </span>
+        )}
         {s.state && s.kind !== "other" && <StateBadge state={s.state === "up" || s.state === "down" || s.state === "idle" ? s.state : "unknown"} />}
         {info?.vlanFiltering && <span className="muted">VLANs {info.vlans && info.vlans !== "2-4094" ? info.vlans : "all"}</span>}
         {s.mtu && s.mtu !== 1500 ? <span className="muted">MTU {s.mtu}</span> : null}
-        {act && s.kind === "linux-bridge" && info && !info.managed && info.readOnly !== "managed by libvirt" && <span className="muted">Not managed by Virticle</span>}
+        {act && s.kind === "linux-bridge" && info && !info.managed && info.readOnly !== "managed by libvirt" && (
+          <span className="muted topofixed" data-vsw="not-editable">
+            {info.notEditable || "Not editable"}
+            {info.notEditableDetail && <Help label={`Why ${s.name} is not editable`}>{info.notEditableDetail} The bridge can still be used for networks and VM interfaces.</Help>}
+          </span>
+        )}
         {closed && (
           <span className="muted">
             {s.portGroups.length === 1 ? "1 network" : `${s.portGroups.length} networks`}
             {stopped > 0 ? `, ${stopped} stopped` : ""}
           </span>
         )}
-        {(onAddNetwork || act) && (
+        {(onAddNetwork || act || editable) && (
           <span className="vsacts">
+            {editable && onEdit && <EditButton name={s.name} onEdit={onEdit} />}
             {onAddNetwork && (
               <button onClick={onAddNetwork} data-vsw="add-network">
                 Add network
@@ -318,17 +341,9 @@ function SwitchBox({ node, s, accents, act, use, ctl, onAddNetwork, folded }: { 
         <div className="topocol">
           <div className="topocolhead">Uplinks</div>
           {s.uplinks.map((u) => (
-            <UplinkBox key={u.name} u={u} use={use} />
+            <UplinkBox key={u.name} u={u} />
           ))}
           {s.uplinks.length === 0 && s.uplinkNote && <div className="topouplink topoplain">{s.uplinkNote}</div>}
-          {s.hostAddresses.some((a) => !/^fe80:/i.test(a.address)) && (
-            <div className="topohost" data-topo-id={`host:${s.name}`}>
-              <div className="topotitle">
-                <span>This node's address</span>
-              </div>
-              <Addrs list={s.hostAddresses} use={s.kind === "linux-bridge" || s.kind === "openvswitch" ? use : undefined} />
-            </div>
-          )}
         </div>
       </div>
       )}
@@ -358,6 +373,27 @@ function filterNode(n: TopoNode, text: string): TopoNode {
 }
 
 /** One node: the line with Add network (operators) and Add virtual switch (administrators), then its switches and unused cards. */
+// The result of the last Edit (management and migration) per node. It is kept here, not in the component: a new management
+// address replaces the node's connection, and the node page may draw this part again while the answer arrives.
+const editResults = new Map<number, CheckItem[]>();
+const editListeners = new Set<() => void>();
+function setEditResult(node: number, items: CheckItem[]) {
+  if (items.length) editResults.set(node, items);
+  else editResults.delete(node);
+  editListeners.forEach((f) => f());
+}
+function useEditResult(node: number): CheckItem[] {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const f = () => tick((x) => x + 1);
+    editListeners.add(f);
+    return () => {
+      editListeners.delete(f);
+    };
+  }, []);
+  return editResults.get(node) ?? [];
+}
+
 function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoNode; accents: boolean; admin: boolean; operator: boolean; filtering: boolean; reload: () => void }) {
   const net = useHostnet(n.node, admin && !n.error);
   const st = net.data;
@@ -387,26 +423,11 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
       onRemove: () => info && setDlg({ mode: "remove", bridge: info }),
     };
   };
-  const migAct = useAction();
-  const [migDone, setMigDone] = useState<CheckItem[]>([]);
-  const allAddrs = [...n.switches.flatMap((s) => [...s.hostAddresses, ...s.uplinks.flatMap((u) => u.addresses)]), ...n.unused.flatMap((u) => u.addresses)];
-  const explicitMig = allAddrs.some((a) => a.migration);
-  // The management address is offered only to go back to the default; an address that already carries migration is marked instead.
-  const use: UseMigration | undefined = admin
-    ? {
-        can: (a) => !a.migration && (!a.management || explicitMig),
-        busy: migAct.busy,
-        run: async (a) => {
-          setMigDone([]);
-          let res: MigNetResult | undefined;
-          const ok = await migAct.run(async () => {
-            res = await put<MigNetResult>(`/nodes/${n.node}/migration-network`, { address: a.management ? "" : a.address.split("/")[0] });
-          });
-          if (ok && res) setMigDone(resultItems(res, "Migration network saved."));
-          reload();
-        },
-      }
-    : undefined;
+  const migDone = useEditResult(n.node);
+  const setMigDone = (items: CheckItem[]) => setEditResult(n.node, items);
+  // Edit: management and migration on the addresses of one switch or card.
+  const [editAddr, setEditAddr] = useState<{ title: string; addrs: EditAddr[] } | null>(null);
+  const editOf = (title: string, addrs: Addr[]) => (admin && shownOf(addrs).length > 0 ? () => (setMigDone([]), setEditAddr({ title, addrs })) : undefined);
   const canAdd = admin && !!st && !blocked;
   // A network of this node as the menus act on it; the VM interfaces on it are in the topology already.
   const target = (g: PortGroup): NetTarget => ({
@@ -441,7 +462,7 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
           </div>
         </div>
       )}
-      <ErrorBox error={migAct.error ?? nets.error} />
+      <ErrorBox error={nets.error} />
       {nets.dialog}
       {migDone.length > 0 && <MigrationResult items={migDone} onClose={() => setMigDone([])} />}
       {n.switches.length === 0 && <p className="muted">No bridges or virtual networks</p>}
@@ -452,7 +473,7 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
           s={s}
           accents={accents}
           act={switchActions(s)}
-          use={use}
+          onEdit={editOf(s.name, s.hostAddresses)}
           ctl={ctl}
           onAddNetwork={operator && (s.kind === "linux-bridge" || s.kind === "openvswitch") ? () => setAddNet(s.name) : undefined}
           folded={!filtering && i >= SWITCHES_OPEN}
@@ -469,7 +490,7 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
               <UplinkBox
                 key={u.name}
                 u={u}
-                use={use}
+                onEdit={editOf(u.name, u.addresses)}
                 action={
                   usable(u) ? (
                     <button className="vsuse" onClick={() => setDlg({ mode: "add", uplink: u.name })} data-vsw="use-card">
@@ -481,6 +502,19 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
             ))}
           </div>
         </section>
+      )}
+      {editAddr && (
+        <AddressEditDialog
+          node={n.node}
+          title={editAddr.title}
+          addrs={editAddr.addrs}
+          onClose={() => setEditAddr(null)}
+          onSaved={(items) => {
+            setEditAddr(null);
+            setMigDone(items);
+            reload();
+          }}
+        />
       )}
       {dlg && st && <SwitchDialog key={dlg.mode + (dlg.bridge?.name ?? "") + (dlg.uplink ?? "") + (dlg.vlanId ?? "")} node={n.node} st={st} mode={dlg.mode} bridge={dlg.bridge} uplink={dlg.uplink} vlanId={dlg.vlanId} onClose={() => setDlg(null)} onChanged={changed} onAddNetwork={setAddNet} />}
       {addNet !== null && (

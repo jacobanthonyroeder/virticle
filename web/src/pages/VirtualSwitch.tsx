@@ -249,7 +249,7 @@ function UplinkPicker(props: { cards: HostNic[]; chosen: Set<string>; onChoose: 
         {props.locked && <small>{props.locked} carries this node's address on the switch and stays until the switch is removed.</small>}
       </Field>
       {props.showMode && (
-        <Field label="Mode" hint={MODE_HINT[props.bondMode]}>
+        <Field label="Mode" help={MODE_HINT[props.bondMode]}>
           <Select label="Mode" value={props.bondMode} onChange={props.onMode} options={MODE_OPTIONS} />
         </Field>
       )}
@@ -439,7 +439,7 @@ export function SwitchDialog(props: { node: number; st: HostnetState; mode: Swit
           )}
           {mode === "mtu" && (
             <>
-              <Field label="MTU" hint="Between 1280 and 9000. The same value is set on the cards, the bond, the switch and the VLAN interfaces.">
+              <Field label="MTU" hint="Between 1280 and 9000." help="The same value is set on the cards, the bond, the switch and the VLAN interfaces.">
                 <input type="number" min={1280} max={9000} value={mtu} onChange={(e) => setMtu(e.target.value)} required autoFocus />
               </Field>
               <p className="muted">The ports of the physical switch and the other nodes must use the same MTU. Virtual machines need it in their own network settings too.</p>
@@ -508,7 +508,7 @@ export function SwitchDialog(props: { node: number; st: HostnetState; mode: Swit
                   )}
                 </>
               )}
-              <Field label="Confirm time (seconds)" hint="How long the node waits for the controller to confirm before it restores its settings.">
+              <Field label="Confirm time (seconds)" help="How long the node waits for the controller to confirm before it restores its settings.">
                 <input type="number" min={30} max={600} value={secs} onChange={(e) => setSecs(e.target.value)} />
               </Field>
             </DialogAdvanced>

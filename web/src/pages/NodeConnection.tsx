@@ -27,7 +27,7 @@ interface ConnInfo {
   capabilities: Record<string, Capability>;
 }
 
-interface TestResult {
+export interface TestResult {
   hostname: string;
   libvirtVersion: string;
   hostUuid: string;
@@ -39,7 +39,7 @@ interface TestResult {
 }
 
 /** The server's test steps as list items; a step that did not run shows as "Not run". */
-function stepItems(steps: NonNullable<TestResult["steps"]>): CheckItem[] {
+export function stepItems(steps: NonNullable<TestResult["steps"]>): CheckItem[] {
   return steps.map((s) => ({
     key: s.id,
     status: (s.status === "skipped" ? "pending" : s.status) as CheckStatus,
@@ -47,7 +47,7 @@ function stepItems(steps: NonNullable<TestResult["steps"]>): CheckItem[] {
     detail: s.status === "skipped" ? "Not run" : s.detail,
   }));
 }
-interface EditResponse {
+export interface EditResponse {
   test?: TestResult;
   warnings?: string[];
   notes?: string[];

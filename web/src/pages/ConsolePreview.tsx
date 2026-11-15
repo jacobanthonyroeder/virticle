@@ -1,13 +1,15 @@
 // The "Console" card on the VM overview: a still preview that refreshes only
-// while it is on screen, and opens the console in a new tab or inside the card.
+// while it is on screen, and opens the console in a new tab or inside the card
+// (the card then grows to the page width and the cards after it move down).
 // No noVNC connection is held for the preview itself.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Minimize2, RefreshCw, Settings2 } from "lucide-react";
-import type { VMDetail } from "../api";
+import { post, VMDetail } from "../api";
 import { DropdownMenu } from "../Menu";
 import { useRole } from "../auth";
+import { ErrorBox, useAction } from "../ui";
 import { CLICK_LABELS, ClickMode, useClickMode } from "../consolePrefs";
-import { SerialConsole, VNCConsole } from "./Console";
+import { LiveConsole } from "./Console";
 import "./console.css";
 
 const REFRESH_MS = 10000;
@@ -128,21 +130,30 @@ function ModeMenu() {
   );
 }
 
-export function ConsoleCard({ d }: { d: VMDetail }) {
+/** open: the page was asked to show the live console (a Console link elsewhere); onClose: it was collapsed. */
+export function ConsoleCard({ d, open: openNow, onClose, onChanged }: { d: VMDetail; open?: boolean; onClose?: () => void; onChanged?: () => void }) {
   const viewer = useRole() === "viewer";
   const [mode] = useClickMode();
-  const [inline, setInline] = useState(false);
+  const [wanted, setInline] = useState(!!openNow);
+  useEffect(() => {
+    if (openNow) setInline(true);
+  }, [openNow]);
+  const add = useAction();
+  const [addNote, setAddNote] = useState<string>();
   const boxRef = useRef<HTMLDivElement>(null);
+  const wideRef = useRef<HTMLElement>(null);
   const alive = d.state === "running" || d.state === "paused";
   const kind: "vnc" | "serial" | null = d.hasVNC ? "vnc" : d.hasSerial ? "serial" : null;
   const canPreview = !viewer && alive && d.hasVNC;
+  // The live console shows while the VM runs; a VM that is started later with the console asked for opens it then.
+  const inline = wanted && alive && !!kind && !viewer;
+  // The card grows in place to the width of the page and the height of the window; bring all of it into view.
+  useEffect(() => {
+    if (inline) wideRef.current?.scrollIntoView({ block: "nearest" });
+  }, [inline]);
   const onScreen = useOnScreen(boxRef, canPreview && !inline);
   const tabVisible = useTabVisible();
   const p = usePreview(d.node, d.uuid, canPreview && !inline && onScreen && tabVisible, d.state === "running", boxRef);
-  useEffect(() => {
-    if (!alive || viewer) setInline(false);
-  }, [alive, viewer]);
-
   const open = () => {
     if (!kind) return;
     if (mode === "inline") setInline(true);
@@ -151,38 +162,30 @@ export function ConsoleCard({ d }: { d: VMDetail }) {
 
   let note = "";
   if (viewer) note = "Only operators and administrators.";
+  else if (!kind) note = d.serialPending === "add" ? "Serial console added; applies after power off and start" : "No console";
   else if (!alive) note = "Shutoff";
-  else if (!kind) note = "No console";
   else if (kind === "serial") note = "Serial console";
 
-  if (inline && kind && !viewer) {
+  if (inline) {
     const back = (
-      <button onClick={() => setInline(false)} title="Disconnect and show the still preview" aria-label="Collapse">
+      <button
+        onClick={() => {
+          setInline(false);
+          onClose?.();
+        }}
+        title="Disconnect and show the still preview" aria-label="Collapse">
         <Minimize2 size={15} aria-hidden />
         <span className="lbl">Collapse</span>
       </button>
     );
     return (
-      <>
-        <section className="card cc cc-thumb" aria-label="Console preview">
-          <div className="cc-head">
-            <h3>Console</h3>
-          </div>
-          <div className="cc-box">
-            <div className="cc-note" />
-          </div>
-          <div className="cc-foot">
-            <span className="muted">&nbsp;</span>
-          </div>
-        </section>
-      <section className="card span cc cc-wide" aria-label="Console">
+      <section className="card span cc cc-wide" aria-label="Console" ref={wideRef}>
         <div className="cc-head">
           <h3>Console</h3>
           <ModeMenu />
         </div>
-        {kind === "vnc" ? <VNCConsole node={d.node} uuid={d.uuid} name={d.name} variant="inline" extra={back} /> : <SerialConsole node={d.node} uuid={d.uuid} variant="inline" extra={back} />}
+        <LiveConsole d={d} variant="inline" extra={back} />
       </section>
-      </>
     );
   }
 
@@ -216,10 +219,27 @@ export function ConsoleCard({ d }: { d: VMDetail }) {
               {p.error ? `Preview failed: ${p.error}` : p.at ? `Updated ${p.at.toLocaleTimeString()}` : " "}
             </span>
           </>
+        ) : !viewer && !kind && d.serialPending !== "add" ? (
+          <>
+            <button
+              disabled={add.busy}
+              onClick={() =>
+                add.run(async () => {
+                  const r = await post<{ note?: string; needsRestart: boolean }>(`/nodes/${d.node}/vms/${d.uuid}/serial-console`);
+                  setAddNote(r.needsRestart ? r.note : undefined);
+                  onChanged?.();
+                })
+              }
+            >
+              Add serial console
+            </button>
+            {addNote && <span className="muted">{addNote}</span>}
+          </>
         ) : (
           <span className="muted">&nbsp;</span>
         )}
       </div>
+      <ErrorBox error={add.error} />
     </section>
   );
 }

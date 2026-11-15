@@ -1,5 +1,5 @@
 import Select from "../Select";
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Field } from "../ui";
 import { CloudProfile, useCloudProfiles } from "./CloudProfiles";
 
@@ -34,11 +34,29 @@ export function cloudInitPayload(v: CloudInitValues, vmName: string) {
   };
 }
 
-/** Collapsible cloud-init section for the create-VM and clone dialogs. */
-export default function CloudInitFields(props: { value: CloudInitValues; onChange: (v: CloudInitValues) => void; profiles?: boolean; preselect?: boolean }) {
-  const { value: v, onChange } = props;
+/**
+ * Collapsible guest setup section (user, password, keys, packages) for the create-VM and clone dialogs. The clone
+ * dialog passes `status` (how the settings reach this guest), `raw={false}` where raw user-data cannot apply,
+ * `disabled` where nothing can, and `onOpen` to start its check when the section is first opened.
+ */
+export default function CloudInitFields(props: {
+  value: CloudInitValues;
+  onChange: (v: CloudInitValues) => void;
+  profiles?: boolean;
+  preselect?: boolean;
+  status?: ReactNode;
+  raw?: boolean;
+  disabled?: boolean;
+  onOpen?: () => void;
+}) {
+  const { value: v, onChange, onOpen } = props;
   const usable = props.profiles !== false;
+  const rawField = props.raw !== false;
+  const off = !!props.disabled;
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open) onOpen?.();
+  }, [open, onOpen]);
   const { profiles } = useCloudProfiles(usable);
   const prof: CloudProfile | undefined = usable ? profiles?.find((p) => p.id === v.profile) : undefined;
   // Preselect the default profile once, when the list arrives.
@@ -55,17 +73,17 @@ export default function CloudInitFields(props: { value: CloudInitValues; onChang
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profiles, usable]);
   const set = (k: keyof CloudInitValues) => (e: { target: { value: string } }) => onChange({ ...v, [k]: e.target.value });
-  const raw = v.rawUserData.trim() !== "" || !!prof?.rawUserData.trim();
+  const raw = off || (rawField && v.rawUserData.trim() !== "") || !!prof?.rawUserData.trim();
   const keyHint = prof?.sshKeys.length ? `${prof.sshKeys.length} key${prof.sshKeys.length > 1 ? "s" : ""} from the profile are added` : "ssh-ed25519 AAAA me@host";
   return (
     <details className="cloudinit" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary>
-        Cloud-init{cloudInitUsed(v) ? " (configured)" : ""}
+        Guest setup{cloudInitUsed(v) ? " (configured)" : ""}
         {prof ? `: ${prof.name}` : ""}
       </summary>
-      {usable && <p className="hint">Needs cloud-init in the image; installs the guest agent.</p>}
+      {props.status !== undefined ? <p className="hint">{props.status}</p> : usable && <p className="hint">Needs cloud-init in the image; installs the guest agent.</p>}
       {usable && profiles && profiles.length > 0 && (
-        <Field label="Profile" hint="Fields you leave empty are taken from the profile.">
+        <Field label="Profile" help="Fields you leave empty are taken from the profile.">
           <Select label="Profile" value={String(v.profile)} onChange={(x) => onChange({ ...v, profile: Number(x) })} options={[{ value: "0", label: "None" }, ...profiles.map((p) => ({ value: String(p.id), label: p.name + (p.default ? " (default)" : "") }))]} />
         </Field>
       )}
@@ -82,13 +100,15 @@ export default function CloudInitFields(props: { value: CloudInitValues; onChang
         <textarea rows={3} value={v.sshKeys} onChange={set("sshKeys")} placeholder={keyHint} disabled={raw} spellCheck={false} />
       </Field>
       <details className="cloudinit">
-        <summary>Packages and raw user-data</summary>
+        <summary>{rawField ? "Packages and raw user-data" : "Packages"}</summary>
         <Field label="Packages" hint="Separated by spaces or commas.">
           <input value={v.packages} onChange={set("packages")} placeholder={prof?.packages.length ? prof.packages.join(" ") : "e.g. htop curl"} disabled={raw} />
         </Field>
-        <Field label="Raw user-data" hint="If set, used as it is and the fields above are ignored. Start with #cloud-config or a #! script.">
-          <textarea rows={5} value={v.rawUserData} onChange={set("rawUserData")} spellCheck={false} />
-        </Field>
+        {rawField && (
+          <Field label="Raw user-data" hint="If set, used as it is and the fields above are ignored. Start with #cloud-config or a #! script.">
+            <textarea rows={5} value={v.rawUserData} onChange={set("rawUserData")} disabled={off} spellCheck={false} />
+          </Field>
+        )}
       </details>
     </details>
   );

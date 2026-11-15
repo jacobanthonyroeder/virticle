@@ -30,11 +30,11 @@ test.describe.serial("debian cloud image, guest agent, template and linked clone
     await dlg.getByRole("button", { name: "Disk image" }).click();
     await pick(dlg, "Base image", new RegExp("^" + env.debian.replace(/\./g, "\\.")));
     await field(dlg, "Disk size (GiB)").fill(String(Math.ceil(img.capacity / 2 ** 30)));
-    await dlg.locator("summary", { hasText: "Cloud-init" }).click();
+    await dlg.locator("summary", { hasText: "Guest setup" }).click();
     await field(dlg, "User").fill(USER);
     await field(dlg, "Password").fill(PASS);
     // no package is entered: the guest agent is installed by default
-    await expect(dlg.locator("summary", { hasText: "Cloud-init" })).toContainText("configured");
+    await expect(dlg.locator("summary", { hasText: "Guest setup" })).toContainText("configured");
     await dlg.getByRole("button", { name: "Create" }).click();
     await expect(dlg).toBeHidden({ timeout: 120_000 });
     await expect(page.getByRole("heading", { level: 1, name: NAME })).toBeVisible();
@@ -118,7 +118,7 @@ test.describe.serial("debian cloud image, guest agent, template and linked clone
     const dlg = dialog(page, `Clone ${NAME}`);
     await expect(field(dlg, "Name of the clone")).toBeFocused();
     await field(dlg, "Name of the clone").fill(CLONE);
-    await dlg.locator("summary", { hasText: "Cloud-init" }).click();
+    await dlg.locator("summary", { hasText: "Guest setup" }).click();
     await field(dlg, "User").fill(USER);
     await field(dlg, "Password").fill(PASS);
     await dlg.getByLabel(/Start the clone when it is ready/).check();

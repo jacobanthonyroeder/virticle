@@ -1,0 +1,6 @@
+/* The "?" help mark and its box. No animation. */
+/* Raised 1px from "middle" (the centre of the small letters), so that the mark sits level with the line of text. */
+.help { display: inline-flex; vertical-align: middle; position: relative; top: -1px; margin-left: 5px; }
+.helpbtn { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 18px; height: 18px; border: none; border-radius: 50%; background: none; color: var(--muted); cursor: help; }
+.helpbtn:hover:not(:disabled) { background: none; color: var(--text); }
+.helppop { position: fixed; z-index: 700; left: 8px; top: 8px; width: max-content; max-width: min(340px, calc(100vw - 16px)); padding: 8px 10px; font-size: 0.875rem; font-weight: 400; line-height: 1.4; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-pop); white-space: normal; overflow-wrap: anywhere; pointer-events: none; }

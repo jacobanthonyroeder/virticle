@@ -150,10 +150,15 @@ func (c *Ctx) buildPlan(req *nodeproto.NetRequest) (*planInput, *netPlanned, sta
 	case nodeproto.NetDelete, nodeproto.NetSetVLAN, nodeproto.NetSetUplinks, nodeproto.NetSetMTU, nodeproto.NetAddVLANAddr, nodeproto.NetDelVLANAddr:
 		old := managed[req.Bridge]
 		if old == nil {
-			if existing != nil {
-				return nil, nil, st, Fail("%s was not created by this feature and is only shown, not changed", req.Bridge)
+			if existing == nil {
+				return nil, nil, st, Fail("the node has no bridge named %s", req.Bridge)
 			}
-			return nil, nil, st, Fail("the node has no bridge named %s", req.Bridge)
+			fd := c.recognise(st, snap, req.Bridge)
+			if fd.Spec == nil {
+				return nil, nil, st, Fail("%s cannot be changed here: %s", req.Bridge, fd.Detail)
+			}
+			fd.Spec.Created = c.netNow().UTC().Format("2006-01-02T15:04:05Z")
+			old, in.Foreign = fd.Spec, fd
 		}
 		in.Old = old
 		if req.Action == nodeproto.NetDelete {

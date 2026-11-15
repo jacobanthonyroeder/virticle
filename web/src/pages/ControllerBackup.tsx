@@ -22,6 +22,7 @@ interface Status extends Keep {
   zone: string;
   nextRun?: number;
   dir: string;
+  dirCustom?: boolean;
   last?: Rec;
   lastDaily?: Rec;
   restoreCommand: string;
@@ -47,7 +48,7 @@ export default function ControllerBackup() {
   const [pass2, setPass2] = useState("");
   const dl = useAction();
   const daily = useAction();
-  const [form, setForm] = useState<{ freq: Freq; keep: Keep } | undefined>();
+  const [form, setForm] = useState<{ freq: Freq; keep: Keep; dir: string } | undefined>();
   const enc = useBackupEncryption();
 
   const load = useCallback(() => {
@@ -107,7 +108,7 @@ export default function ControllerBackup() {
     }
   };
   const saveSchedule = async () => {
-    if (form && (await daily.run(async () => setSt(await put<Status>("/controller-backup", schedBody(form.freq, form.keep)))))) setForm(undefined);
+    if (form && (await daily.run(async () => setSt(await put<Status>("/controller-backup", { ...schedBody(form.freq, form.keep), dir: form.dir.trim() }))))) setForm(undefined);
   };
 
   return (
@@ -177,17 +178,22 @@ export default function ControllerBackup() {
               <EncDot on={enc.data.on} />
             </p>
           )}
-          <p>
-            Not a copy off this machine: use the download above or <code>virticle backup -o DIR --keep-daily 7</code> from cron.
-          </p>
+          {!st?.dirCustom && (
+            <p>
+              Not a copy off this machine: use the download above or <code>virticle backup -o DIR --keep-daily 7</code> from cron.
+            </p>
+          )}
           <ErrorBox error={daily.error} />
           {st && !form && (
             <div className="actions">
-              <button onClick={() => setForm({ freq: freqOf(st), keep: keepOf(st) })}>Edit schedule</button>
+              <button onClick={() => setForm({ freq: freqOf(st), keep: keepOf(st), dir: st.dir })}>Edit schedule</button>
             </div>
           )}
           {st && form && (
             <>
+              <Field label="Folder" help="Where the scheduled backups are written. The folder is created. Backups already in the old folder stay there and are no longer thinned out.">
+                <input className="mono" value={form.dir} onChange={(e) => setForm((f) => f && { ...f, dir: e.target.value })} spellCheck={false} />
+              </Field>
               <ScheduleAssistant
                 freq={form.freq}
                 onFreq={(freq) => setForm((f) => f && { ...f, freq })}
@@ -195,8 +201,8 @@ export default function ControllerBackup() {
                 onKeep={(keep) => setForm((f) => f && { ...f, keep })}
                 units={["hours"]}
                 timeTitle={`Server time (${st.zone})`}
-                preview={() => post<Projection>("/controller-backup/preview", schedBody(form.freq, form.keep))}
-                deps={[]}
+                preview={() => post<Projection>("/controller-backup/preview", { ...schedBody(form.freq, form.keep), dir: form.dir.trim() })}
+                deps={[form.dir]}
                 where="file system"
               />
               <div className="actions">

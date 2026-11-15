@@ -144,7 +144,13 @@ earlier versions no longer exist.
 - **Clock** (Linux): `rtc` catch-up, `pit` delay, `hpet` off, `kvmclock` on.
   The guest clock is synced after resume, snapshot revert and live migration
   when the guest agent runs.
-- **Serial console**: added to every new VM; the Console tab adds one to a VM that has none.
+- **Clock** (Windows): `localtime` (the hardware clock in local time, as Windows expects), `hypervclock` instead of
+  `kvmclock`. QEMU fills that clock with the node's local time, UTC on most nodes, and what the guest writes into it
+  lasts only until the VM is powered off. So after a start from Virticle (start, restore with start) the guest clock is
+  synced as soon as the agent answers (up to 5 minutes), when it is more than 2 seconds off: a Windows guest in another
+  time zone would otherwise run hours off until Windows corrects itself. A VM started by the node at boot (autostart) is
+  not synced.
+- **Serial console**: added to every new VM; the Console card on the Overview adds one to a VM that has none.
 - **Firmware** (Linux): UEFI, with the UEFI variables in a qcow2 file so the VM can take internal snapshots. A node without UEFI firmware gets BIOS. Windows always gets UEFI.
 
 ## Migration network and limit
@@ -354,9 +360,12 @@ was made from `manifest.kind` (and `manifest.fullReason`) of the entry in `GET /
 rejected by libvirt 11.3 and means "preserve the domain if the guest shuts down" in 11.10). For a running VM Virticle freezes
 the guest's file systems with libvirt's `DomainFsfreeze` (the guest agent's `guest-fsfreeze-freeze`) immediately before
 `DomainBackupBegin` and thaws them (`DomainFsthaw`, up to 4 tries) when it returns, whether it worked or not. An agent that does
-not answer `guest-info` within 5 seconds is not asked to freeze; a freeze that takes longer than 45 seconds is given up (and
-thawed). A Windows guest freezes through VSS, which takes 15 to 30 seconds on a slow host and holds writes for at most 10
-seconds, so its first thaw can report that error; the retry succeeds. The request field `quiesce` of the backup call is
+not answer `guest-info` within 5 seconds is not asked to freeze. The backup waits up to 2 minutes for the freeze; after that
+it is made without ("not frozen: the guest did not freeze within 2 minutes"). libvirt cannot cancel a freeze and runs one
+agent command per guest at a time, so the freeze goes on, and when it takes effect later Virticle thaws the guest at once
+(logged). A Windows guest freezes through VSS: the agent prepares the snapshot and then waits up to 60 seconds for VSS,
+which can take more than 45 seconds on a busy host; VSS holds writes for at most 10 seconds, so its first thaw can report
+that error; the retry succeeds. The request field `quiesce` of the backup call is
 absent (automatic: freeze when the agent is connected and can freeze; if that fails, back up without), `true` (freeze or fail the
 backup) or `false` (never). Replication copies are automatic; scheduled backups send `false`. The task note says "guest file
 systems frozen" or "not frozen: REASON", and `manifest.frozen` is `true` or `false` for a live backup (absent for older backups
@@ -379,7 +388,7 @@ stop is then seen as soon as the step ends:
 | Task | Not interruptible | Point of no return (a later stop does nothing) |
 | --- | --- | --- |
 | Restore | none | Moving the disks into place and defining the VM (a restore that replaces a VM removes the old one only after this point) |
-| Clone | `virt-sysprep` | Defining the VM |
+| Clone | `virt-sysprep`, `virt-customize` | Defining the VM |
 | Disk or OVA import | none | OVA: registering the finished volumes |
 | Backup import | none | Checking the archive and moving it into place |
 
@@ -566,7 +575,10 @@ pruning it down to keep-last alone.
   average of the recent ones, plus or minus 20%; without an incremental one measured, 2 to 20% of a full backup each;
   with no backup at all, the allocated size of the disks.
 - `GET/PUT /api/controller-backup`: `daily` (on), `mode` (`daily` or `interval`), `at` (HH:MM, server time),
-  `everyHours` (1 to 168), the five `keep*` fields, `zone`, `nextRun`. Fields left out of a PUT keep their values.
+  `everyHours` (1 to 168), the five `keep*` fields, `dir` (the folder of the scheduled copies; empty or the default
+  `backups` in the data directory), `zone`, `nextRun`. Fields left out of a PUT keep their values. A new `dir` must be a
+  full path outside the data directory; the controller creates it and writes a test file there before it saves, and
+  refuses it with the reason otherwise.
   Stored settings from before have only `daily`: daily at 03:30 with `keepDaily 7`. The old field `keep` is gone.
 
 ## Node access
@@ -606,12 +618,55 @@ again by itself:
 
 After a lost connection the controller tries again after 1 s, then waits twice as long each time, up to about 30 s.
 
+## Guest setup on clone
+
+The clone dialog's **Guest setup** section (user, password, SSH keys, packages) reaches the clone in one of these ways.
+The controller picks it; there is no option.
+
+| Guest of the source | How | Notes |
+| --- | --- | --- |
+| Windows (by the VM's OS entry or a Windows seal) | Answer file on a disc, read by Windows setup | As before: computer name, administrator, password only. |
+| Linux with cloud-init | NoCloud seed disc, read by cloud-init at first start | As before. |
+| Linux without cloud-init (or with `/etc/cloud/cloud-init.disabled`), Debian, Ubuntu, RHEL, CentOS, Fedora, Rocky, Alma, Oracle, openSUSE or SLES family, guest disk tools on the node | Written into the clone's disks while it is shut off, after the new identity step | See below. Profiles and raw user-data are refused: they need cloud-init. |
+| Anything else: another Linux (NixOS, Alpine, CirrOS), no system found, an encrypted disk, Windows on a VM not defined as Windows, `virt-customize` missing | Not possible | The dialog says "Not possible: REASON"; a clone request with these settings is refused with the same reason. |
+| Node without the guest disk tools (`prepare --minimal`) | Seed disc, not checked | The dialog says so: it needs cloud-init in the guest. |
+
+**Detection.** The node command (`guest-inspect`) starts one read-only `guestfish` appliance on the source's disks,
+runs the libguestfs inspection (system type, distribution, version, package manager) and looks for
+`/usr/bin/cloud-init`, `/etc/cloud/cloud-init.disabled`, `useradd`, `sudo`, `qemu-ga` and `/etc/selinux/config`.
+About 10 seconds on a small nested lab node. It runs when the section is first opened in the dialog. The answer is
+kept in the controller's memory: for a template as long as the size and allocation of its disks stay the same, for
+another shut-off VM 10 minutes. A running VM is not looked into.
+
+**Written into the disk** (`guest-customize`, `virt-customize --no-network`):
+
+- Host name: the clone's name (`--hostname`).
+- User: created when missing (`useradd -m`, shell bash, the `sudo` group or else `wheel`, and
+  `/etc/sudoers.d/90-virticle-USER` with `NOPASSWD:ALL`, as the seed disc gives). An existing user keeps its groups and
+  gets only the password and keys.
+- Password: hashed by the controller (SHA-512 crypt, as for the seed disc); the hash goes to the node on standard input
+  and into the guest script only. With a password, `/etc/ssh/sshd_config.d/00-virticle-password.conf` allows password
+  login, as the seed disc does.
+- SSH keys: appended to `~/.ssh/authorized_keys` (directory 700, file 600, owned by the user). On a guest with SELinux
+  the files are relabelled (`--selinux-relabel` for older virt-customize; newer ones relabel by themselves).
+- Packages: installed at the first start (a `--firstboot` script of the node command), by the guest's package manager
+  (`apt-get update` and `apt-get install`, `dnf`, `yum` or `zypper`) over the guest's own network, like cloud-init does.
+  The script tries again every 10 seconds for 5 minutes, because the first-boot service starts before the network has
+  an address. The guest agent is added when the guest has none, and `sudo` when it is missing and a
+  user is given. Not at clone time, because that would need network access from the node's appliance and make the
+  clone slow; a failed install shows only in the guest (`/root/virt-sysprep-firstboot.log`).
+
+The node command builds the guest script itself from a checked request (user name, hash, keys, package names and host
+name, each with a fixed pattern); the caller cannot pass commands. The script is in a private directory under
+`/run/virticle-node` while `virt-customize` runs and is removed afterwards.
+
 ## Versions and the node command
 
-- The node command protocol is **21** (0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
+- The node command protocol is **22** (0.4.0 had 21, 0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
   "prepared by an older version" (**Outdated** on the Nodes page) and must be prepared again
   ([install.md](install.md#upgrading)). The old node command would also refuse the new requests, because it rejects fields
   it does not know.
+- Verbs new since 0.4.0: `guest-inspect`, `guest-customize` ([Guest setup on clone](#guest-setup-on-clone)).
 - Verbs new since 0.3.x: `age-encrypt`, `age-decrypt` (encrypted backups), `copy-kill` (stopping a clone), and `sha256 PATH
   progress` (verify).
 - Verbs new in 0.3.0, by feature (all described in [install-node.md](install-node.md#verbs)): virtual switches
@@ -702,8 +757,47 @@ networks on a host bridge cannot carry it; a guest needs the MTU in its own sett
 **What it refuses.** Ports of a bond (or of a bridge) as uplinks, and cards that are already in another bond; an uplink that is already a port; wireless, virtual and
 libvirt-managed (`virbr*`, `vnet*`) interfaces; changing an interface that carries the controller's connection without
 moving its addresses; a second change while one is pending; deleting a bridge that VMs or libvirt networks use; changing
-or deleting bridges that virticle did not create (they are only listed).
-Only bridges this feature created are changed: it keeps a record of them (`/var/lib/virticle-node/net/managed/`).
+or deleting a bridge set up outside virticle whose saved definition has a setting virticle does not have (below).
+virticle keeps a record of the bridges it manages (`/var/lib/virticle-node/net/managed/`).
+
+**Bridges set up outside virticle.** A Linux bridge without a record is read from its saved definition. When every setting of
+that definition is one virticle has (or that setting's default), the bridge is a virtual switch like one virticle created: the
+same actions, no label. The first change to it takes the definition over, under the same rollback timer, and after the
+confirmation the bridge has a record like any other. Otherwise the bridge is listed, can carry networks and VM interfaces, and
+`notEditable` (a few words) and `notEditableDetail` (a sentence) in `GET .../hostnet` say why it cannot be changed. The check is an
+allow-list per configuration system: a key it does not list makes the bridge not editable.
+
+| Setting | Accepted (NetworkManager keyfile / netplan YAML) |
+| --- | --- |
+| Where it is saved | NetworkManager: keyfiles in `/etc/NetworkManager/system-connections`, one profile each for the bridge, its port (one card or one bond) and each bond member, all active now and started by themselves, bound by interface name. netplan: one entry each for the bridge, its port and the bond's cards, each in one file in `/etc/netplan` (not `/lib` or `/run`), renderer networkd, and netplan's generated files in use |
+| STP | off (`bridge.stp=false`; netplan `parameters: {stp: false}`). Both default to on |
+| Other bridge options (forward delay, priority, multicast, ageing, hairpin, path cost) | not set |
+| Ports | at most one: a physical card, or a bond of physical cards; VM interfaces (`vnet*`, `tap*`) besides |
+| Bond | `mode=active-backup,miimon=100`, or `mode=802.3ad,miimon=100,lacp_rate=fast,xmit_hash_policy=layer2+3` (netplan: the same as `parameters`, `mii-monitor-interval: 100`), nothing else |
+| Addresses | NetworkManager: the `ipv4`/`ipv6` keys virticle copies from a card (method, addresses, gateway, DNS, routes, metrics, DHCP options); netplan: `addresses` (plain strings), `dhcp4`, `dhcp6`, `routes`, `nameservers`, `gateway4/6`, `link-local`, `accept-ra`, `optional`, `critical`, `dhcp4/6-overrides`, `ipv6-privacy`, `dhcp-identifier` |
+| MAC address | only on a bridge with addresses, and the one it has now |
+| MTU | none, or the same value on the bridge, the bond and every card |
+| VLANs | NetworkManager: `vlan-filtering`, `vlan-default-pvid=1`, port `vlans` with `1 pvid untagged` and plain tagged ids. netplan has no VLAN filtering: a bridge that filters VLANs is refused. VLAN interfaces on the bridge, the bond or a card are refused |
+| Ports' own settings | NetworkManager: `ethernet.mtu`, `mac-address` of the card, empty `bond-port`. netplan: `match` (MAC address or name of the card), `set-name`, `dhcp4: false`, `dhcp6: false`, `link-local: []`, `accept-ra: false`, `optional`, `mtu` |
+| cloud-init | a bridge in `50-cloud-init.yaml` is refused while cloud-init is installed and its network configuration is not disabled (it writes the file again at boot) |
+| Not editable at all | `virbr*` and bridges of libvirt NAT, routed, isolated and open networks; container bridges (`docker*`, `br-` and 12 hex digits, `podman*`, `cni*`, `lxcbr*`, `lxdbr*`, `incusbr*`); Open vSwitch; a bridge made with `ip link` (no saved definition); plain systemd-networkd files of the administrator and ifupdown (not edited yet) |
+
+How the definition is taken over:
+
+- NetworkManager: virticle's profiles (`virticle-BRIDGE`, `virticle-bond-BOND`, `virticle-port-CARD`) are added with the same
+  settings and activated on the existing devices, which NetworkManager does without removing the bridge; then the original
+  profiles are deleted. Their keyfiles are saved with the change; a rollback writes them back, reloads, activates them and
+  deletes virticle's profiles, so the profiles, their UUIDs and the files are as before. When the bridge has addresses, the first
+  card gets a profile of its own (named like the card, or `virticle-card-CARD` when that name is taken) with the bridge's address
+  settings and autoconnect off: the card gets it back when the switch is deleted.
+- netplan: the bridge's entry (and the bond's) is removed from the YAML; when the bridge has addresses, its address settings
+  move to the first card's entry, which is what the card gets back when the switch is deleted. Only those lines change; comments and
+  other entries stay. virticle's networkd files take the bridge's place and `netplan generate` runs (not `netplan apply`, which would
+  remove the bridge). A later `netplan apply` or the `netplan generate` at boot find one definition of the bridge: virticle's. The YAML
+  files are saved with the change; a rollback writes them back byte for byte and generates again.
+- Deleting a recognised bridge without a change before: NetworkManager deletes the profiles and gives the first card a profile with
+  the bridge's address settings; netplan removes the entry and moves the address settings to the card's entry. The review lists the
+  profiles and files by name.
 
 **VLANs.** A VLAN-aware bridge has VLAN filtering on; its uplink allows the chosen VLAN ids (2-4094 by default, tagged),
 and the bridge's own address stays untagged (VLAN 1). A libvirt network with `forward mode='bridge'` on such a bridge can
@@ -714,8 +808,8 @@ The node's own addresses on a VLAN are described below.
 
 | System | Written | State |
 |---|---|---|
-| NetworkManager | connections `virticle-BRIDGE` (bridge), `virticle-port-UPLINK` (and `virticle-bond-BOND`, `virticle-vlan-IF`); the uplink's own connection is kept and only set not to start by itself | tried on a real node (Rocky Linux 10, NetworkManager 1.56): create, move the management address, VLANs, rollback by timer and by hand, delete, reboots |
-| netplan with systemd-networkd, or plain systemd-networkd | `05-virticle-*.netdev` and `.network` files in `/etc/systemd/network`; the files of netplan and the administrator are not edited. They sort before netplan's `10-netplan-*.network`, survive a reboot, `netplan apply` and cloud-init | netplan with networkd tried on a real node (Debian 13): the same tests as above; plain networkd without netplan runs the same code but was not tried. To tell which file configures a card, the node evaluates the `[Match]` keys `Name`, `OriginalName`, `MACAddress`, `PermanentMACAddress`, `Kind`, `Type`, `Virtualization` and, for non-wireless cards, `WLANInterfaceType`, which covers the files in `/usr/lib/systemd/network` on Debian 13 and Ubuntu 24.04. A file with another key (for example `Driver` or `Path`) that sorts before the card's own file stops the review with a message that says to give the card a file of its own |
+| NetworkManager | connections `virticle-BRIDGE` (bridge), `virticle-port-UPLINK` (and `virticle-bond-BOND`, `virticle-vlan-IF`); the uplink's own connection is kept and only set not to start by itself; the profiles of a bridge set up outside virticle are replaced when it is taken over (above) | tried on a real node (Rocky Linux 10, NetworkManager 1.56): create, move the management address, VLANs, rollback by timer and by hand, delete, reboots |
+| netplan with systemd-networkd, or plain systemd-networkd | `05-virticle-*.netdev` and `.network` files in `/etc/systemd/network`; the files of netplan and the administrator are not edited, except the netplan YAML of a bridge set up outside virticle that is taken over (above). They sort before netplan's `10-netplan-*.network`, survive a reboot, `netplan apply` and cloud-init | netplan with networkd tried on a real node (Debian 13): the same tests as above; plain networkd without netplan runs the same code but was not tried. To tell which file configures a card, the node evaluates the `[Match]` keys `Name`, `OriginalName`, `MACAddress`, `PermanentMACAddress`, `Kind`, `Type`, `Virtualization` and, for non-wireless cards, `WLANInterfaceType`, which covers the files in `/usr/lib/systemd/network` on Debian 13 and Ubuntu 24.04. A file with another key (for example `Driver` or `Path`) that sorts before the card's own file stops the review with a message that says to give the card a file of its own |
 | ifupdown (`/etc/network/interfaces`) | nothing: bridges are refused with a plain message | not supported |
 
 ## Shared storage (NFS)
@@ -796,4 +890,12 @@ The update log is `/var/lib/virticle-update/update.log` on the node. dnf: `check
 - A VM keeps one kind of snapshot until all its snapshots are deleted (libvirt cannot delete a tree that mixes internal and external ones). On a node that confines QEMU with AppArmor (Debian) external snapshots cannot be reliably deleted, so a running VM there can only take snapshots that save the running state; a live snapshot without it is always external.
 - A UEFI VM made before qcow2 variable stores keeps a raw one: its snapshots are external, and reverting a snapshot does not bring back the UEFI variables of that moment (internal snapshots of a qcow2 store do).
 - No automatic failover and no fencing: a failover to a replica is started by a person ([backlog-ha.md](backlog-ha.md)). Nothing starts the VMs of a dead node on shared storage ([backlog-storage.md](backlog-storage.md)). Shared storage means NFS only.
+- A bridge set up by hand stays not editable when it has STP on, is defined in cloud-init's netplan file
+  (`50-cloud-init.yaml`) while cloud-init manages the network, or has any setting outside the switch model
+  ([Host bridges](#host-bridges-virtual-switches)). It can still carry networks and VM interfaces.
+- Guest setup on clone written into the disk was not tried on SUSE, Ubuntu or a guest installed from a real ISO. NixOS
+  and other systems are refused; Windows goes its own way (an answer file).
+  Packages are installed at the clone's first start; a failed install shows only inside the guest.
+- The clock sync after a start (guests with a local-time hardware clock) needs the guest agent, and does not cover VMs the
+  node starts at boot.
 - Not verified end to end: ACME issuance, arm64. See [ROADMAP.md](../ROADMAP.md).

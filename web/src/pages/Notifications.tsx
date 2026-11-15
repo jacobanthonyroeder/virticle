@@ -216,7 +216,7 @@ function DestinationDialog({ dest, onClose, onDone }: { dest?: Dest; onClose: ()
           </label>
           {web && (
             <>
-              <Field label="Secret (optional)" hint="Signs each message with HMAC-SHA256 in the X-Virticle-Signature header.">
+              <Field label="Secret (optional)" help="Signs each message with HMAC-SHA256 in the X-Virticle-Signature header.">
                 <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password" placeholder={dest?.hasSecret ? "Saved. Enter a new one to replace it." : ""} />
               </Field>
               {dest?.hasSecret && (

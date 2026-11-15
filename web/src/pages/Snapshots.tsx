@@ -361,7 +361,7 @@ function SchedulePanel({ d, base }: { d: VMDetail; base: string }) {
         <>
           <div className="grid2">
             <ScheduleWhen value={form.when} onChange={(when) => setForm({ ...form, when })} />
-            <Field label="Keep the newest" hint="Older scheduled ones are deleted.">
+            <Field label="Keep the newest" help="Older scheduled ones are deleted.">
               <input type="number" min={1} value={form.keep} onChange={(e) => setForm({ ...form, keep: Number(e.target.value) })} />
             </Field>
           </div>

@@ -504,8 +504,11 @@ func (s *Server) vmAction(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	if req.Action == "resume" {
+	switch req.Action {
+	case "resume":
 		s.autoSyncClock(userOf(r), "resume", h, dom)
+	case "start":
+		s.syncClockAfterStart(userOf(r), h, dom)
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }

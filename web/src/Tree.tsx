@@ -226,9 +226,12 @@ export default function Tree() {
     if (p === "/datacenter" || p.startsWith("/datacenter/")) return { key: "dc", anc: [] as string[] };
     return { key: "", anc: [] as string[] };
   }, [loc.pathname]);
+  // A template that is the current page has its Templates group as an ancestor too.
+  const selTemplate = !!vms?.some((v) => v.template && `v:${v.node}/${v.uuid}` === selected.key);
   useEffect(() => {
-    setOpen((o) => (selected.anc.every((k) => (o[k] ?? defaultOpen(k))) ? o : { ...o, ...Object.fromEntries(selected.anc.map((k) => [k, true])) }));
-  }, [selected]);
+    const anc = selTemplate ? [...selected.anc, "t:" + selected.anc[1]?.slice(2)] : selected.anc;
+    setOpen((o) => (anc.every((k) => (o[k] ?? defaultOpen(k))) ? o : { ...o, ...Object.fromEntries(anc.map((k) => [k, true])) }));
+  }, [selected, selTemplate]);
 
   // ---- rows ----
   const byNode = useMemo(() => {
@@ -251,10 +254,17 @@ export default function Tree() {
       const nk = `n:${n.id}`;
       const nodeOpen = isOpen(nk);
       const push = (r: RowModel) => list.push(r);
-      for (const v of byNode.get(n.id) ?? []) {
-        if (nodeHit || hit(v.name) || (v.tags ?? []).some(hit)) {
-          push({ key: `v:${n.id}/${v.uuid}`, kind: "vm", level: 3, label: v.name, href: `/vm/${n.id}/${v.uuid}`, data: v, extra: v.state, node: n.id });
-        }
+      const shown = (byNode.get(n.id) ?? []).filter((v) => nodeHit || hit(v.name) || (v.tags ?? []).some(hit));
+      for (const v of shown.filter((v) => !v.template)) {
+        push({ key: `v:${n.id}/${v.uuid}`, kind: "vm", level: 3, label: v.name, href: `/vm/${n.id}/${v.uuid}`, data: v, extra: v.state, node: n.id });
+      }
+      // Templates have a group of their own under the node, closed until it is opened.
+      const tpls = shown.filter((v) => v.template);
+      if (tpls.length) {
+        const tk = `t:${n.id}`;
+        const tOpen = isOpen(tk) && nodeOpen;
+        push({ key: tk, kind: "group", level: 3, label: "Templates", href: `/node/${n.id}/vms`, open: tOpen, extra: String(tpls.length), node: n.id });
+        if (tOpen) for (const v of tpls) push({ key: `v:${n.id}/${v.uuid}`, kind: "vm", level: 4, label: v.name, href: `/vm/${n.id}/${v.uuid}`, data: v, extra: v.state, node: n.id });
       }
       if (online) {
         const sk = `s:${n.id}`,
@@ -278,7 +288,7 @@ export default function Tree() {
           }
         }
       }
-      if (needle && !nodeHit && list.every((r) => r.kind === "group")) continue;
+      if (needle && !nodeHit && list.every((r) => r.kind === "group" && r.label !== "Templates")) continue;
       out.push({ key: nk, kind: "node", level: 2, label: name, href: `/node/${n.id}`, open: list.length ? nodeOpen : undefined, data: n, extra: n.state + (n.maintenance ? " maintenance" : ""), node: n.id });
       if (nodeOpen) out.push(...list);
     }
@@ -372,7 +382,20 @@ export default function Tree() {
         items.push({ label: powerLabel.reset, icon: RotateCw, danger: true, run: () => power(v, "reset") });
         items.push({ label: "Console", icon: Terminal, run: () => page("console") });
       }
-      items.push("sep", { label: "Snapshots", icon: Camera, run: () => page("snapshots") }, { label: "Migrate", icon: ArrowRightLeft, run: () => page() }, { label: "Clone", icon: Copy, run: () => page() });
+      const todo = (what: string) => nav(`/vm/${v.node}/${v.uuid}?do=${what}`);
+      items.push(
+        "sep",
+        { label: "Snapshots", icon: Camera, run: () => page("snapshots") },
+        {
+          label: "Migrate",
+          icon: ArrowRightLeft,
+          items: [
+            { label: "Migrate to another node", run: () => todo("migrate") },
+            { label: "Move the disk to another pool", run: () => todo("move-disk") },
+          ],
+        },
+        { label: "Clone", icon: Copy, run: () => todo("clone"), disabled: v.state !== "shutoff", title: v.state !== "shutoff" ? "Shut the VM down to clone it" : undefined },
+      );
       return items;
     },
     [canOp, nav, power],
@@ -587,7 +610,7 @@ function RowIcon({ r }: { r: RowModel }) {
       return v.template ? <LayoutTemplate size={14} className="ico" aria-label="Template" /> : <span className="ico"><span className={"dot v-" + v.state} title={v.state} /></span>;
     }
     case "group":
-      return r.label === "Storage" ? <HardDrive size={14} className="ico" aria-hidden /> : <Network size={14} className="ico" aria-hidden />;
+      return r.label === "Templates" ? <LayoutTemplate size={14} className="ico" aria-hidden /> : r.label === "Storage" ? <HardDrive size={14} className="ico" aria-hidden /> : <Network size={14} className="ico" aria-hidden />;
     case "pool":
       return <HardDrive size={13} className="ico" aria-hidden />;
     case "net":

@@ -126,19 +126,29 @@ func managementInterface(nics []hostNIC, addrs []string) string {
 
 // bridgeUsers returns the libvirt networks and the VMs that use a bridge of the node.
 func bridgeUsers(h *hostconn.Host) (nets map[string][]string, vms map[string][]string, err error) {
-	nets, vms = map[string][]string{}, map[string][]string{}
+	nets, vms, _, err = bridgeUse(h)
+	return nets, vms, err
+}
+
+// bridgeUse is bridgeUsers and the bridges that libvirt networks own: a NAT, routed, isolated or open network
+// creates its bridge itself, whatever its name.
+func bridgeUse(h *hostconn.Host) (nets map[string][]string, vms map[string][]string, owned map[string]bool, err error) {
+	nets, vms, owned = map[string][]string{}, map[string][]string{}, map[string]bool{}
 	list, err := collectNetworks(h)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, n := range list {
 		if n.Bridge != "" {
 			nets[n.Bridge] = append(nets[n.Bridge], n.Name)
+			if libvirtOwnsBridge(n) {
+				owned[n.Bridge] = true
+			}
 		}
 	}
 	doms, _, err := h.ConnectListAllDomains(1, 0)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, d := range doms {
 		raw, err := h.DomainGetXMLDesc(d, libvirt.DomainXMLInactive)
@@ -149,8 +159,11 @@ func bridgeUsers(h *hostconn.Host) (nets map[string][]string, vms map[string][]s
 			vms[b] = append(vms[b], d.Name)
 		}
 	}
-	return nets, vms, nil
+	return nets, vms, owned, nil
 }
+
+// libvirtOwnsBridge: the network makes its bridge itself (every forward mode but bridge, which uses a host bridge).
+func libvirtOwnsBridge(n networkInfo) bool { return !n.OVS && n.Forward != "bridge" }
 
 // domainBridges lists the host bridges the interfaces of a domain are plugged into directly.
 func domainBridges(raw string) []string {
@@ -186,7 +199,7 @@ func (s *Server) hostnetState(id int64, h *hostconn.Host) (hostnetState, error) 
 	st := hostnetState{Stack: info.Stack, StackTested: info.StackTested, Supported: info.Supported, StackNote: info.StackNote,
 		Interfaces: nics, Status: info.Status, ControllerAddresses: s.controllerAddrs(id), Bridges: []hostnetBridge{}}
 	st.ManagementInterface = managementInterface(nics, st.ControllerAddresses)
-	nets, vms, uerr := bridgeUsers(h)
+	nets, vms, owned, uerr := bridgeUse(h)
 	if uerr != nil {
 		return hostnetState{}, uerr
 	}
@@ -202,10 +215,18 @@ func (s *Server) hostnetState(id int64, h *hostconn.Host) (hostnetState, error) 
 			hb.VMs = []string{}
 		}
 		switch {
-		case !b.Managed && strings.HasPrefix(b.Name, "virbr"):
-			hb.ReadOnly = "managed by libvirt"
+		case strings.HasPrefix(b.Name, "virbr") || owned[b.Name]:
+			hb.Managed, hb.ReadOnly = false, "managed by libvirt"
+			hb.NotEditable, hb.NotEditableDetail = "Managed by libvirt", "libvirt creates and manages this bridge."
+			if len(hb.Networks) > 0 {
+				hb.NotEditableDetail = "The libvirt network " + strings.Join(hb.Networks, ", ") + " creates and manages this bridge."
+			}
 		case !b.Managed:
-			hb.ReadOnly = "not created by virticle"
+			// The node says why: the definition has a setting the model lacks, or there is none.
+			hb.ReadOnly = b.NotEditable
+			if hb.ReadOnly == "" {
+				hb.ReadOnly = "not editable"
+			}
 		}
 		st.Bridges = append(st.Bridges, hb)
 	}
@@ -262,6 +283,15 @@ func (s *Server) hostnetRequest(id int64, h *hostconn.Host, b hostnetBody) (node
 	req.LibvirtVersion = uint64(ver) // ignored by the node command; an older one refuses VLANs without it
 	if err := checkHostnetRequest(req); err != nil {
 		return req, err
+	}
+	if req.Action != nodeproto.NetCreate {
+		_, _, owned, err := bridgeUse(h)
+		if err != nil {
+			return req, err
+		}
+		if owned[req.Bridge] {
+			return req, badRequest(fmt.Sprintf("the bridge %s belongs to a libvirt network and is changed with that network", req.Bridge))
+		}
 	}
 	if req.Action == nodeproto.NetDelete {
 		nets, vms, err := bridgeUsers(h)

@@ -7,7 +7,8 @@ It needs libvirt 11.0 or newer and QEMU 10.0 or newer, from its distribution (se
 **Prepare a node before you add it.** Either way works:
 
 - In the web UI: **Nodes > Add node**.
-- In a shell: `virticle node prepare admin@host`.
+- In a shell: `virticle node prepare admin@host`. On the machine itself (also when it runs the controller):
+  `sudo virticle node prepare`.
 
 This page tells you what prepare does, so you can check it or do the same by hand. The last part,
 [Reference: the node command](#reference-the-node-command), is for readers who audit the program that runs as root.
@@ -135,21 +136,24 @@ rule.
 ```
 virticle node prepare [--check] [--minimal] [--root] [--user NAME] [--use-existing-user[=NAME]] [--confirm]
                       [--from ADDR] [--take-over] [--jump user@host]
-                      [--identity FILE] [--password-stdin] [--data DIR] [user@]host[:port]
+                      [--identity FILE] [--password-stdin] [--data DIR] [[user@]host[:port]]
 ```
+
+Without a host, prepare works on the machine it runs on and must run as root (`sudo virticle node prepare`); no
+sign-in is needed. Then add the node with the machine's address.
 
 | Option | Meaning |
 | --- | --- |
 | `--check` | Look and report. Change nothing. |
 | `--root` | Root access. The controller signs in as root and no account is created. The node command is installed all the same, and the controller runs it directly, without sudo. Prepare shows a warning ("The controller will sign in as root. A service account is safer"). |
-| `--minimal` | Leave out the guest disk tools. Clone with sysprep then needs a sealed template. |
+| `--minimal` | Leave out the guest disk tools. Clone with sysprep then needs a sealed template, and a clone's user, password and keys need cloud-init in the template. |
 | `--user NAME` | Name of the Service account (default `virticle-node`). |
 | `--use-existing-user NAME` | For an account you manage yourself. Prepare reports what is missing (groups, login shell, sudo rule). It changes nothing about the account except adding the controller's key. With `--confirm` it also adds the groups and the sudo rule. The account needs a login shell such as `/bin/sh`. |
 | `--confirm` | Only with `--use-existing-user`: add the groups and the sudo rule. |
 | `--from ADDR` | Adds `from="ADDR"` to the key, so it works only from the controller's address. |
 | `--take-over` | The node trusts another Virticle controller's key (prepare then stops and asks): remove that key. See [controller-backup.md](controller-backup.md#c-there-is-no-backup-and-the-controller-is-lost). |
 | `--jump user@host` | Reaches the node through a jump host. |
-| `--identity FILE`, `--password-stdin` | How you sign in as administrator (default: your SSH agent). |
+| `--identity FILE`, `--password-stdin` | How you sign in to another host as administrator. Default: your SSH agent; without one, a terminal asks for the password. `--password-stdin` is for scripts. |
 | `--data DIR` | The controller's data directory (its key, `known_hosts`, instance id). Default `data`. |
 
 The web dialog has one choice, **Root access instead of a service account**, and under **Advanced** a jump host and
@@ -207,7 +211,8 @@ Package names, checked on Debian 13 and Rocky Linux 10:
 | Base | `qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients dnsmasq-base ovmf swtpm swtpm-tools sudo curl ca-certificates openssh-client iproute2 nfs-common` | `qemu-kvm libvirt virt-install edk2-ovmf swtpm swtpm-tools sudo curl openssh-clients iproute-tc nfs-utils` |
 | Guest disk tools (left out by `--minimal`) | `libguestfs-tools` | `guestfs-tools` |
 
-The guest disk tools provide `virt-sysprep`, which **clone with sysprep** uses. `virtiofsd` is not installed; nothing
+The guest disk tools provide `virt-sysprep`, which **clone with sysprep** uses, and `guestfish` and `virt-customize`, which
+look into a template and write a clone's user, password and keys when the template has no cloud-init. `virtiofsd` is not installed; nothing
 in Virticle uses it.
 
 ## Preparing by hand
@@ -318,7 +323,7 @@ for:
 - **replication**: the copies of a VM on its standby node (overlay images, rebase, commit),
 - **rolling updates**: installing the system's updates and restarting the node, and checking afterwards what prepare set up,
 - **shared storage**: the rare cases where libvirt cannot do a file operation on NFS as the file's owner,
-- **cloning with guest preparation** (`virt-sysprep`, from the guest disk tools; not there after `prepare --minimal`).
+- **cloning with guest preparation** (`virt-sysprep`, `guestfish`, `virt-customize`, from the guest disk tools; not there after `prepare --minimal`).
 
 Backup export and import stream through the controller to and from the browser.
 
@@ -420,6 +425,8 @@ virticle-node ALL=(root) NOPASSWD: /usr/local/libexec/virticle-node
 | `tar-list FILE`, `tar-extract FILE WORKDIR NAME...` | list an OVA; extract plain-named members of an archive that holds regular files only into a work directory |
 | `import-convert-start WORKDIR SRC`, `import-convert-status WORKDIR`, `import-convert-kill WORKDIR` | run `qemu-img convert` to qcow2 in the background from a work directory, read its progress, stop it |
 | `sysprep DISK...` | `virt-sysprep` with a fixed option set on qcow2 or raw images |
+| `guest-inspect DISK...` | read only: one `guestfish --ro` appliance; prints what system is on the disks (type, distribution, cloud-init, useradd, sudo, guest agent, SELinux) as JSON |
+| `guest-customize DISK...` | `virt-customize --no-network` on the disks of a shut-off clone: host name, a user with password hash and SSH keys, first-boot packages (request as JSON on stdin) |
 | `net-info`, `net-plan`, `net-status` | read only, JSON: the node's network configuration system and its bridges; what a bridge change would do (request on stdin); the pending and recent changes |
 | `net-apply`, `net-confirm ID`, `net-rollback [ID]` | create, change or delete a Linux bridge (request on stdin) with a rollback the node owns; keep the change; restore the saved network settings (see "Host bridges" in the reference) |
 | `net-run ID` | internal: the part of `net-apply` that runs in a transient systemd unit, so the SSH session may die while the network changes |
@@ -444,5 +451,6 @@ exclusively and never written through a link; with a digest the file is moved to
 cancel or signal removes the part file. Import reads an image or OVA that lies inside a root. `image-info` and
 `convert-start` choose the format themselves (raw, qcow2, vmdk, vpc, vhdx or vdi) and refuse a qcow2 whose backing chain
 leaves the roots and a VMDK whose descriptor names another file. `tar-extract` refuses an archive that contains anything
-but regular files with plain names. `sysprep` takes the first-boot script from the node command itself; the caller
+but regular files with plain names. `sysprep` takes the first-boot script from the node command itself, and `guest-customize` builds its guest script
+itself from a checked request on standard input (no password in plain text, never on a command line); the caller
 supplies only image paths, each inside a root, not a link, qcow2 (backing chain inside the roots) or raw.

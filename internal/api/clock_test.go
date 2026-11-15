@@ -3,6 +3,7 @@ package api
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"virticle/internal/domxml"
 )
@@ -60,5 +61,45 @@ func TestClockSyncMetadata(t *testing.T) {
 	meta, err = metaSetChild(meta, "clock", "")
 	if err != nil || strings.Contains(meta, "clock") || !strings.Contains(meta, "<tag>a</tag>") {
 		t.Fatalf("%q %v", meta, err)
+	}
+}
+
+// A Windows VM keeps its hardware clock in local time; a restore as a new VM
+// (and a clone) carries the <clock> element over unchanged, timers and all.
+func TestLocalTimeClockKeptByRestore(t *testing.T) {
+	base := createVMRequest{Name: "w", VCPUs: 1, MemoryMiB: 256, Pool: "default"}
+	if localTimeClock(build(t, base)) {
+		t.Error("a Linux guest's clock is UTC")
+	}
+	win := base
+	win.OSType = "windows"
+	x := build(t, win)
+	if !localTimeClock(x) {
+		t.Fatal("a Windows guest's clock is local time")
+	}
+	clock := func(s string) string {
+		i, j := strings.Index(s, "<clock"), strings.Index(s, "</clock>")
+		if i < 0 || j < i {
+			t.Fatalf("no <clock> in %s", s)
+		}
+		return s[i : j+len("</clock>")]
+	}
+	out, err := cloneDomainXML(x, cloneEdit{Name: "w2", Disks: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clock(out) != clock(x) {
+		t.Errorf("clock changed:\n%s\n%s", clock(x), clock(out))
+	}
+}
+
+func TestClockOff(t *testing.T) {
+	for _, c := range []struct {
+		d    time.Duration
+		want bool
+	}{{0, false}, {guestClockSkew, false}, {-guestClockSkew, false}, {8 * time.Hour, true}, {-3 * time.Second, true}} {
+		if got := clockOff(c.d, guestClockSkew); got != c.want {
+			t.Errorf("clockOff(%v) = %v", c.d, got)
+		}
 	}
 }

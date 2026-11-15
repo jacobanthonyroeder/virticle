@@ -26,9 +26,9 @@ How to do the everyday things in the web UI. To install, see
 - **Top bar**: the main pages (**Virtual machines**, **Storage**, **Backups**, **Nodes**, **Tasks**), the
   **Settings** menu (administrators), alerts, theme, your account. **Backups** lists the backups of VMs;
   **Settings > Controller backup** is the backup of the controller itself.
-- **Tree** (left): nodes with their VMs, storage and networks. Type in
-  **Filter** to narrow it. Right-click an entry for its actions. Drag the edge
-  to resize.
+- **Tree** (left): nodes with their VMs, templates, storage and networks. Templates sit in a **Templates** group of
+  their own under each node, closed until you open it. Type in **Filter** to narrow it. Right-click an entry for its
+  actions (on a VM, **Migrate** and **Clone** open their dialogs). Drag the edge to resize.
 - **Tasks** (bottom): the last actions with progress and result. Running tasks
   stay on top. Drag the top edge to resize, or collapse it with the arrow.
   **All tasks** opens the full log. A running task that can be stopped (backup,
@@ -38,6 +38,7 @@ How to do the everyday things in the web UI. To install, see
   error that says "cancelled", and what it had made so far is removed. The
   **Tasks** page has the same **x**.
 - **Status** is always a dot and the state name, for example green Running, amber Paused, red Offline, grey Shutoff.
+- **Help**: a small **?** after a label or a line. Point at it (or tab to it) and the explanation shows in a box.
 - **Sub pages**: some tabs hold several separate areas. They show a short list of sub pages at the left of the
   tab (like the tree at the left of the screen). Choose an entry to see only that sub page. The list stays in view
   when the page is long. The choice is part of the address, so reload, back and links keep it. On a narrow screen the
@@ -50,7 +51,7 @@ How to do the everyday things in the web UI. To install, see
 | VM **Backups** | Backups, Schedule |
 | Node **Settings** | Connection, Encrypted migration |
 
-The other tabs (Overview, Performance, Console, a node's Summary, Virtual machines, Storage, Network and Updates) are
+The other tabs (Overview, Performance, a node's Summary, Virtual machines, Storage, Network and Updates) are
 one page each.
 
 Long actions (snapshots, migration, backups, downloads) run in the background.
@@ -182,7 +183,7 @@ Good to know:
 1. **Virtual machines > New VM** (or right-click a node > **Add VM**).
 2. Pick what to install from:
    - **Installer ISO**: boots an ISO from a pool. Upload ISOs under Storage.
-   - **Disk image**: copies a cloud image. Open **Cloud-init** to set the
+   - **Disk image**: copies a cloud image. Open **Guest setup** to set the
      user, password and SSH key. The guest agent is installed too.
    - **Empty disk**.
 3. A Linux VM gets UEFI firmware unless you choose BIOS under **Advanced** (a node without UEFI firmware gets BIOS).
@@ -193,7 +194,9 @@ Good to know:
    system partition can only start with BIOS, and a disk with one and no BIOS boot code only with UEFI. The
    other choice is then greyed out with a note. Leave **CPU type** on **Cluster baseline** unless you need host
    features: it is the best CPU every online node can run, so live migration works.
-5. **Create**. Every new VM gets a serial console.
+5. **Network** lists the node's networks, and as `NAME (host bridge)` its bridges that no network uses. **Import disk
+   or OVA** offers the same list.
+6. **Create**. Every new VM gets a serial console.
 
 ### Manage
 
@@ -209,13 +212,30 @@ Good to know:
 | Power | Start, stop and restart, gracefully or forced. |
 | Edit Settings | Name, CPU, memory, and the other Hardware cards. |
 | Snapshots | Take, manage, schedule. |
-| Clone | Clone the VM (shut it down first). A template is cloned linked; **Advanced** offers a full copy. |
+| Clone | Clone the VM (shut it down first). A template is cloned linked; **Advanced** offers a full copy. **Guest setup** sets a user, password, SSH keys and packages (see below). |
 | Convert to template | Optionally resets the identity of a running guest. **Convert back to a VM** undoes it. |
 | Migrate | To another node, or move a disk to another pool. |
 | Replication | Keep a standby copy on another node ([Replication and failover](#replication-and-failover)). |
 | More | **Edit XML**, and **Delete VM** (shut the VM down first; its disks are deleted too unless you untick the box). |
 
-Sync guest clock is under **Power**.
+Sync guest clock is under **Power**. A guest whose hardware clock runs in local time (Windows) gets its clock synced by
+itself after a start from Virticle and after a restore that starts it, once its guest agent answers. A VM that the node
+starts at boot is not synced.
+
+**Guest setup on clone.** When you open **Guest setup** in the clone dialog, Virticle looks into the source's disk
+(a few seconds) and says how the settings reach the clone:
+
+| Line | Meaning |
+| --- | --- |
+| Applied by cloud-init at first start | The template has cloud-init: a seed disc, as for a cloud image. |
+| Written into the disk: this template has no cloud-init | A Linux template without cloud-init (installed from an ISO, say): the user, password, keys and host name are written into the clone's disk before it starts. Packages are installed at its first start. Profiles and raw user-data are not offered. |
+| Applied by Windows setup at first start | A Windows template: an answer file. |
+| Not possible: REASON | For example an unknown system or an encrypted disk. The fields are greyed out and a clone with such settings is refused. |
+| Not checked (REASON): needs cloud-init in the guest | The disk was not looked into, for example because the node has no guest disk tools (`prepare --minimal`): a seed disc, as for a cloud image. |
+
+![Clone dialog with Guest setup written into the disk](img/clone.png)
+
+Details: [reference](reference.md#guest-setup-on-clone).
 
 - **Tags** sit beside the name. Click **+ Add Tag**; filter by tag in the tree
   and the VM list.
@@ -224,13 +244,21 @@ Sync guest clock is under **Power**.
 
 ## Console
 
-![VNC console](img/vm-console.png)
+![Graphical console inside the Console card](img/vm-console.png)
 
-- **Display (VNC)** is the VM's screen. **Serial console** is a text terminal.
+- The console opens from the **Console** card on the Overview: in a new tab, or inside the card, which then takes
+  the width of the page and the height of the window (the settings button on the card chooses). **Console** links
+  elsewhere open it inside the card. **Collapse** goes back to the still preview.
+- The graphical console is the VM's screen; the serial console is a text terminal. A VM with both starts with the
+  graphical one; **Serial** / **Graphical** in the toolbar changes to the other.
 - **Keys** sends combinations the browser would swallow. **Paste text** types
-  your clipboard into the guest.
-- A VM without a serial console: the **Console** tab offers to add one.
+  text into the guest, on the graphical and on the serial console. On the graphical console it types key presses on a
+  US layout; on the serial console the text goes as it is.
+- The serial console also has **Copy all** (the whole terminal buffer) and **Clear**.
+- A VM without any console: the **Console** card offers **Add serial console**.
 - Viewers cannot open a console.
+
+![Serial console with its toolbar](img/vm-serial.png)
 
 ## Hardware
 
@@ -338,7 +366,8 @@ backup per day for a week, one per week for a month and one per month for half a
 **Frozen file systems.** For a running VM with the QEMU guest agent connected, Virticle freezes the guest's file systems
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
 the files (databases and journals included). The task says "guest file systems frozen" or "not frozen:" with the reason (no
-guest agent, agent not answering). If the freeze fails the backup is made anyway. Scheduled backups freeze the guest the same way.
+guest agent, agent not answering, no freeze within 2 minutes). If the freeze fails the backup is made anyway; a freeze that
+takes effect after the 2 minutes is thawed at once. Scheduled backups freeze the guest the same way.
 A shut-off VM has nothing to freeze. If Virticle cannot thaw the guest afterwards, the task fails and says how to thaw it by hand.
 
 The **Backups** page in the top bar lists the backups of every VM on every node. The backup of the controller itself is
@@ -582,8 +611,9 @@ transfer:
 1. Open the node, **Settings** (the **Connection** sub page), and choose **Change** next to **Migration
    network**. The row appears only when the node has more than one address.
    (The same list is under **Advanced** in **Edit connection**. In the
-   **Network** tab, **Use for migration** next to an address does the same,
-   and a **Migration** mark shows the address in use.)
+   **Network** tab, **Edit** on a switch or card does the same with a
+   **Migration** checkbox per address, and a **Migration** mark shows the
+   address in use.)
 2. Pick the card, for example `enp2s0 (10.0.1.5), 10 Gb/s`. **Same as
    management** is the default.
 
@@ -709,15 +739,26 @@ stopped); select the arrow to open one. The filter finds a switch, a network or 
 
 | Part | What it is |
 | --- | --- |
-| Switch | A bridge on the node: a Linux or Open vSwitch bridge, or the bridge libvirt made for one of its networks. |
-| Networks (left) | The networks on the bridge (mode, VLAN, DHCP range, **Stopped**) and **Direct to bridge** for VM interfaces that use the bridge itself. Each lists its virtual machines with MAC and IP address. Select the name for the details; **Actions** changes the network. |
+| Switch | A bridge on the node: a Linux or Open vSwitch bridge, or the bridge libvirt made for one of its networks. The header has its name, kind and the node's own address on it (with its VLAN when it is on one). |
+| Networks (left) | The networks on the bridge (mode, VLAN, DHCP range, **Stopped**) and **Direct to bridge** for VM interfaces that use the bridge itself. Each lists its virtual machines with their IPv4 address, or the MAC address when none is known. Select the name for the details; **Actions** changes the network. |
 | Uplinks (right) | The network cards or bonds attached to the bridge, with link state, speed and addresses. A NAT, routed or isolated libvirt network has none and says so instead. |
-| This node's address | The node's own address on the switch. |
 | Unused network cards | Cards that belong to no bridge. |
 | Host interfaces | Every interface of the node with type, state, MAC address, addresses, MTU and speed (folded; select it to read the node). |
 
-The card or bridge that holds the address the controller uses to reach the node is marked **Management**.
-Addresses of virtual machines come from DHCP leases, so a guest with a fixed address shows none. Uplinks of Open
+The card or bridge that holds the address the controller uses to reach the node is marked **Management**; the address
+that carries migrations is marked **Migration**. Administrators change both with **Edit** on a switch or on an unused card
+that has an address: one **Management** and one **Migration** checkbox per address, then **Save**.
+
+| Checkbox | Effect |
+| --- | --- |
+| Management | The controller reaches the node at this address. It tests the connection first and refuses an address it cannot reach. Moved by ticking another address; not offered for a node reached by host name (change that under **Settings**, **Connection**) or for an IPv6 address. A jump host stays as it is. |
+| Migration | Migration data from the other nodes goes to this address. Unticked: back to the management address, the default. |
+
+![Edit dialog of a switch](img/network-edit.png)
+
+Addresses of virtual machines come from the DHCP leases of the network, else from the addresses the node has seen
+for the MAC address (its neighbour table), never from the guest agent. A shut-off VM, or one the node has not seen on
+the network yet, shows its MAC address. Uplinks of Open
 vSwitch bridges are not listed. A network that is stopped, or whose bridge is gone, is still drawn, with
 **Stopped**, so you can start or delete it.
 
@@ -835,7 +876,7 @@ migration or storage. The switch must filter VLANs. The new address does not bec
 2. Enter the **VLAN id** (a new id is added to the allowed ids of the switch) and choose **From DHCP** or **Enter an address**
    (with prefix, for example `10.30.0.5/24`).
 3. Only if this VLAN should carry the node's default route: **Advanced**, **Use this VLAN for the default route of this node**, and the gateway.
-4. Select **Review**, then **Apply**. The address appears under **This node's address** with its VLAN. With DHCP the change does not wait for a lease.
+4. Select **Review**, then **Apply**. The address appears in the header of the switch with its VLAN. With DHCP the change does not wait for a lease.
 
 **Actions** also has **Remove address on VLAN N** (not possible for the address the controller uses to reach the node). Moving
 the node's main address onto a VLAN is not offered.
@@ -849,8 +890,16 @@ switch has VLANs, a VLAN number (empty means no tag). On an Open vSwitch bridge 
 nodes have a virtual switch with the same name, **Create the same network on ...** is selected: a virtual machine can
 only migrate to a node that has a network of the same name. **Actions** on the switch has **Edit VLANs** (refused while a
 network or an address of the node uses an id you remove) and **Remove** (not possible while networks or virtual machines use the switch; the
-node's address returns to the card). A bridge that somebody made by hand shows **Not managed by Virticle** and cannot be
-changed here.
+node's address returns to the card).
+
+**Bridges set up on the node by hand.** A Linux bridge made with NetworkManager or netplan is a virtual switch like the
+others when Virticle can express every setting of it: same box, same **Actions**. The first change takes its definition
+over: the review lists the profiles or files that change, and a rollback brings them back as they were. A bridge with a
+setting Virticle does not have (STP on, a bond option, a VLAN interface on it, files of ifupdown, made with `ip link` and not
+saved) says why in a few words, with details under **?**. It has no **Actions**, but networks and VM interfaces can still use
+it. The rules are in the [reference](reference.md#host-bridges-virtual-switches).
+
+![A bridge set up by hand that is not editable, with the reason under ?](img/network-not-editable.png)
 
 **If the node becomes unreachable.** Moving the address of the card the controller uses is the risky case. The node
 saves its previous settings first and restores them by itself if the controller does not confirm within the confirm time.

@@ -714,10 +714,10 @@ function NICForm({ d, nic, send, onClose }: { d: VMDetail; nic?: NicT; send: Sen
       <DialogAdvanced>
         {nic ? (
           <div className="grid2">
-            <Field label="Download limit (Mbit/s)" hint="Traffic to the VM.">
+            <Field label="Download limit (Mbit/s)" help="Traffic to the VM.">
               <input inputMode="numeric" placeholder="No limit" value={down} onChange={(e) => setDown(e.target.value)} />
             </Field>
-            <Field label="Upload limit (Mbit/s)" hint="Traffic from the VM.">
+            <Field label="Upload limit (Mbit/s)" help="Traffic from the VM.">
               <input inputMode="numeric" placeholder="No limit" value={up} onChange={(e) => setUp(e.target.value)} />
             </Field>
           </div>

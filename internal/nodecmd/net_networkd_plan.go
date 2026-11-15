@@ -311,6 +311,15 @@ func ndCardsRuntime(from, to *bridgeSpec, ignore bool) []netStep {
 }
 
 func (networkdStack) plan(c *Ctx, in *planInput) (*netPlanned, error) {
+	if in.Foreign != nil {
+		if in.Foreign.npEdits == nil {
+			return nil, Fail("%s cannot be changed here", in.Old.Bridge)
+		}
+		if in.Req.Action == nodeproto.NetDelete {
+			return npForeignDeletePlan(in), nil
+		}
+		return npTakeover(c, in)
+	}
 	switch in.Req.Action {
 	case nodeproto.NetCreate:
 		return ndCreate(c, in)

@@ -20,15 +20,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"virticle/internal/buildinfo"
 
 	"virticle/internal/backupkey"
 	"virticle/internal/cluster"
 )
 
+// backupAppVersion is what a new manifest records as its writer: "virticle 0.4.1", or "virticle dev" for a plain build.
+func backupAppVersion() string { return "virticle " + buildinfo.Version }
+
 const (
 	backupFormat      = 1
 	backupSuffix      = ".vmbackup"
-	backupAppVersion  = "virticle dev"
 	backupTimeLayout  = "20060102T150405Z"
 	backupMaxManifest = 64 << 10
 	backupMaxXML      = 1 << 20

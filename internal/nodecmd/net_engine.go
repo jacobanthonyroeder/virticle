@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -144,6 +145,9 @@ type netPlanned struct {
 	Summary []string
 	Move    *nodeproto.NetAddressMove
 	Warn    []string
+	// Keep are files that the steps change through a tool (NetworkManager deletes its own profile files):
+	// they are saved with the change and put back by a rollback like the files the steps write.
+	Keep []string
 }
 
 type savedFile struct {
@@ -407,7 +411,13 @@ func (c *Ctx) saveState(m *netMeta, pl *netPlanned, snap *netSnap) error {
 	if err := os.MkdirAll(filepath.Join(dir, "captures"), 0o700); err != nil {
 		return err
 	}
-	for i, p := range touchedPaths(pl.Steps) {
+	paths := touchedPaths(pl.Steps)
+	for _, p := range pl.Keep {
+		if !slices.Contains(paths, p) {
+			paths = append(paths, p)
+		}
+	}
+	for i, p := range paths {
 		sf := savedFile{Path: p}
 		b, err := os.ReadFile(c.hostPath(p))
 		switch {
