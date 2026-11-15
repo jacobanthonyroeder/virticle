@@ -723,6 +723,7 @@ func (m *bkRun) liveBackup(wd *bkWork, stamp time.Time, lo, hi float64) error {
 		m.fz = out
 		if out.ThawErr != nil {
 			m.thawErr = out.ThawErr
+			noteFrozen(m.src.Name, m.uuid, m.name, out.ThawErr) // an alert until the guest is seen thawed
 		}
 		if err == nil {
 			m.ckName = name

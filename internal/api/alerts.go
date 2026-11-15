@@ -124,6 +124,7 @@ func (s *Server) gatherAlertInput(now time.Time) alertInput {
 		in.Pools = append(in.Pools, pools...)
 		in.Debounced = append(in.Debounced, storage...)
 		in.VMs = append(in.VMs, gatherBadVMs(h, n.ID, name)...)
+		in.Frozen = append(in.Frozen, gatherFrozen(h, n.ID, name)...)
 		reps, stale := gatherReplicas(h, n.ID, name)
 		in.Replicas = append(in.Replicas, reps...)
 		in.Stale = append(in.Stale, stale...)
