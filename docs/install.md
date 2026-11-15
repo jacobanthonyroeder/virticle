@@ -366,6 +366,36 @@ file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
 
+### From 0.5.x to 0.6.0
+
+1. **Upgrade the controller** as above. Stop the old controller first; two controllers of different versions must never
+   manage the same nodes. The database schema goes from 6 to 8, so the controller copies the database first (see
+   above). Going back to 0.5.0 afterwards means putting that copy back.
+2. **Update Virticle on each node.** The node command has protocol 23 (0.5.0 had 22). After the upgrade every node is
+   marked **Virticle update needed**, and the **Nodes** page shows "N nodes need a Virticle update" with
+   **Update Virticle on nodes**. Until a node is updated, migration, backups, replication and the other features that
+   need root stop on it; VMs keep running. Choose **Update Virticle on nodes** (one administrator login for all nodes),
+   or **Settings > Update Virticle** on each node, or run `virticle node prepare admin@host` (add `--root` for a Root
+   node). On a node itself: `sudo virticle node prepare`.
+
+What changes by itself:
+
+| What | After the upgrade |
+| --- | --- |
+| Words on the Nodes page | **Outdated** is **Virticle update needed**; **Prepare all** is **Update Virticle on nodes**. The action is the same. |
+| Dialogs of long actions (migrate, clone, backup, snapshot and others) | Close once the task is accepted. The task runs in the dock at the bottom; a failure shows as a toast that stays and as an alert for the user who started it. **Run in background** is gone. |
+| Tasks dock and Tasks page | One table: columns do not wrap and can be resized, **Result** says what was done, a row opens the task. |
+| Audit | An administrator opens an entry or a task to see the libvirt calls (as `virsh` commands) and node commands it ran. Only changes made after the upgrade have them. |
+| A VM's menu in the tree | The same menu as **Actions** on the VM's page. |
+| A failed migration | Files it made on the target are removed only when they are proven to be its own and unused; otherwise they are kept and an alert lists them with **Remove** and **Keep**. Leftovers of migrations that failed before the upgrade are not known to it. |
+| A live migration whose last answer from the target is lost | The VM stays paused on the source until the target says where it runs. Before, the source resumed at once. |
+| Command line | `virticle setup` creates the first administrator and adds the machine as a node; `virticle node add`, `node list`, `node remove` and `status` talk to the running controller. Nothing to do for an existing install. |
+
+What to check:
+
+- **Nodes**: no node is marked **Virticle update needed** any more.
+- **Alerts**: no "Files of a failed migration ... are left" or "The migration of ... needs attention" alert you did not expect.
+
 ### From 0.4.x to 0.5.0
 
 1. **Upgrade the controller** as above. Stop the old controller first; two controllers of different versions must never
@@ -424,8 +454,9 @@ What stays as it was:
 
 ### From 0.2.0 to 0.3.0
 
-From 0.2.0 straight to 0.5.0: follow these steps, and read [From 0.3.x to 0.4.0](#from-03x-to-040) and
-[From 0.4.x to 0.5.0](#from-04x-to-050) first. The node command then has protocol 22.
+From 0.2.0 straight to 0.6.0: follow these steps, and read [From 0.3.x to 0.4.0](#from-03x-to-040),
+[From 0.4.x to 0.5.0](#from-04x-to-050) and [From 0.5.x to 0.6.0](#from-05x-to-060) first. The node command then has
+protocol 23.
 
 Nodes need to be prepared again, because the node command has a new version (protocol 20, it was 10). Until you do, a node
 shows "prepared by an older version" and the features that need root on it are off: migration, backups, replication,

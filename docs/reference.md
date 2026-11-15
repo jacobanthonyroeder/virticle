@@ -864,7 +864,7 @@ name, each with a fixed pattern); the caller cannot pass commands. The script is
   `disk-boot`); rolling updates (`update-start`, `update-run`, `update-status`, `node-reboot`, `selfcheck`); replication
   (`repl-overlay`, `repl-rebase`, `repl-commit`, `repl-ls`, `mtime`, `qcow2-bitmap-rm`, `work-ls`, `tpm-save`, `tpm-place`,
   `hook-qemu`, `peer-ask`, `vm-probe`).
-- The database schema is **8** (0.5.0 had 7; 8 adds the tables `mig_runs` and `mig_files`, the journal of
+- The database schema is **8** (0.5.0 had 6; 7 adds the table `ops`, the operations of audit entries and tasks; 8 adds the tables `mig_runs` and `mig_files`, the journal of
   [failed migrations](#failed-migrations); 0.3.0 added the table `rolling_runs`). A controller that finds a database of a newer schema
   logs a warning and carries on; do not use that, see below.
 - **Two controllers of different versions must never manage the same nodes.** An older controller does not know the
