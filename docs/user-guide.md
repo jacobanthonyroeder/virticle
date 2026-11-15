@@ -103,6 +103,8 @@ listed: they cannot say, so prepare them when they are back.
 - **Prepare all** installs this Virticle version's node command on nodes that have an old one or none.
 - **Update packages** installs the operating system's package updates on the nodes ([below](#update-packages-rolling-update)).
 
+![Nodes page with two nodes that need preparing](img/prepare-all.png)
+
 A node has the tabs **Summary**, **Performance**, **Virtual machines**, **Storage**, **Network**,
 **Updates** and **Settings**.
 
@@ -122,6 +124,8 @@ What you can do with a node:
 out of the way first. **Update this node** on a node's **Updates** tab does the same for that node alone. Administrators
 only. The **Updates** tab lists every package update available for the node (package, installed version, available
 version, source); **Check again** reads the list anew.
+
+![Updates tab of a node](img/node-updates.png)
 
 ![Rolling update plan](img/rolling-update-plan.png)
 
@@ -296,6 +300,8 @@ restored VM starts with an empty TPM. Backups made before Virticle saved TPM sta
 4. On the **Schedule** sub page, **Set up schedule** and **Save schedule** make backups run by themselves: every so many
    minutes or hours, or daily. **Keep** sets how many to keep ([Retention](#retention)).
 
+![Backups tab of a VM](img/vm-backups.png)
+
 ### Retention
 
 The schedule keeps backups by rules. A backup kept by any rule stays; the others are deleted after each new backup.
@@ -326,6 +332,8 @@ backup per day for a week, one per week for a month and one per month for half a
 - Retention never deletes the newest backup, a backup that a restore or an export is reading, or anything they need. It
   runs only after the new backup is complete. The task names how many older backups it deleted.
 - A schedule saved before these rules keeps working with its **Keep the newest** number (it shows as **Last**).
+
+![Schedule with the assistant](img/schedule-assistant.png)
 
 **Frozen file systems.** For a running VM with the QEMU guest agent connected, Virticle freezes the guest's file systems
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
@@ -381,6 +389,8 @@ Good to know:
 
 **Settings > Backup encryption** (administrators) turns on encryption for VM backups and for the controller's scheduled
 backups. It uses [age](https://age-encryption.org). One key serves the whole installation.
+
+![Backup encryption page](img/backup-encryption.png)
 
 1. **Turn on encryption**: type a passphrase twice (10 characters or more). The browser downloads the **recovery key file**
    `virticle-backup-key.age`. Keep it off the controller, together with the passphrase. You can download it again later
@@ -695,7 +705,7 @@ on a click, and a network that has the same name on several nodes gets the same 
 switches the first four are open and the others show one line (name, state, how many networks and how many are
 stopped); select the arrow to open one. The filter finds a switch, a network or a virtual machine by name.
 
-![The Network tab of a node](img/topology.png)
+![The Network tab of a node](img/network.png)
 
 | Part | What it is |
 | --- | --- |
@@ -913,6 +923,8 @@ shows the time and the value of each line of that chart, and a line marks the sa
 previous range. A gap is a gap: the VM was not running, or the node or the controller could not be read; nothing is
 drawn as zero. Small markers on the axis show that a VM started (triangle), stopped (square) or moved to another node
 (diamond). *Download CSV* saves the current view for a spreadsheet.
+
+![Values next to the pointer](img/performance-hover.png)
 
 **What is shown.**
 
