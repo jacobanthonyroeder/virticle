@@ -1,7 +1,8 @@
 // Small shared building blocks.
-import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { cloneElement, createContext, isValidElement, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import Select from "./Select";
+import Help from "./Help";
 import "./menu.css";
 
 // Open modals, oldest first: Escape closes only the topmost (a confirmation opened from a dialog).
@@ -62,20 +63,31 @@ export function StateBadge({ state }: { state: string }) {
 }
 
 /** A labelled form row. `group` is for rows of buttons: a <label> around buttons would swallow the first one's name. */
-export function Field(props: { label: string; hint?: string; children: ReactNode; group?: boolean }) {
+/** hint: a rule or a state of the value, shown under the field. help: an explanation, behind the "?" by the label. */
+export function Field(props: { label: string; hint?: string; help?: ReactNode; children: ReactNode; group?: boolean }) {
   if (props.group) {
     return (
       <div className="field" role="group" aria-label={props.label}>
-        <span>{props.label}</span>
+        <span>
+          {props.label}
+          {props.help && <Help label={`About ${props.label}`}>{props.help}</Help>}
+        </span>
         {props.children}
         {props.hint && <small>{props.hint}</small>}
       </div>
     );
   }
+  // The "?" sits inside the label, so its name would become part of the field's name ("Folder About Folder"):
+  // with help, a plain input, select or textarea is named by the label text alone.
+  const c = props.children;
+  const named = props.help && isValidElement<Record<string, unknown>>(c) && typeof c.type === "string" && !c.props["aria-label"] ? cloneElement(c, { "aria-label": props.label }) : c;
   return (
     <label className="field">
-      <span>{props.label}</span>
-      {props.children}
+      <span>
+        {props.label}
+        {props.help && <Help label={`About ${props.label}`}>{props.help}</Help>}
+      </span>
+      {named}
       {props.hint && <small>{props.hint}</small>}
     </label>
   );

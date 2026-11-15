@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"virticle/internal/buildinfo"
 )
 
 func goodManifest() backupManifest {
@@ -199,8 +200,8 @@ func TestParseManifestFromBeforeRename(t *testing.T) {
 	if err != nil || m.AppVersion != "virt-proj dev" || m.VM != "web-1" {
 		t.Fatalf("%+v %v", m, err)
 	}
-	if backupAppVersion != "virticle dev" {
-		t.Fatalf("new manifests carry %q", backupAppVersion)
+	if got := backupAppVersion(); got != "virticle "+buildinfo.Version {
+		t.Fatalf("new manifests carry %q", got)
 	}
 }
 

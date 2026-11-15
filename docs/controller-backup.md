@@ -90,6 +90,13 @@ files it keeps and how far back, and about how much space (the size of the last
 file times the number kept) next to the free space. An install that had the daily
 copy on keeps it, with 7 dailies.
 
+**Folder** in the same form chooses where the files go, for example a mounted share
+(`/mnt/backup/virticle`). The folder is created and checked when you save: the
+controller must be able to write there. An installed controller may write below
+`/var/lib/virticle`, `/mnt`, `/media` and `/srv`; the folder must be writable by the
+account `virticle`. A folder inside the data directory other than the default is
+refused. Backups already in the old folder stay there and are no longer thinned out.
+
 While [backup encryption](user-guide.md#encrypted-backups) is off, these files are
 not encrypted; only the controller's account can read them. While it is on, each copy
 is encrypted to the backup key (`...tar.gz.age`): the controller needs only the public

@@ -213,7 +213,7 @@ function UtilCard({ d, s, g }: { d: VMDetail; s: Stats; g?: GuestInfo }) {
   );
 }
 
-export default function Overview({ d, base, onChanged, openReplication }: { d: VMDetail; base: string; onChanged: () => void; openReplication: () => void }) {
+export default function Overview({ d, base, onChanged, openReplication, consoleOpen, onConsoleClose }: { d: VMDetail; base: string; onChanged: () => void; openReplication: () => void; consoleOpen?: boolean; onConsoleClose?: () => void }) {
   const act = useAction();
   // libvirt announces no event for an autostart change, so the box follows the click at once and the detail is reloaded.
   const [auto, setAuto] = useState(d.autostart);
@@ -239,7 +239,7 @@ export default function Overview({ d, base, onChanged, openReplication }: { d: V
   return (
     <div className="ov">
       <div className="ov-band">
-        <ConsoleCard d={d} />
+        <ConsoleCard d={d} open={consoleOpen} onClose={onConsoleClose} onChanged={onChanged} />
         <SummaryCard d={d} g={g} base={base} openReplication={openReplication} />
         <UtilCard d={d} s={s} g={g} />
       </div>

@@ -7,7 +7,8 @@ It needs libvirt 11.0 or newer and QEMU 10.0 or newer, from its distribution (se
 **Prepare a node before you add it.** Either way works:
 
 - In the web UI: **Nodes > Add node**.
-- In a shell: `virticle node prepare admin@host`.
+- In a shell: `virticle node prepare admin@host`. On the machine itself (also when it runs the controller):
+  `sudo virticle node prepare`.
 
 This page tells you what prepare does, so you can check it or do the same by hand. The last part,
 [Reference: the node command](#reference-the-node-command), is for readers who audit the program that runs as root.
@@ -135,8 +136,11 @@ rule.
 ```
 virticle node prepare [--check] [--minimal] [--root] [--user NAME] [--use-existing-user[=NAME]] [--confirm]
                       [--from ADDR] [--take-over] [--jump user@host]
-                      [--identity FILE] [--password-stdin] [--data DIR] [user@]host[:port]
+                      [--identity FILE] [--password-stdin] [--data DIR] [[user@]host[:port]]
 ```
+
+Without a host, prepare works on the machine it runs on and must run as root (`sudo virticle node prepare`); no
+sign-in is needed. Then add the node with the machine's address.
 
 | Option | Meaning |
 | --- | --- |
@@ -149,7 +153,7 @@ virticle node prepare [--check] [--minimal] [--root] [--user NAME] [--use-existi
 | `--from ADDR` | Adds `from="ADDR"` to the key, so it works only from the controller's address. |
 | `--take-over` | The node trusts another Virticle controller's key (prepare then stops and asks): remove that key. See [controller-backup.md](controller-backup.md#c-there-is-no-backup-and-the-controller-is-lost). |
 | `--jump user@host` | Reaches the node through a jump host. |
-| `--identity FILE`, `--password-stdin` | How you sign in as administrator (default: your SSH agent). |
+| `--identity FILE`, `--password-stdin` | How you sign in to another host as administrator. Default: your SSH agent; without one, a terminal asks for the password. `--password-stdin` is for scripts. |
 | `--data DIR` | The controller's data directory (its key, `known_hosts`, instance id). Default `data`. |
 
 The web dialog has one choice, **Root access instead of a service account**, and under **Advanced** a jump host and

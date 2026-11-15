@@ -327,7 +327,7 @@ function CreateVolume({ base, pool, onClose }: { base: string; pool: Pool; onClo
             <input type="number" min={1} value={gib} onChange={(e) => setGib(Number(e.target.value))} />
           </Field>
           {fileBased && (
-            <Field label="Format" hint="qcow2 supports snapshots and grows on demand.">
+            <Field label="Format" help="qcow2 supports snapshots and grows on demand.">
               <Select
                 label="Format"
                 value={format}
@@ -426,7 +426,7 @@ function CreatePool({ node: initialNode, nodes, onClose, onDone }: { node: numbe
             </div>
           )}
           {type === "xml" && (
-            <Field label="Pool definition" hint="Any pool type libvirt supports: Ceph RBD, ZFS, Gluster and others.">
+            <Field label="Pool definition" help="Any pool type libvirt supports: Ceph RBD, ZFS, Gluster and others.">
               <textarea spellCheck={false} rows={10} value={f.xml} onChange={set("xml")} required placeholder="Pool definition (XML)" />
             </Field>
           )}

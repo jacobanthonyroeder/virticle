@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { bytes, get, Network, post, Task, Volume } from "../api";
 import Select from "../Select";
+import { attachBody, useAttachOptions } from "../BridgeSelect";
 import { ErrorBox, Field, Modal, useAction } from "../ui";
 import { CheckList, StatusLine } from "../Checks";
 
@@ -171,6 +172,7 @@ function Finished({ node, done, onClose }: { node: number; done: Imported; onClo
   const [mem, setMem] = useState(p?.memoryMiB ?? 1024);
   const [network, setNetwork] = useState("");
   const [networks, setNetworks] = useState<Network[]>([]);
+  const attachOptions = useAttachOptions(node, networks);
   const act = useAction();
   useEffect(() => {
     get<Network[]>(`/nodes/${node}/networks`).then((n) => setNetworks(n.filter((x) => x.active))).catch(() => {});
@@ -191,7 +193,7 @@ function Finished({ node, done, onClose }: { node: number; done: Imported; onClo
   }
   const create = () =>
     act.run(async () => {
-      const r = await post<{ uuid: string }>(`/nodes/${node}/vms`, { ...p, name, vcpus, memoryMiB: mem, network, start: false });
+      const r = await post<{ uuid: string }>(`/nodes/${node}/vms`, { ...p, name, vcpus, memoryMiB: mem, ...attachBody(network), start: false });
       onClose();
       nav(`/vm/${node}/${r.uuid}`);
     });
@@ -207,7 +209,7 @@ function Finished({ node, done, onClose }: { node: number; done: Imported; onClo
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Network">
-          <Select label="Network" value={network} onChange={setNetwork} options={[{ value: "", label: "None" }, ...networks.map((n) => ({ value: n.name, label: n.name }))]} />
+          <Select label="Network" value={network} onChange={setNetwork} options={attachOptions} />
         </Field>
         <Field label="vCPUs">
           <input type="number" min={1} value={vcpus} onChange={(e) => setVcpus(Number(e.target.value))} />

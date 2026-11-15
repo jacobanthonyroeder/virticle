@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/digitalocean/go-libvirt"
+
 	"virticle/internal/cluster"
 	"virticle/internal/hostconn"
 )
@@ -104,6 +106,9 @@ type topoVMNIC struct {
 	Bridge   string
 	Dev      string
 	LinkDown bool
+	// Seen are the IPv4 addresses the node has seen for the MAC address (its neighbour table): what is known of a
+	// card on a plain bridge, which has no DHCP lease in libvirt.
+	Seen []string
 }
 
 type topoVM struct {
@@ -291,6 +296,11 @@ func composeTopology(in topoInput) (switches []topoSwitch, unused []topoUplink) 
 	for _, vm := range in.VMs {
 		for _, c := range vm.NICs {
 			ifc := topoIface{VM: vm.Name, UUID: vm.UUID, State: vm.State, MAC: c.MAC, IPs: []string{}, LinkDown: c.LinkDown}
+			seen := func() {
+				if len(ifc.IPs) == 0 {
+					ifc.IPs = append(ifc.IPs, c.Seen...)
+				}
+			}
 			switch {
 			// A running VM on a bridge-mode libvirt network is type "bridge" in the live XML, with the network's
 			// name still in source: it belongs to that network, not to "Direct to bridge".
@@ -298,9 +308,11 @@ func composeTopology(in topoInput) (switches []topoSwitch, unused []topoUplink) 
 				if ip := leases[c.Network][strings.ToLower(c.MAC)]; ip != "" {
 					ifc.IPs = append(ifc.IPs, ip)
 				}
+				seen()
 				g := netSwitch[c.Network].portGroup("net:"+c.Network, topoPortGroup{})
 				g.Interfaces = append(g.Interfaces, ifc)
 			case c.Type == "bridge" && c.Bridge != "":
+				seen()
 				g := bridge(c.Bridge).portGroup("direct", topoPortGroup{Kind: "direct", Active: true})
 				g.Interfaces = append(g.Interfaces, ifc)
 			default: // a network that no longer exists, or an attachment that is not a bridge
@@ -387,8 +399,8 @@ type topoResult struct {
 	unused   []topoUplink
 }
 
-// collectTopology reads one node. Per VM it costs one definition read and one state read; addresses come from
-// DHCP leases only, never from the guest agent.
+// collectTopology reads one node. Per VM it costs one definition read and one state read, and for a running VM one
+// read of the node's neighbour table; addresses come from DHCP leases, else from that table, never from the guest agent.
 func collectTopology(h *hostconn.Host, addr, migAddr string) (topoResult, error) {
 	nics, err := hostNICList(h)
 	if err != nil {
@@ -427,8 +439,21 @@ func collectTopology(h *hostconn.Host, addr, migAddr string) (topoResult, error)
 			continue
 		}
 		vm := topoVM{Name: d.Name, UUID: cluster.FormatUUID(d.UUID), State: stateName(state)}
+		// One read of the node's neighbour table per running VM; no question to the guest.
+		seen := map[string][]string{}
+		if vm.State == "running" {
+			if ifs, err := h.DomainInterfaceAddresses(d, uint32(libvirt.DomainInterfaceAddressesSrcArp), 0); err == nil {
+				for _, i := range ifs {
+					for _, a := range i.Addrs {
+						if len(i.Hwaddr) > 0 && a.Type == int32(libvirt.IPAddrTypeIpv4) {
+							seen[strings.ToLower(i.Hwaddr[0])] = append(seen[strings.ToLower(i.Hwaddr[0])], a.Addr)
+						}
+					}
+				}
+			}
+		}
 		for _, i := range x.Devices.Interfaces {
-			vm.NICs = append(vm.NICs, topoVMNIC{MAC: i.MAC.Address, Type: i.Type, Network: i.Source.Network, Bridge: i.Source.Bridge, Dev: i.Source.Dev, LinkDown: i.Link.State == "down"})
+			vm.NICs = append(vm.NICs, topoVMNIC{MAC: i.MAC.Address, Type: i.Type, Network: i.Source.Network, Bridge: i.Source.Bridge, Dev: i.Source.Dev, LinkDown: i.Link.State == "down", Seen: seen[strings.ToLower(i.MAC.Address)]})
 		}
 		in.VMs = append(in.VMs, vm)
 	}
