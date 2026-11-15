@@ -120,15 +120,35 @@ func (m *migRun) recordFile(p, id string, size uint64) error {
 	return nil
 }
 
-// recordUnsure records a file that may exist because of this run although its making was not confirmed (the
-// answer was lost). It has no identity, so it is never removed, only reported. A clear answer that the name was
-// taken already (by another file) records nothing.
-func (m *migRun) recordUnsure(p string, cause error) {
-	if cause != nil && (strings.Contains(cause.Error(), "already exists") || strings.Contains(cause.Error(), "appeared meanwhile")) {
-		return
+// recordPending records, before a file is made, that it is about to be made, without an identity. If the
+// controller stops before the answer comes, the entry stays: it is never removed by the rule (no identity), but it
+// is reported, and it is forgotten when no file of that name turns up.
+func (m *migRun) recordPending(p string) error {
+	if m.jid == 0 {
+		return nil
 	}
-	if st, err := m.dst.Stat(p); err == nil && len(st) == 1 && !st[0].Exists {
-		return // nothing was made
+	if err := m.s.Store.AddMigFile(m.jid, store.MigFile{Path: p, Reason: "being made"}); err != nil {
+		return fmt.Errorf("cannot record %s on %s in the database: %w", p, m.dst.Name, err)
+	}
+	return nil
+}
+
+// recordUnsure settles the entry of a file whose making failed. A clear answer that the name was taken already
+// (by another file), or no file under the name, forgets the entry. Otherwise the file may exist because of this run
+// although its making was not confirmed (the answer was lost): it stays recorded without an identity, so it is
+// never removed, only reported.
+func (m *migRun) recordUnsure(p string, cause error) {
+	forget := cause != nil && (strings.Contains(cause.Error(), "already exists") || strings.Contains(cause.Error(), "appeared meanwhile"))
+	if !forget {
+		if st, err := m.dst.Stat(p); err == nil && len(st) == 1 && !st[0].Exists {
+			forget = true // nothing was made
+		}
+	}
+	if forget {
+		if m.jid != 0 {
+			m.s.Store.DeleteMigFile(m.jid, p)
+		}
+		return
 	}
 	m.created = append(m.created, store.MigFile{Path: p, State: store.MigFilePresent})
 	if m.jid != 0 {

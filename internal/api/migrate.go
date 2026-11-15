@@ -1167,6 +1167,9 @@ func (m *migRun) copyFiles(lo, hi float64) error {
 		// The node command writes into a hidden part file and gives it the name only when it is complete, never
 		// over an existing file; it answers with the identity of the file it made, and only then is the file
 		// recorded as this run's (a half-written part file is removed by the node command itself).
+		if err := m.recordPending(f.Path); err != nil {
+			return err
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		m.setCopyCancel(cancel)
 		base := done
@@ -1221,6 +1224,9 @@ func (m *migRun) createActive() error {
 			if len(d.Chain) > 1 {
 				backing, bfmt = d.Chain[1].Path, d.Chain[1].Format
 			}
+			if err := m.recordPending(top.Path); err != nil {
+				return err
+			}
 			id, err := m.dst.ImageNew(top.Path, top.Format, top.VirtualSize, backing, bfmt)
 			if err != nil {
 				m.recordUnsure(top.Path, err)
@@ -1242,8 +1248,13 @@ func (m *migRun) createActive() error {
 			fmt.Fprintf(&b, "<backingStore><path>%s</path><format type='%s'/></backingStore>", esc(d.Chain[1].Path), esc(d.Chain[1].Format))
 		}
 		b.WriteString("</volume>")
+		if err := m.recordPending(top.Path); err != nil {
+			return err
+		}
 		if _, err := m.dst.StorageVolCreateXML(pl.pool, b.String(), 0); err != nil {
-			if !libvirtAnswered(err) {
+			if libvirtAnswered(err) {
+				m.recordUnsure(top.Path, errors.New("already exists")) // libvirt refused it: nothing was made by this run
+			} else {
 				m.recordUnsure(top.Path, err)
 			}
 			return fmt.Errorf("creating %s on %s: %w", top.Path, m.dst.Name, err)
@@ -1274,6 +1285,9 @@ func (m *migRun) createNVRAM() error {
 	}
 	if ex, err := m.dst.Exists(d.NVRAM); err != nil || ex[d.NVRAM] {
 		return fmt.Errorf("the UEFI variable file %s already exists on %s", d.NVRAM, m.dst.Name)
+	}
+	if err := m.recordPending(d.NVRAM); err != nil {
+		return err
 	}
 	id, err := m.dst.NewNVRAMID(d.NVRAMTemplate, d.NVRAM)
 	if err != nil {
