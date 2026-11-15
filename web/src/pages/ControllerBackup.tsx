@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { bytes, get, put } from "../api";
+import { bytes, get, post, put } from "../api";
+import ScheduleAssistant, { describeKeep, effectiveKeep, Freq, Keep, keepOf, Projection } from "../ScheduleAssistant";
 import { ErrorBox, Field, StateBadge, useAction } from "../ui";
 
 interface Rec {
@@ -10,9 +11,15 @@ interface Rec {
   ok: boolean;
   error?: string;
 }
-interface Status {
+interface Status extends Keep {
+  /** On (the name is from when it could only run daily). */
   daily: boolean;
-  keep: number;
+  mode: "daily" | "interval";
+  /** HH:MM, server time. */
+  at?: string;
+  everyHours?: number;
+  zone: string;
+  nextRun?: number;
   dir: string;
   last?: Rec;
   lastDaily?: Rec;
@@ -20,7 +27,14 @@ interface Status {
 }
 
 const when = (unix: number) => new Date(unix * 1000).toLocaleString();
-const VIA = { cli: "command line", download: "download", daily: "daily backup" };
+const VIA = { cli: "command line", download: "download", daily: "scheduled backup" };
+
+const freqOf = (st: Status): Freq =>
+  st.mode === "interval" ? { mode: "interval", at: "03:30", every: st.everyHours ?? 24, unit: "hours" } : { mode: "daily", at: st.at ?? "03:30", every: 24, unit: "hours" };
+
+const schedBody = (f: Freq, k: Keep) => ({ ...(f.mode === "interval" ? { mode: "interval", everyHours: f.every } : { mode: "daily", at: f.at }), ...effectiveKeep(f, k) });
+
+const describeFreq = (st: Status) => (st.mode === "interval" ? `Every ${st.everyHours} ${st.everyHours === 1 ? "hour" : "hours"}` : `Daily at ${st.at} server time`);
 
 /** Settings > Controller backup: the controller's own backup. Restore is only on the command line. */
 export default function ControllerBackup() {
@@ -32,6 +46,7 @@ export default function ControllerBackup() {
   const [pass2, setPass2] = useState("");
   const dl = useAction();
   const daily = useAction();
+  const [form, setForm] = useState<{ freq: Freq; keep: Keep } | undefined>();
 
   const load = useCallback(() => {
     get<Status>("/controller-backup").then(setSt, () => {});
@@ -86,7 +101,11 @@ export default function ControllerBackup() {
   const setDaily = async (on: boolean) => {
     if (await daily.run(async () => setSt(await put<Status>("/controller-backup", { daily: on })))) {
       if (on) setTimeout(load, 3000); // the first copy is written at once
+      else setForm(undefined);
     }
+  };
+  const saveSchedule = async () => {
+    if (form && (await daily.run(async () => setSt(await put<Status>("/controller-backup", schedBody(form.freq, form.keep)))))) setForm(undefined);
   };
 
   return (
@@ -129,24 +148,57 @@ export default function ControllerBackup() {
           </p>
         </form>
 
-        <div className="card" role="group" aria-label="Daily backup">
-          <h2>Daily backup on this server</h2>
+        <div className="card" role="group" aria-label="Backups on this server">
+          <h2>Backups on this server</h2>
           <label className="check">
-            <input type="checkbox" checked={!!st?.daily} disabled={!st || daily.busy} onChange={(e) => setDaily(e.target.checked)} /> Keep a daily backup on this server
+            <input type="checkbox" checked={!!st?.daily} disabled={!st || daily.busy} onChange={(e) => setDaily(e.target.checked)} /> Keep backups on this server
           </label>
           <p>
-            Writes a backup to <code>{st?.dir ?? "the backups folder"}</code> at 03:30 server time and keeps the newest {st?.keep ?? 7}. The files are not encrypted; only the controller&apos;s account can read them.
+            In <code>{st?.dir ?? "the backups folder"}</code>
+            {st && (
+              <>
+                : {describeFreq(st)}, keep {describeKeep(st)}
+              </>
+            )}
+            . Not encrypted; only the controller&apos;s account can read them.
           </p>
           <p>
-            Not a copy off this machine: use the download above or <code>virticle backup -o DIR</code> from cron.
+            Not a copy off this machine: use the download above or <code>virticle backup -o DIR --keep-daily 7</code> from cron.
           </p>
           <ErrorBox error={daily.error} />
+          {st && !form && (
+            <div className="actions">
+              <button onClick={() => setForm({ freq: freqOf(st), keep: keepOf(st) })}>Edit schedule</button>
+            </div>
+          )}
+          {st && form && (
+            <>
+              <ScheduleAssistant
+                freq={form.freq}
+                onFreq={(freq) => setForm((f) => f && { ...f, freq })}
+                keep={form.keep}
+                onKeep={(keep) => setForm((f) => f && { ...f, keep })}
+                units={["hours"]}
+                timeTitle={`Server time (${st.zone})`}
+                preview={() => post<Projection>("/controller-backup/preview", schedBody(form.freq, form.keep))}
+                deps={[]}
+                where="file system"
+              />
+              <div className="actions">
+                <button className="primary" disabled={daily.busy} onClick={saveSchedule}>
+                  Save schedule
+                </button>
+                <button onClick={() => setForm(undefined)}>Cancel</button>
+              </div>
+            </>
+          )}
           {st?.daily && st.lastDaily && (
             <p role="status">
-              Last daily backup: {when(st.lastDaily.time)} <StateBadge state={st.lastDaily.ok ? "ok" : "failed"} />
+              Last scheduled backup: {when(st.lastDaily.time)} <StateBadge state={st.lastDaily.ok ? "ok" : "failed"} />
               {!st.lastDaily.ok && st.lastDaily.error ? ` ${st.lastDaily.error}` : ""}
             </p>
           )}
+          {st?.daily && st.nextRun && <p className="muted">Next: {when(st.nextRun)}</p>}
         </div>
       </div>
     </>

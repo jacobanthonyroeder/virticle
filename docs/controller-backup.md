@@ -58,19 +58,42 @@ password again, and for a passphrase if you want the file encrypted.
 For a copy that survives losing the machine, run the command from cron and copy
 the file elsewhere, for example:
 
-    30 2 * * *  root  virticle backup -o /var/backups/virticle/ --passphrase-file /root/.virticle-backup-pass
+    30 2 * * *  root  virticle backup -o /var/backups/virticle/ --passphrase-file /root/.virticle-backup-pass --keep-daily 14 --keep-monthly 6
 
-Remove old files yourself; this command keeps all of them.
+Without `--keep-*` flags the command deletes nothing. With them and `-o DIR`, it
+deletes the older backups in DIR that the rules do not keep, after the new file is
+complete:
 
-### A daily copy on the same server
+| Flag | Keeps |
+| --- | --- |
+| `--keep-last N` | the newest N |
+| `--keep-hourly N` | the newest of each of the last N hours |
+| `--keep-daily N` | the newest of each of the last N days |
+| `--keep-weekly N` | the newest of each of the last N weeks (Monday to Sunday) |
+| `--keep-monthly N` | the newest of each of the last N months |
 
-**Settings > Controller backup > Keep a daily backup on this server** (off by default)
-writes a backup to `<data directory>/backups/` at 03:30 server time (plus up to
-20 minutes) and keeps the newest 7. These files are not encrypted, because a
-passphrase kept next to the data would protect nothing; only the controller's
-account can read them. They protect against a bad upgrade or a mistake, **not
-against losing the machine**. A copy that failed raises an alert on the Alerts
-page.
+A file kept by any rule stays. Periods are counted in the local time of the
+machine, from the time in the file name. Only files named
+`virticle-backup-HOST-STAMP.tar.gz` or `.tar.gz.age` are looked at; the file just
+written is never deleted. The rules are the same as for VM backups
+([user-guide.md](user-guide.md#retention)).
+
+### Copies on the same server
+
+**Settings > Controller backup > Keep backups on this server** (off by default)
+writes a backup to `<data directory>/backups/`. By default it runs daily at 03:30
+server time (plus up to 20 minutes) and keeps 7 daily ones. **Edit schedule** sets
+how often (daily at a time in server time, or every N hours) and how many to keep,
+with the same rules and assistant as a VM backup schedule: the next runs, how many
+files it keeps and how far back, and about how much space (the size of the last
+file times the number kept) next to the free space. An install that had the daily
+copy on keeps it, with 7 dailies.
+
+These files are not encrypted, because a passphrase kept next to the data would
+protect nothing; only the controller's account can read them. They protect against
+a bad upgrade or a mistake, **not against losing the machine**. A copy that failed
+raises an alert on the Alerts page. The task of a copy says how many older files it
+deleted.
 
 ## (a) Restore on the same machine
 

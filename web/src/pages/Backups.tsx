@@ -1,4 +1,6 @@
-import { describeWhen, NextRunLine, ScheduleWhen, When, whenBody, whenFrom } from "../ScheduleTime";
+import { describeWhen, NextRunLine } from "../ScheduleTime";
+import ScheduleAssistant, { describeKeep, effectiveKeep, Freq, Keep, keepOf, Projection } from "../ScheduleAssistant";
+import { browserZone, localToUtc, utcToLocal } from "../tz";
 import DialogAdvanced from "./DialogAdvanced";
 import { useEffect, useState } from "react";
 import { ApiError, bytes, del, get, NodeStatus, Pool, post, put, Task, VMDetail } from "../api";
@@ -144,6 +146,10 @@ function BackupNow(props: { d: VMDetail; onClose: () => void; onDone: () => void
   const [pool, setPool] = useState("");
   const [keep, setKeep] = useState(7);
   const [task, setTask] = useState(0);
+  // A backup into the schedule's target is pruned by the schedule's rules (the server decides; this only shows it).
+  const sched = useLive(() => get<{ schedule: BackupSched | null }>(`/nodes/${d.node}/vms/${d.uuid}/backup-schedule`), `/nodes/${d.node}/vms/${d.uuid}/backup-schedule`);
+  const sch = sched.data?.schedule;
+  const bySchedule = !!sch && (sch.targetNode || d.node) === node && sch.pool === pool;
   const [kind, setKind] = useState("");
   const [why, setWhy] = useState("");
   const [finished, setFinished] = useState(false);
@@ -192,9 +198,15 @@ function BackupNow(props: { d: VMDetail; onClose: () => void; onDone: () => void
         <>
           <p className="muted">Incremental when possible, otherwise full. Snapshots are not included; the TPM 2.0 state is, so keep backups as safe as the VM.</p>
           <Target node={node} pool={pool} setNode={setNode} setPool={setPool} />
-          <Field label="Keep the newest" hint="Older backups of this VM in this pool are deleted, except those a kept incremental backup builds on. 0 keeps all.">
-            <input type="number" min={0} max={1000} value={keep} onChange={(e) => setKeep(Number(e.target.value))} />
-          </Field>
+          {bySchedule ? (
+            <p className="muted" title="This pool is the schedule's target: its rules decide which older backups go">
+              Retention: schedule ({describeKeep(sch)}).
+            </p>
+          ) : (
+            <Field label="Keep the newest" hint="Older backups of this VM in this pool are deleted, except those a kept incremental backup builds on. 0 keeps all.">
+              <input type="number" min={0} max={1000} value={keep} onChange={(e) => setKeep(Number(e.target.value))} />
+            </Field>
+          )}
           <ErrorBox error={act.error} />
           <div className="actions">
             <button className="primary" disabled={act.busy || !pool} onClick={submit}>
@@ -387,21 +399,36 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
   );
 }
 
-interface BackupSched {
+interface BackupSched extends Keep {
   enabled: boolean;
   mode: "interval" | "daily";
   everyMinutes?: number;
   at?: string;
   targetNode: number;
   pool: string;
-  keepLast: number;
 }
 
 interface SchedForm {
-  when: When;
+  freq: Freq;
+  keep: Keep;
   targetNode: number;
   pool: string;
-  keepLast: number;
+}
+
+/** The form's frequency of a stored schedule: a UTC daily time becomes browser time; minutes stay minutes unless whole hours. */
+function freqFrom(s?: BackupSched | null): Freq {
+  if (s?.mode === "interval") {
+    const m = s.everyMinutes ?? 60;
+    return m % 60 === 0 ? { mode: "interval", at: "03:00", every: m / 60, unit: "hours" } : { mode: "interval", at: "03:00", every: m, unit: "minutes" };
+  }
+  const at = s?.at ? (utcToLocal(s.at, Date.now(), browserZone())?.time ?? s.at) : "03:00";
+  return { mode: "daily", at, every: 6, unit: "hours" };
+}
+
+/** The fields to send for a frequency: browser time becomes UTC. */
+function freqBody(f: Freq) {
+  if (f.mode === "interval") return { mode: "interval", everyMinutes: f.every * (f.unit === "hours" ? 60 : 1) };
+  return { mode: "daily", at: localToUtc(f.at, Date.now(), browserZone())?.time ?? f.at };
 }
 
 /** The schedule form and summary; the schedule lives in the VM's metadata. */
@@ -418,11 +445,18 @@ function SchedulePanel({ d }: { d: VMDetail }) {
     const n = nodes.find((x) => x.id === (id || d.node));
     return n?.hostname || n?.addr || `node ${id || d.node}`;
   };
-  const edit = () => setForm({ when: whenFrom(sch ?? undefined), targetNode: sch?.targetNode || d.node, pool: sch?.pool ?? "", keepLast: sch?.keepLast ?? 7 });
+  const edit = () =>
+    setForm({
+      freq: freqFrom(sch),
+      keep: keepOf(sch, { keepLast: 0, keepHourly: 0, keepDaily: 7, keepWeekly: 0, keepMonthly: 0 }),
+      targetNode: sch?.targetNode || d.node,
+      pool: sch?.pool ?? "",
+    });
+  const formBody = (f: SchedForm) => ({ ...freqBody(f.freq), targetNode: f.targetNode === d.node ? 0 : f.targetNode, pool: f.pool, ...effectiveKeep(f.freq, f.keep) });
   const save = async () => {
     if (!form) return;
     // A saved schedule is enabled.
-    const body = { ...whenBody(form.when), targetNode: form.targetNode === d.node ? 0 : form.targetNode, pool: form.pool, keepLast: form.keepLast };
+    const body = formBody(form);
     if (await act.run(() => put(path, body))) {
       setForm(undefined);
       cur.reload();
@@ -443,7 +477,7 @@ function SchedulePanel({ d }: { d: VMDetail }) {
           {sch ? (
             <p>
               {!sch.enabled && <><span className="badge">Paused</span>{" "}</>}
-              {describeWhen(sch)} to {sch.pool} on {nodeName(sch.targetNode)}, keeping the newest {sch.keepLast}.
+              {describeWhen(sch)} to {sch.pool} on {nodeName(sch.targetNode)}. Keep: {describeKeep(sch)}.
               {cur.data?.last ? ` Last backup ${when(new Date(cur.data.last * 1000).toISOString())}.` : " No backup there yet."}
             </p>
           ) : (
@@ -451,7 +485,7 @@ function SchedulePanel({ d }: { d: VMDetail }) {
           )}
           {sch && cur.data?.lastError && <StatusLine status="error">Cannot read the target: {cur.data.lastError}</StatusLine>}
           {sch && <NextRunLine nextRun={cur.data?.nextRun} runner={cur.data?.runner} enabled={sch.enabled} tick={cur.data?.tick} onElapsed={cur.reload} />}
-          {canEdit && (
+          {canEdit && (cur.data || cur.error) && (
             <div className="actions">
               <button onClick={edit} title={sch ? undefined : "A failed run raises an alert"}>{sch ? "Edit schedule" : "Set up schedule"}</button>
               {sch && (
@@ -465,13 +499,20 @@ function SchedulePanel({ d }: { d: VMDetail }) {
       )}
       {form && (
         <>
-          <div className="grid2">
-            <ScheduleWhen value={form.when} onChange={(when) => setForm({ ...form, when })} />
-            <Field label="Keep the newest" hint="Older backups of this VM in the target pool are deleted.">
-              <input type="number" min={1} max={1000} value={form.keepLast} onChange={(e) => setForm({ ...form, keepLast: Number(e.target.value) })} />
-            </Field>
-          </div>
           <Target node={form.targetNode} pool={form.pool} setNode={(n) => setForm((f) => f && { ...f, targetNode: n })} setPool={(p) => setForm((f) => f && { ...f, pool: p })} />
+          {form.pool && (
+            <ScheduleAssistant
+              freq={form.freq}
+              onFreq={(freq) => setForm((f) => f && { ...f, freq })}
+              keep={form.keep}
+              onKeep={(keep) => setForm((f) => f && { ...f, keep })}
+              units={["minutes", "hours"]}
+              timeTitle="Browser time"
+              preview={() => post<Projection>(`${path}/preview`, formBody(form))}
+              deps={[form.targetNode, form.pool]}
+              where="pool"
+            />
+          )}
           <ErrorBox error={act.error} />
           <div className="actions">
             <button className="primary" disabled={act.busy || !form.pool} onClick={save}>

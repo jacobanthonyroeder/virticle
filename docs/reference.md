@@ -8,7 +8,7 @@
 | `virticle version` | Prints version, commit and build date. |
 | `virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes]` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). On a terminal it asks which address and port the web interface uses (defaults: all addresses, 8463). `--address` (an IP address of this machine, or `all`) and `--port` answer those questions; they only apply while no administrator exists. It checks that the port is free, asks before it opens the port in firewalld or ufw (without a terminal it opens it, unless `--no-firewall`), makes sure the service runs and prints the address to open. `--yes` asks nothing and answers yes. `--check` changes nothing; `--undo` removes the firewall rule it added. Takes `-data`. See [install.md](install.md#setup-open-the-firewall). |
 | `virticle node prepare\|unprepare` | Prepares a host as a node, or undoes it. See [install-node.md](install-node.md). |
-| `virticle backup [-o FILE\|DIR] [--encrypt] [--passphrase-file FILE]` | Writes the controller's own data (database, SSH key, certificates) to one file, while the controller runs. Takes `-data`. |
+| `virticle backup [-o FILE\|DIR] [--encrypt] [--passphrase-file FILE] [--keep-last\|--keep-hourly\|--keep-daily\|--keep-weekly\|--keep-monthly N]` | Writes the controller's own data (database, SSH key, certificates) to one file, while the controller runs. With `-o DIR` and `--keep-*` flags it then deletes the older backups in DIR that the [retention rules](#retention) do not keep; without them it deletes nothing. Takes `-data`. |
 | `virticle restore FILE` | Puts such a file back; the controller must be stopped. Takes `-data` and `--passphrase-file`. See [controller-backup.md](controller-backup.md). |
 | `virticle web show\|set\|reset` | Reads or changes the stored web access settings. `show` and `reset` take only `-data`. See [web-tls.md](web-tls.md). |
 | `virticle user reset-2fa\|reset-password USER` | Recovery on the controller's machine: turn two-step sign-in off for a user, or set a new password for a local account. Takes `-data` and, for `reset-password`, `--password-stdin`. See [sign-in.md](sign-in.md#two-step-sign-in-authenticator-app). |
@@ -160,7 +160,7 @@ earlier versions no longer exist.
 - Stored in the VM's metadata and run by the controller. You enter and see times in your browser's time zone; they are stored in UTC.
 - **Snapshots**: interval or daily, keep newest N. Shut-off VMs are skipped.
   Only snapshots the scheduler made are pruned.
-- **Backups**: interval or daily, target node and pool, keep the newest N.
+- **Backups**: interval or daily, target node and pool, and [retention](#retention) rules.
 - **Replication**: every 5 minutes up to 1 day to one standby node ([Replication](#replication)).
 - A failed run of a backup or a replication is retried after 5 minutes and raises an alert.
 - Run one controller per set of nodes. With several, start all but one with
@@ -388,7 +388,8 @@ task is stopped afterwards (run `virticle node prepare` again). A linked clone t
   backup (then the VM's checkpoints are dropped and a full backup is made).
 - The checkpoints of the same target older than the new one are deleted after a backup; a VM keeps at most 4. A failed or
   cancelled backup deletes the checkpoint it made.
-- Retention keeps the newest N and every backup they build on, and deletes newest first. A restore reads the chain with one
+- Retention ([Retention](#retention)) keeps every backup a kept one builds on, and deletes newest first; it stops at
+  the first backup it cannot delete. A restore reads the chain with one
   `qemu-img convert` over a `json:` description of the images; nothing reads the VM's disks.
 - Snapshot revert, migration (live or offline) and disk move drop the VM's checkpoints first. Taking or deleting a snapshot (internal,
   or external with its overlay merged back) and a resize keep them: libvirt carries the change tracking into an overlay and
@@ -401,6 +402,60 @@ task is stopped afterwards (run `virticle node prepare` again). A linked clone t
 - A controller or node that stops in the middle of a backup leaves its hidden work directory (`.virticle-bk.XXXXXX`) in
   the pool directory. It is removed as described under "Work directories" (Replication). A directory no record names is
   removed by the next backup once nothing in it has changed for an hour, when no other backup of that controller is running.
+
+### Retention
+
+One rule set for scheduled VM backups (per VM and target node and pool), for a manual backup into the schedule's
+target, for the controller's copies on its server and for `virticle backup -o DIR --keep-*`. The same code prunes and
+computes the preview, so the two agree. Walking the backups newest first:
+
+| Field (API) | Flag | Keeps |
+| --- | --- | --- |
+| `keepLast` | `--keep-last` | the newest N |
+| `keepHourly` | `--keep-hourly` | the newest backup of each of the last N distinct hours that have a backup |
+| `keepDaily` | `--keep-daily` | the same per calendar day |
+| `keepWeekly` | `--keep-weekly` | the same per ISO week (Monday to Sunday) |
+| `keepMonthly` | `--keep-monthly` | the same per calendar month |
+
+- A backup kept by any rule is kept; the rest is deleted. Every count is 0 to 1000. All 0 keeps everything (a manual
+  backup's `keepLast: 0`); a schedule must keep something.
+- Periods are counted in the controller's local time zone, from the creation time in the manifest (VM backups) or the
+  file name (controller backups). The two 01:00 hours of a night when clocks go back are two hours.
+- Example, backups at 03:00 every day from 1 May, now 14 Nov, `keepDaily 7, keepWeekly 4, keepMonthly 6`: the dailies
+  8 to 14 Nov; weeklies 14 Nov (also a daily), 8 Nov (also a daily), 1 Nov and 25 Oct; monthlies 14 Nov, 31 Oct, 30 Sep,
+  31 Aug, 31 Jul and 30 Jun. That is 14 backups back to 30 Jun; incremental ones keep their chains on top of that.
+- A rule that cannot have an effect at the schedule's frequency is stored as 0: hourly for a schedule that runs at most
+  once a day, daily for at most once a week, weekly for at most every four weeks.
+- Never deleted: the backup just written (only after it reads back complete), a backup a restore or an export reads at
+  that moment, and every backup they build on. Deleting such a backup by hand is refused.
+- The task of a run that deleted backups ends with the note "N older backups deleted (keep RULES)".
+
+**Metadata.** The `backup-schedule` element keeps `keep-last` for a schedule with keep-last only, written as before.
+A schedule with any other rule is written with `keep-last="0"` and `keep-newest`, `keep-hourly`, `keep-daily`,
+`keep-weekly`, `keep-monthly`: a controller from before the rules refuses it (its keep-last must be 1 or more) instead of
+pruning it down to keep-last alone.
+
+**API.**
+
+- `GET/PUT /api/nodes/{id}/vms/{uuid}/backup-schedule`: the schedule has `keepLast`, `keepHourly`, `keepDaily`,
+  `keepWeekly`, `keepMonthly` (a field left out of a PUT is 0, `keepLast` 7).
+- `POST /api/nodes/{id}/vms/{uuid}/backup` with `keepLast`: into the pool of the VM's schedule (same node and pool) the
+  schedule's rules apply instead of `keepLast`.
+- `POST /api/nodes/{id}/vms/{uuid}/backup-schedule/preview` (operator) takes an unsaved schedule (the PUT body) and
+  answers what it keeps. `POST /api/controller-backup/preview` (admin) does the same for the controller's schedule.
+  The answer: `policy` (the rules as they would be stored), `ineffective` (rule: reason), `nextRuns` (Unix seconds),
+  `points` (the backups of the steady state, newest first: `time`, `reason`, `rules`, `full`), `kept`, `oldest`,
+  `complete` (false when very frequent runs were cut short at 600 000 simulated runs), `unbounded`, `zone`, `chains`,
+  `size` (`low`, `high`, `basis` `backups`/`disks`/`last`, `full`, `incremental`, `measured`, `fulls`, `incrementals`),
+  `free` and `used` (bytes in the target, and what the VM's backups or the controller's files take there now).
+- The steady state is the schedule run on paper from far enough back to fill the longest rule, up to now, pruned with
+  the same rules (chains: a full backup, then 6 incremental ones, for a running VM with qcow2 disks). The size is the
+  number of full backups times the size of the VM's last full one in the target, plus the incremental ones times the
+  average of the recent ones, plus or minus 20%; without an incremental one measured, 2 to 20% of a full backup each;
+  with no backup at all, the allocated size of the disks.
+- `GET/PUT /api/controller-backup`: `daily` (on), `mode` (`daily` or `interval`), `at` (HH:MM, server time),
+  `everyHours` (1 to 168), the five `keep*` fields, `zone`, `nextRun`. Fields left out of a PUT keep their values.
+  Stored settings from before have only `daily`: daily at 03:30 with `keepDaily 7`. The old field `keep` is gone.
 
 ## Node access
 

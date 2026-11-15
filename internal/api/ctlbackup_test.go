@@ -93,7 +93,7 @@ func TestDailyBackupWritesAndPrunes(t *testing.T) {
 	}
 	tasks, _ = e.srv.Store.TasksBy("scheduler", 0)
 	_, _, all := newAlertTracker(alertConfig{}).step(alertInput{Jobs: tasks}, time.Now())
-	if len(all) != 1 || all[0].Kind != "failed-job" || !strings.Contains(all[0].Title, "daily backup of the controller") {
+	if len(all) != 1 || all[0].Kind != "failed-job" || !strings.Contains(all[0].Title, "scheduled backup of the controller") {
 		t.Errorf("alerts: %+v", all)
 	}
 }
