@@ -403,6 +403,86 @@ task is stopped afterwards (run `virticle node prepare` again). A linked clone t
   the pool directory. It is removed as described under "Work directories" (Replication). A directory no record names is
   removed by the next backup once nothing in it has changed for an hour, when no other backup of that controller is running.
 
+### Encrypted backups
+
+[age](https://age-encryption.org/v1) with one X25519 key per installation (the backup key). Turned on and off under
+**Settings > Backup encryption**; nothing else is configurable.
+
+| Where | What | How long |
+| --- | --- | --- |
+| Web setting `backup-encryption` (database) | `on`, the public key (`recipient`, `age1...`), when it was made | Until a new key; turning off keeps it |
+| `<data dir>/backup-key.age` (mode 0600) | The recovery key file: an armored age file, scrypt-encrypted with the passphrase, holding a standard age identity file | Kept, also when encryption is off; part of every controller backup |
+| The passphrase | Only in the request that turns encryption on, changes the passphrase, restores, or checks it for an export | That request; never stored, logged or put into a task or the audit log |
+| The identity (`AGE-SECRET-KEY-1...`) | Controller memory, after the passphrase opened the key file | A restore: until its task ends (the bytes are cleared then). An export of a chain: up to 2 minutes, for one download by the same user |
+| The identity on a node | stdin of `age-decrypt`, through the SSH session; never a command line or a file | That one verb |
+
+**Files of a backup.** With encryption on, each data file is encrypted on the node that makes it, in the run's work
+directory, right after the copy and the qcow2 check, and before a copy to another node: `<target>.qcow2.age`,
+`nvram.fd.age`, `tpm2-state.bin.age`. The plain work file is deleted as soon as its encrypted copy is complete (the node
+finished, the stored size matches). `manifest.json` and `domain.xml` stay plain, so a backup is listed, checked, pruned and
+exported without the passphrase. Replication copies are never encrypted.
+
+**Manifest fields** (the format number does not change):
+
+| Field | Meaning |
+| --- | --- |
+| `recipient` | The public key the encrypted files are encrypted to. Present exactly when a file is encrypted |
+| `disks[].encrypted` | `file` is stored encrypted (named `.age`); `bytes` and `sha256` are those of the stored file |
+| `disks[].plainBytes`, `disks[].plainSha256` | Size and SHA-256 of the qcow2 image inside |
+| `nvramEncrypted`, `nvramBytes`, `nvramSha256`, `nvramPlainBytes`, `nvramPlainSha256` | The same for `nvram.fd.age` |
+| `tpmEncrypted`, `tpmPlainBytes`, `tpmPlainSha256` | The same for `tpm2-state.bin.age`; `tpmBytes` and `tpmSha256` are then the stored file's |
+
+A plain file never ends in `.age` and has no plain fields; an encrypted file needs all four values. Each file says what it is,
+so a chain may mix plain and encrypted backups (turned on or off between two backups). An older Virticle lists such a backup
+and fails on the encrypted file when it restores it.
+
+**Restore and export.** A restore whose chain holds an encrypted file needs `passphrase` in the request body (`POST
+.../restore`). A wrong passphrase is refused (400, "wrong passphrase for the backup key") before anything is staged, and
+counts like a wrong password (locked for a while after 5). A backup encrypted to another key is refused with that key named.
+The node that holds the backup decrypts (`age-decrypt`) into the restore's work directory, checking the stored and the plain
+SHA-256 in the same pass; then the restore goes on as for a plain backup. A single backup restored on its own node is
+decrypted straight into place. The audit log says "restore of an encrypted backup".
+
+`GET .../export` of a full backup sends the stored files: encrypted files stay encrypted and the manifest says so. An
+incremental backup whose chain holds an encrypted file is put together on export, which needs the key: `POST
+.../export-key {passphrase}` answers `{ticket}`, and `GET .../export?ticket=T` downloads once, within 2 minutes, for the same
+user. The put-together disks are encrypted again to the same key. Import takes both kinds; an encrypted file is checked when
+it is restored.
+
+**API.**
+
+| Call | Role | Does |
+| --- | --- | --- |
+| `GET /api/backup-encryption` | viewer | `{on, hasKey, recipient, since}`; with `?count=1` also `vmBackups` and `controllerBackups` that need the key |
+| `POST /api/backup-encryption/on` | admin | `{passphrase, again}` makes the key the first time and answers the recovery key file in `keyFile`; with a key, `{passphrase}` of that key |
+| `POST /api/backup-encryption/off` | admin | New backups are plain again; the key stays |
+| `POST /api/backup-encryption/passphrase` | admin | `{current, new, again}`: the same key under a new passphrase (`keyFile` in the answer) |
+| `POST /api/backup-encryption/key` | admin | `{password, code}` (web session only): downloads `virticle-backup-key.age` |
+
+**Node verbs** (protocol 21; an older node command makes a backup fail while encryption is on, never store it plain):
+`age-encrypt SRC DST RECIPIENT` (SRC and DST in one work directory) and `age-decrypt SRC DST` (identity on stdin, DST in a
+work directory). Both stream, print `@@progress DONE TOTAL` once a second and end with both checksums and sizes. A stop
+ends them; DST appears only complete.
+
+**Decrypt by hand** with the stock `age` tool (1.1 or newer opens a passphrase-protected key file; it asks for the passphrase):
+
+    age -d -i virticle-backup-key.age -o vda.qcow2 vda.qcow2.age
+    qemu-img check vda.qcow2
+    sha256sum vda.qcow2        # equals disks[].plainSha256 of the manifest
+
+The same works for `nvram.fd.age`, `tpm2-state.bin.age` and a scheduled controller backup
+(`age -d -i virticle-backup-key.age FILE.tar.gz.age | tar tz`). Verified with age 1.3.2 on a Rocky 10 node.
+
+**Cost.** The backup job and qemu-img write qcow2, which needs a seekable file, so encryption is a second pass. It replaces
+the checksum pass: the node takes both checksums while it encrypts, in parallel. Lab (nested Rocky 10, 2 vCPUs, a backup of
+1.9 GB): a shut-off VM took 14.5 to 18.9 s plain and 19.5 to 24.0 s encrypted; the work directory peaked at 4.1 GB instead
+of 2.0 GB (one more copy of the largest disk, for a moment). The free-space check counts it.
+
+**Limits.** Encryption protects backups at rest: a copied pool, a stolen disk, an export file, the controller's scheduled
+copies. It does not protect against someone who controls a node, where the VM's own disks are plain, or the controller
+while a restore runs. Losing the passphrase or every copy of the recovery key file loses the encrypted backups. There is no
+way to delete or replace the key in this version.
+
 ### Retention
 
 One rule set for scheduled VM backups (per VM and target node and pool), for a manual backup into the schedule's
