@@ -34,8 +34,7 @@ export default function DiskMoveDialog({ d, disk, onClose, onDone }: { d: VMDeta
   const [pools, setPools] = useState<Pool[]>([]);
   const [pool, setPool] = useState("");
   const [flatten, setFlatten] = useState(false);
-  const [plan, setPlan] = useState<Plan>();
-  const [checking, setChecking] = useState(false);
+  const [answer, setAnswer] = useState<{ key: string; p: Plan }>();
   const [taskId, setTaskId] = useState(0);
   const [task, setTask] = useState<Task>();
   const act = useAction();
@@ -56,13 +55,13 @@ export default function DiskMoveDialog({ d, disk, onClose, onDone }: { d: VMDeta
   useEffect(() => {
     if (taskId) return;
     let stale = false;
-    setChecking(true);
+    const key = `${pool}|${flatten}`;
     const h = setTimeout(() => {
       const q = new URLSearchParams({ pool, flatten: flatten ? "1" : "0" });
       get<Plan>(`${base}/plan?${q}`).then(
-        (p) => !stale && setPlan(p),
-        (e) => !stale && setPlan({ ok: false, checks: [{ check: "Pre-flight", ok: false, severity: "error", message: String(e.message ?? e) }], capacity: 0, allocation: 0, backing: false }),
-      ).finally(() => !stale && setChecking(false));
+        (p) => !stale && setAnswer({ key, p }),
+        (e) => !stale && setAnswer({ key, p: { ok: false, checks: [{ check: "Pre-flight", ok: false, severity: "error", message: String(e.message ?? e) }], capacity: 0, allocation: 0, backing: false } }),
+      );
     }, 300);
     return () => {
       stale = true;
@@ -95,6 +94,9 @@ export default function DiskMoveDialog({ d, disk, onClose, onDone }: { d: VMDeta
       setTaskId(r.task);
     });
   };
+  // The answer counts only for the pool and option it was asked for.
+  const plan = answer?.key === `${pool}|${flatten}` ? answer.p : undefined;
+  const checking = !plan;
   const live = plan?.mode === "live";
   const pct = Math.round((task?.status === "ok" ? 1 : task?.progress ?? 0) * 100);
 

@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 
 	"virticle/internal/cluster"
 	"virticle/internal/prepare"
+	"virticle/internal/store"
 )
 
 // nodeShort follows an error; the whole text (nodeUsage) is for --help.
@@ -286,6 +288,10 @@ func nodeCommand(args []string) int {
 		if *jump != "" {
 			jumpArg = " with the jump host " + *jump
 		}
+		if !local && nodeListed(*data, addr) {
+			fmt.Println("\nThe controller already lists this node.")
+			return 0
+		}
 		if local {
 			fmt.Printf("\nNext: add the node in the web interface (Nodes, Add node) with this machine's address and the SSH user %s.\n", r.User)
 			return 0
@@ -313,4 +319,42 @@ func exitCode(rows []prepare.Row) int {
 		return 1
 	}
 	return 0
+}
+
+// nodeListed reports whether the controller's data directory already has a node at addr (the host part; a port or a
+// user does not matter). Any trouble reading the database counts as "not listed": the hint is then merely repeated.
+func nodeListed(data, addr string) bool {
+	if !store.HasDatabase(data) {
+		return false
+	}
+	dbPath, err := store.DBPath(data, func(string, ...any) {})
+	if err != nil {
+		return false
+	}
+	st, err := store.Open(dbPath)
+	if err != nil {
+		return false
+	}
+	defer st.Close()
+	ns, err := st.Nodes()
+	if err != nil {
+		return false
+	}
+	return listedIn(ns, addr)
+}
+
+func listedIn(ns []store.Node, addr string) bool {
+	host := func(a string) string {
+		if h, _, err := net.SplitHostPort(a); err == nil {
+			return h
+		}
+		return strings.Trim(a, "[]")
+	}
+	want := host(addr)
+	for _, n := range ns {
+		if strings.EqualFold(host(n.Addr), want) {
+			return true
+		}
+	}
+	return false
 }

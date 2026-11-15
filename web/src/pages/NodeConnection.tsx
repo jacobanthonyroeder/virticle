@@ -142,8 +142,7 @@ export default function ConnectionCard({ n, admin }: { n: NodeStatus; admin: boo
         </p>
       )}
       <ErrorBox error={err} />
-      <details className="conndetails">
-        <summary>Details</summary>
+      <DialogAdvanced title="Details">
         <Facts
           rows={[
             ["Resolved IP", info?.resolvedIps?.length ? mono(info.resolvedIps.join(", "), "r") : "–"],
@@ -153,7 +152,7 @@ export default function ConnectionCard({ n, admin }: { n: NodeStatus; admin: boo
             ["Jump host", n.jump ? mono(n.jump, "j") : "none"],
           ]}
         />
-      </details>
+      </DialogAdvanced>
       {unprepared ? (
         <div className="warnrow">
           <StatusLine status="warning">

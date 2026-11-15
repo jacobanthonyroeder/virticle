@@ -65,4 +65,24 @@ test.describe.serial("live migration", () => {
     await page.keyboard.press("Escape");
     await expect(dlg).toBeHidden();
   });
+
+  test("Migrate stays off until the pre-flight checks have an answer", async ({ page, n1 }) => {
+    // hold the answer back: while the dialog says Checking, the button is disabled
+    let release = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    await page.route("**/migrate/check", async (route) => {
+      await held;
+      await route.continue();
+    });
+    await openVM(page, { node: n1, uuid: vm.uuid, name: NAME });
+    await vmAction(page, "Migrate", "Migrate to another node");
+    const dlg = dialog(page, `Migrate ${NAME}`);
+    const go = dlg.getByRole("button", { name: "Migrate", exact: true });
+    await expect(dlg.getByText(/^Checking/)).toBeVisible();
+    await expect(go).toBeDisabled();
+    release();
+    await expect(dlg.getByText(/^Checking/)).toHaveCount(0);
+    await expect(dlg).toContainText("Offline: the VM is shut off", { timeout: 60_000 });
+    await page.keyboard.press("Escape");
+  });
 });
