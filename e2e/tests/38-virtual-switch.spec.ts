@@ -39,7 +39,7 @@ test.describe.serial("virtual switch dialog", () => {
     // one Advanced section, closed: the confirm time is inside it
     await expect(dlg.getByRole("button", { name: "Advanced" })).toHaveCount(1);
     await dlg.getByRole("button", { name: "Advanced" }).click();
-    await expect(dlg.getByLabel("Confirm time (seconds)")).toHaveValue("90");
+    await expect(dlg.getByLabel("Confirm time (seconds)", { exact: true })).toHaveValue("90");
     // choose the free card: when it has an address, the dialog says what happens to it
     await dlg.getByRole("group", { name: "Uplinks" }).getByRole("checkbox", { name: new RegExp("^" + n!.card + " ") }).check();
     // Review is read-only

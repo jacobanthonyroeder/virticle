@@ -49,9 +49,9 @@ test.describe.serial("network topology", () => {
         await expect(sw.getByRole("button", { name: `Actions for ${b.name}` })).toHaveCount(0);
         await expect(sw.getByRole("button", { name: "Add network" })).toBeVisible(); // still usable
         if (b.notEditableDetail) {
-          await sw.getByRole("button", { name: `Why ${b.name} is not editable` }).click();
-          await expect(page.getByRole("note")).toContainText(b.notEditableDetail);
-          await page.keyboard.press("Escape");
+          await sw.getByRole("button", { name: `Why ${b.name} is not editable` }).hover();
+          await expect(page.getByRole("tooltip")).toContainText(b.notEditableDetail);
+          await page.mouse.move(0, 0);
         }
       }
     }
@@ -105,6 +105,7 @@ test.describe.serial("network topology", () => {
     // no controls: no Add network, no menu on a network; the detail opens and is read only
     await pwExpect(page.getByRole("button", { name: "Add network" })).toHaveCount(0);
     await pwExpect(page.getByRole("button", { name: /^Actions for network/ })).toHaveCount(0);
+    await pwExpect(page.locator("[data-topo-edit]")).toHaveCount(0); // Edit (management and migration) is for administrators
     await page.getByRole("button", { name: "default", exact: true }).first().click();
     const dlg = page.getByRole("dialog", { name: "Network default" });
     await pwExpect(dlg).toContainText("DHCP leases");

@@ -586,9 +586,9 @@ transfer:
 1. Open the node, **Settings** (the **Connection** sub page), and choose **Change** next to **Migration
    network**. The row appears only when the node has more than one address.
    (The same list is under **Advanced** in **Edit connection**. In the
-   **Network** tab, **Use for migration** next to an address does the same,
-   a **Migration** mark shows the address in use, and **Stop using for
-   migration** next to it goes back to the management address.)
+   **Network** tab, **Edit** on a switch or card does the same with a
+   **Migration** checkbox per address, and a **Migration** mark shows the
+   address in use.)
 2. Pick the card, for example `enp2s0 (10.0.1.5), 10 Gb/s`. **Same as
    management** is the default.
 
@@ -721,8 +721,13 @@ stopped); select the arrow to open one. The filter finds a switch, a network or 
 | Host interfaces | Every interface of the node with type, state, MAC address, addresses, MTU and speed (folded; select it to read the node). |
 
 The card or bridge that holds the address the controller uses to reach the node is marked **Management**; the address
-that carries migrations is marked **Migration**, with **Stop using for migration** next to it (back to the management
-address).
+that carries migrations is marked **Migration**. Administrators change both with **Edit** on a switch or on an unused card
+that has an address: one **Management** and one **Migration** checkbox per address, then **Save**.
+
+| Checkbox | Effect |
+| --- | --- |
+| Management | The controller reaches the node at this address. It tests the connection first and refuses an address it cannot reach. Moved by ticking another address; not offered for a node reached by host name (change that under **Settings**, **Connection**) or for an IPv6 address. A jump host stays as it is. |
+| Migration | Migration data from the other nodes goes to this address. Unticked: back to the management address, the default. |
 Addresses of virtual machines come from DHCP leases, so a guest with a fixed address shows none. Uplinks of Open
 vSwitch bridges are not listed. A network that is stopped, or whose bridge is gone, is still drawn, with
 **Stopped**, so you can start or delete it.
