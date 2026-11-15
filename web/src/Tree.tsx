@@ -386,7 +386,14 @@ export default function Tree() {
       items.push(
         "sep",
         { label: "Snapshots", icon: Camera, run: () => page("snapshots") },
-        { label: "Migrate", icon: ArrowRightLeft, run: () => todo("migrate") },
+        {
+          label: "Migrate",
+          icon: ArrowRightLeft,
+          items: [
+            { label: "Migrate to another node", run: () => todo("migrate") },
+            { label: "Move the disk to another pool", run: () => todo("move-disk") },
+          ],
+        },
         { label: "Clone", icon: Copy, run: () => todo("clone"), disabled: v.state !== "shutoff", title: v.state !== "shutoff" ? "Shut the VM down to clone it" : undefined },
       );
       return items;

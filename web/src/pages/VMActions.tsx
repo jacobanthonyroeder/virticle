@@ -50,18 +50,6 @@ export default function VMActions(props: {
 
   const off = d.state === "shutoff";
   const running = d.state === "running";
-  // "?do=clone" and "?do=migrate" (Clone and Migrate in the tree's menu) open the dialog on arrival.
-  const [params, setParams] = useSearchParams();
-  const todo = params.get("do");
-  useEffect(() => {
-    if (!todo) return;
-    if (op && todo === "clone" && off) setCloning(true);
-    if (op && todo === "migrate") setMigrating(true);
-    const next = new URLSearchParams(params);
-    next.delete("do");
-    setParams(next, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [todo]);
   const paused = d.state === "paused";
   const need = op ? undefined : "Needs the operator role";
   const act = async (a: string, body: { action: string } = { action: a }) => {
@@ -95,6 +83,26 @@ export default function VMActions(props: {
   const canConvert = off || (running && d.agent === "connected");
   const movable = d.disks.filter((k) => k.device === "disk" && k.source && !k.source.startsWith("/dev/"));
   const moveDisk = movable.find((k) => k.target === movingDisk);
+  // "?do=clone", "?do=migrate" and "?do=move-disk" (Clone and Migrate in the tree's menu) open the dialog on arrival.
+  const [params, setParams] = useSearchParams();
+  const todo = params.get("do");
+  useEffect(() => {
+    if (!todo) return;
+    if (op && todo === "clone" && off) setCloning(true);
+    if (op && todo === "migrate") setMigrating(true);
+    if (op && todo === "move-disk") {
+      // One disk: its move dialog. Several: the Disks page, where each disk is named.
+      if (movable.length === 1) setMovingDisk(movable[0].target);
+    }
+    const next = new URLSearchParams(params);
+    next.delete("do");
+    if (op && todo === "move-disk" && movable.length > 1) {
+      next.set("tab", "hardware");
+      next.set("sec", "disks");
+    }
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todo]);
   const migrate: MenuEntry[] = [
     { label: "Migrate to another node", run: () => setMigrating(true), disabled: !op, title: need },
     // One entry per disk that can be moved; it opens the move dialog itself.
