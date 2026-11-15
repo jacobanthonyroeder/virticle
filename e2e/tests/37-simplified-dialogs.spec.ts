@@ -54,7 +54,7 @@ test.describe.serial("simplified dialogs", () => {
     await expect(dlg.getByRole("button", { name: "Revert anyway" })).toHaveCount(0);
     await expect(dlg.locator("label.check")).toHaveCount(0);
     await dlg.getByRole("button", { name: "Revert", exact: true }).click();
-    await expect(dlg.locator(".error")).toContainText("revert requires force");
+    await expect(dlg.locator(".error")).toContainText("Revert requires force");
     const anyway = dlg.getByRole("button", { name: "Revert anyway" });
     await expect(anyway).toBeVisible();
     await expect(dlg.getByRole("button", { name: "Revert", exact: true })).toHaveCount(0);
@@ -68,7 +68,7 @@ test.describe.serial("simplified dialogs", () => {
     await page.route(/\/snapshots\/before\/revert$/, (route) => route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "the VM is busy" }) }));
     await page.getByRole("treeitem", { name: /^before(,|$)/ }).getByRole("button", { name: "Revert to before" }).click();
     await dlg.getByRole("button", { name: "Revert", exact: true }).click();
-    await expect(dlg.locator(".error")).toContainText("the VM is busy");
+    await expect(dlg.locator(".error")).toContainText("The VM is busy");
     await expect(dlg.getByRole("button", { name: "Revert anyway" })).toHaveCount(0);
     await page.keyboard.press("Escape");
   });

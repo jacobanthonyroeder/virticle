@@ -103,7 +103,7 @@ test.describe.serial("shared storage (NFS)", () => {
     const tr = row(page.getByRole("region", { name: "Shared storage" }), SHARE);
     await tr.getByRole("button", { name: "Remove", exact: true }).click();
     await confirm(page, `Remove ${SHARE}`);
-    await expect(page.locator(".error")).toContainText(new RegExp(`cannot remove ${SHARE}.*${VM}`));
+    await expect(page.locator(".error")).toContainText(new RegExp(`[Cc]annot remove ${SHARE}.*${VM}`));
     await expect(row(page.getByRole("region", { name: "Shared storage" }), SHARE)).toHaveCount(1);
   });
 

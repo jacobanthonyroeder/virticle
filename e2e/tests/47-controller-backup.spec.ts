@@ -79,6 +79,15 @@ test.describe("controller backup", () => {
     await expect(page.getByText(/^Last backup: .*by download/)).toBeVisible();
   });
 
+  test("a bad folder is refused with an error that starts with a capital letter", async ({ page }) => {
+    await page.goto("/controller-backup");
+    await page.getByRole("button", { name: "Edit schedule" }).click();
+    await field(page, "Folder").fill("relative/folder");
+    await page.getByRole("button", { name: "Save schedule" }).click();
+    await expect(page.locator(".error")).toHaveText(/^The folder must be a full path/);
+    await page.getByRole("button", { name: "Cancel" }).click(); // nothing was saved
+  });
+
   test("a passphrase encrypts the download, and two different ones are refused", async ({ page }) => {
     test.skip(!env.pass, "needs E2E_PASS, the administrator's password");
     await page.goto("/controller-backup");

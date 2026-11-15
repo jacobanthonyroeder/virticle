@@ -53,8 +53,17 @@ export function Modal(props: { title: string; onClose: () => void; children: Rea
   );
 }
 
+/**
+ * An error as a sentence. The server words its errors like Go does (lower case), and every error shown in a dialog or
+ * on a page goes through ErrorBox, so the first letter is raised here. A first word that is not plain lower-case
+ * letters (a command, a path, a file name such as qemu-img or /dev/sda) is left alone.
+ */
+export function sentence(msg: string): string {
+  return /^[a-z]+(\s|$)/.test(msg) ? msg.charAt(0).toUpperCase() + msg.slice(1) : msg;
+}
+
 export function ErrorBox({ error }: { error?: string }) {
-  return error ? <div className="error">{error}</div> : null;
+  return error ? <div className="error">{sentence(error)}</div> : null;
 }
 
 export function StateBadge({ state }: { state: string }) {

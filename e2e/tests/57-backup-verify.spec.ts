@@ -91,7 +91,7 @@ test.describe.serial("verify backup", () => {
     try {
       await openVM(page, vm, "backups");
       const dlg = await verify(page, dirs[2], "Damaged");
-      await expect(dlg.locator(".error")).toContainText(`the earlier backup ${dirs[1]} that this one builds on is missing`);
+      await expect(dlg.locator(".error")).toContainText(`The earlier backup ${dirs[1]} that this one builds on is missing`);
       await dlg.getByRole("button", { name: "Close dialog" }).click();
     } finally {
       nodeSh(`mv ${pool}/${P}ver1-hidden ${mid}`);
