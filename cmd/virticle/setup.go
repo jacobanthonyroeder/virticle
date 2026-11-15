@@ -620,7 +620,9 @@ func runSetupRows(e setupEnv, o setupOpts, res *setupResult) []prepare.Row {
 		return []prepare.Row{*stop}
 	}
 
-	if changed && !o.check {
+	// A controller that finds users but no stored web settings takes itself for an install from before 0.3.0 and
+	// keeps loopback HTTP: so the settings setup reports are stored before it creates the first administrator.
+	if !o.check && (changed || (adminName != "" && source != "stored")) {
 		if err := e.save(ws); err != nil {
 			return []prepare.Row{errorRow("web", "Web access", "Could not store the web access settings ("+err.Error()+"). Nothing was changed.")}
 		}

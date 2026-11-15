@@ -47,6 +47,11 @@ func TestSetupCreatesTheAdministratorFromScriptInputs(t *testing.T) {
 	if got := rowText(res.rows); !strings.Contains(got, "ok | Administrator | Created ann.") || !res.hasUser {
 		t.Errorf("%s", got)
 	}
+	// The first-start settings are stored first: a controller that finds a user and no stored settings would
+	// take itself for an old install and keep loopback HTTP (found on a fresh install in the lab).
+	if len(l.saved) != 1 || l.saved[0].HTTPSListen != webaccess.FirstRunDefaults().HTTPSListen || l.saved[0].Mode != webaccess.ModeSelfSigned {
+		t.Errorf("saved %+v", l.saved)
+	}
 	// A password alone means the name admin.
 	l = newAdminLab(false)
 	runSetupAll(l.e, setupOpts{adminPassword: "correct horse"})
