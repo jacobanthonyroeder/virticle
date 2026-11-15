@@ -70,7 +70,14 @@ func verbNetInfo(c *Ctx) error {
 		if b.Ports == nil {
 			b.Ports = []string{}
 		}
-		if sp := managed[l.Name]; sp != nil {
+		sp := managed[l.Name]
+		if sp == nil {
+			// Set up outside this feature: a switch like the others when its saved definition fits the model.
+			fd := c.recognise(st, snap, l.Name)
+			sp = fd.Spec
+			b.NotEditable, b.NotEditableDetail = fd.Short, fd.Detail
+		}
+		if sp != nil {
 			b.Managed, b.Uplink, b.MovedAddresses = true, sp.Uplink, sp.MoveAddresses
 			b.Uplinks, b.Bond, b.BondMode, b.MTU = sp.cardNames(), sp.Bond, sp.BondMode, sp.MTUSet
 			for _, v := range sp.VLANAddrs {

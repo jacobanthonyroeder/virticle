@@ -149,13 +149,19 @@ type NetStatus struct {
 
 // NetBridge is one Linux bridge of the node.
 type NetBridge struct {
-	Name           string   `json:"name"`
-	Managed        bool     `json:"managed"` // created by this feature: may be changed and deleted
-	VLANFiltering  bool     `json:"vlanFiltering"`
-	VLANs          string   `json:"vlans,omitempty"`  // the ids the uplink allows (managed bridges)
-	Uplink         string   `json:"uplink,omitempty"` // the first card
-	Ports          []string `json:"ports"`
-	MovedAddresses bool     `json:"movedAddresses,omitempty"`
+	Name string `json:"name"`
+	// Managed: created by this feature, or set up outside it with a saved definition that the model can
+	// express (net_foreign.go): may be changed and deleted.
+	Managed bool `json:"managed"`
+	// NotEditable says in a few words why a bridge that is not managed cannot be changed; NotEditableDetail
+	// says it in a sentence.
+	NotEditable       string   `json:"notEditable,omitempty"`
+	NotEditableDetail string   `json:"notEditableDetail,omitempty"`
+	VLANFiltering     bool     `json:"vlanFiltering"`
+	VLANs             string   `json:"vlans,omitempty"`  // the ids the uplink allows (managed bridges)
+	Uplink            string   `json:"uplink,omitempty"` // the first card
+	Ports             []string `json:"ports"`
+	MovedAddresses    bool     `json:"movedAddresses,omitempty"`
 	// Uplinks are all the physical cards; Bond is the bond device that holds them when there are
 	// two or more (it stays, with one member, when cards are removed again); BondMode is failover or lacp.
 	Uplinks  []string `json:"uplinks,omitempty"`

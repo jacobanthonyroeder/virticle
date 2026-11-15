@@ -253,6 +253,23 @@ func TestNextSwitchName(t *testing.T) {
 	}
 }
 
+func TestLibvirtOwnsBridge(t *testing.T) {
+	for _, c := range []struct {
+		n    networkInfo
+		want bool
+	}{
+		{networkInfo{Forward: "nat", Bridge: "virbr0"}, true},
+		{networkInfo{Forward: "isolated", Bridge: "mynet0"}, true},
+		{networkInfo{Forward: "route", Bridge: "rt0"}, true},
+		{networkInfo{Forward: "bridge", Bridge: "br0"}, false},
+		{networkInfo{Forward: "bridge", Bridge: "ovsbr0", OVS: true}, false},
+	} {
+		if got := libvirtOwnsBridge(c.n); got != c.want {
+			t.Errorf("%+v: %v", c.n, got)
+		}
+	}
+}
+
 func TestSameNetworkPeers(t *testing.T) {
 	br := func(name string, managed, aware bool, vlans string) nodeproto.NetBridge {
 		return nodeproto.NetBridge{Name: name, Managed: managed, VLANFiltering: aware, VLANs: vlans}

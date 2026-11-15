@@ -23,6 +23,7 @@ require filippo.io/hpke v0.4.0 // indirect
 require (
 	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

@@ -17,6 +17,12 @@ import (
 //	virticle-vlan-IF       the node's address on a VLAN
 
 func (nmStack) plan(c *Ctx, in *planInput) (*netPlanned, error) {
+	if in.Foreign != nil {
+		if in.Req.Action == nodeproto.NetDelete {
+			return nmForeignDeletePlan(c, in), nil
+		}
+		return nmTakeover(c, in)
+	}
 	switch in.Req.Action {
 	case nodeproto.NetCreate:
 		return nmCreate(c, in)
