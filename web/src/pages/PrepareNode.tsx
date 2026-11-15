@@ -165,7 +165,7 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
   return (
     <Modal title={adding ? "Add node" : "Prepare node"} onClose={onClose} wide>
       <form onSubmit={submit} autoComplete="off">
-        {!direct && <p>Installs libvirt and the node command if missing, then adds the node. The credential is used for this run only and is not stored.</p>}
+        {!direct && <p>{adding ? "Installs libvirt and the node command if missing, then adds the node." : "Installs libvirt and the node command if missing."} The credential is used for this run only and is not stored.</p>}
         <div className="grid2">
           <Field label="Address" hint="Host name or IP, optionally with :port.">
             <input value={addr} onChange={(e) => setAddr(e.target.value)} required autoFocus={!addr0} readOnly={!adding} />

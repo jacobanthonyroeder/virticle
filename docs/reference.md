@@ -531,7 +531,7 @@ of a VM schedule with `keepWeekly` or `keepMonthly` is made full:
   one when the schedule's next run (from the schedule's timing, as if this backup were the newest) falls into a later
   week or month. A next run due less than 2 minutes (at most half a step) before the period ends counts as later,
   since the scheduler may start it that late.
-- Such a run is made full (reason "The schedule keeps this backup as a weekly or monthly one") only when the newest
+- Such a run is made full (reason "Weekly or monthly point") only when the newest
   backup before it is in the same period. A run alone in its period (a weekly schedule) builds on the point before it,
   which is kept anyway.
 - A manual backup into the schedule's target is decided the same way: the schedule times its next run from the newest
