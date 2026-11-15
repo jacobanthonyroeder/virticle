@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { get, post, put, VMDetail } from "../api";
+import { get, put, VMDetail } from "../api";
 import { useLive } from "../live";
 import { secOfCard } from "../SubNav";
-import { atLeast, useRole } from "../auth";
+import { useRole } from "../auth";
 import { ErrorBox, StateBadge, useAction } from "../ui";
-import { SerialConsole, VNCConsole } from "./Console";
 import Hardware, { HW_PAGES } from "./Hardware";
 import SnapshotsTab, { SNAP_PAGES } from "./Snapshots";
 import { PerformanceTab } from "./Performance";
@@ -21,7 +20,6 @@ export default function VMDetailPage() {
   const node = Number(nodeParam);
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") ?? "overview";
-  const role = useRole();
   const vm = useLive(() => get<VMDetail>(`/nodes/${node}/vms/${uuid}`), `${node}/${uuid}`, (e) =>
     e.type === "node" ? true : e.type === "domain" ? e.uuid === uuid : e.task?.status !== "running",
   );
@@ -72,10 +70,12 @@ export default function VMDetailPage() {
     ["overview", "Overview"],
     ["performance", "Performance"],
     ["hardware", "Hardware"],
-    ["console", "Console"],
     ["snapshots", "Snapshots"],
     ["backups", "Backups"],
-  ].filter(([id]) => id !== "console" || role !== "viewer"); // a console is control
+  ];
+  // "?tab=console" (the Console links elsewhere) is the Overview with the live console open in its card.
+  const consoleOpen = tab === "console";
+  const shown = consoleOpen ? "overview" : tab;
   const replica = d.state === "replica"; // the standby's inert copy: only the Overview, and no actions
 
   return (
@@ -103,65 +103,18 @@ export default function VMDetailPage() {
       {d.state === "stale" && <StaleCard d={d} base={base} onChanged={vm.reload} />}
       <div className="tabs">
         {(replica ? tabs.slice(0, 1) : tabs).map(([id, label]) => (
-          <button key={id} className={tab === id ? "on" : ""} onClick={() => setParams(id === "overview" ? {} : { tab: id })}>
+          <button key={id} className={shown === id ? "on" : ""} onClick={() => setParams(id === "overview" ? {} : { tab: id })}>
             {label}
           </button>
         ))}
       </div>
-      {(tab === "overview" || replica) && <Overview d={d} base={base} onChanged={vm.reload} openReplication={() => setRepl(true)} />}
+      {(shown === "overview" || replica) && <Overview d={d} base={base} onChanged={vm.reload} openReplication={() => setRepl(true)} consoleOpen={consoleOpen && !replica} onConsoleClose={() => consoleOpen && setParams({})} />}
       {!replica && tab === "performance" && <PerformanceTab kind="vm" id={uuid} passthrough={d.passthroughDevices > 0} />}
       {!replica && tab === "hardware" && <Hardware d={d} base={base} onChanged={vm.reload} />}
-      {!replica && tab === "console" && <ConsoleTab d={d} base={base} onChanged={vm.reload} />}
       {!replica && tab === "snapshots" && <SnapshotsTab d={d} base={base} />}
       {!replica && tab === "backups" && <BackupsTab d={d} base={base} />}
       {!replica && tab === "xml" && <XMLEditor d={d} base={base} onSaved={vm.reload} />}
       {repl && <ReplicationDialog d={d} base={base} onChanged={vm.reload} onClose={() => setRepl(false)} />}
-    </>
-  );
-}
-
-function ConsoleTab({ d, base, onChanged }: { d: VMDetail; base: string; onChanged: () => void }) {
-  const kinds = [...(d.hasVNC ? ["vnc"] : []), ...(d.hasSerial ? ["serial"] : [])];
-  const [kind, setKind] = useState(kinds[0]);
-  const act = useAction();
-  const op = atLeast(useRole(), "operator");
-  const [note, setNote] = useState<string>();
-  if (kinds.length === 0)
-    return (
-      <div className="empty">
-        <p>{d.serialPending === "add" ? "A serial console is saved. It applies after the VM is powered off and started." : "No VNC display or serial console"}</p>
-        {op && d.serialPending !== "add" && (
-          <button
-            disabled={act.busy}
-            onClick={() =>
-              act.run(async () => {
-                const r = await post<{ note?: string; needsRestart: boolean }>(`${base}/serial-console`);
-                setNote(r.needsRestart ? r.note : undefined);
-                onChanged();
-              })
-            }
-          >
-            Add serial console
-          </button>
-        )}
-        {note && <p className="muted">{note}</p>}
-        <ErrorBox error={act.error} />
-      </div>
-    );
-  if (d.state === "shutoff") return <div className="empty">Shutoff</div>;
-  return (
-    <>
-      {kinds.length > 1 && (
-        <div className="segmented">
-          <button className={kind === "vnc" ? "on" : ""} onClick={() => setKind("vnc")}>
-            Display (VNC)
-          </button>
-          <button className={kind === "serial" ? "on" : ""} onClick={() => setKind("serial")}>
-            Serial console
-          </button>
-        </div>
-      )}
-      {kind === "vnc" ? <VNCConsole node={d.node} uuid={d.uuid} name={d.name} /> : <SerialConsole node={d.node} uuid={d.uuid} />}
     </>
   );
 }

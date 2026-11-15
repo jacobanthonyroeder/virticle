@@ -77,8 +77,8 @@ changes nothing.
 .B \-\-undo
 removes the firewall rule that setup added (do this before uninstalling).
 .TP
-.B virticle node prepare
-Prepare a host as a node: installs libvirt, QEMU, the guest disk tools and the
+.B virticle node prepare \fR[[\fIuser\fR@]\fIhost\fR]
+Prepare a host as a node; without a host, this machine (run as root). Installs libvirt, QEMU, the guest disk tools and the
 node command, sets up the access the controller needs and opens the migration
 ports (TCP 49152 to 49215) in firewalld or ufw. The controller signs in as the
 account virticle\-node, which may run the node command as root and nothing

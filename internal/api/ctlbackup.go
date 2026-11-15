@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,7 +47,49 @@ type cbSettings struct {
 	Mode       string `json:"mode"`
 	At         string `json:"at,omitempty"`
 	EveryHours int    `json:"everyHours,omitempty"`
+	// Dir is the folder the scheduled copies are written to; empty is "backups" in the data directory.
+	Dir string `json:"dir,omitempty"`
 	retention.Policy
+}
+
+// cbDir is the folder of the scheduled copies.
+func (s *Server) cbDir() string {
+	if d := s.cbSettings().Dir; d != "" {
+		return d
+	}
+	return filepath.Join(s.DataDir, "backups")
+}
+
+// cbCheckDir makes sure the controller can write scheduled copies to dir: it creates the folder and writes and
+// removes a file in it. A folder inside the data directory other than the default is refused, since a backup holds
+// the data directory.
+func (s *Server) cbCheckDir(dir string) error {
+	def := filepath.Join(s.DataDir, "backups")
+	if dir == def {
+		return nil
+	}
+	if !filepath.IsAbs(dir) || dir == "/" {
+		return errors.New("the folder must be a full path, for example /mnt/backup/virticle")
+	}
+	if data, err := filepath.Abs(s.DataDir); err == nil && (dir == data || strings.HasPrefix(dir, data+string(filepath.Separator))) {
+		return fmt.Errorf("choose a folder outside the data directory %s (or leave the default %s)", data, def)
+	}
+	why := func(err error) error {
+		msg := err.Error()
+		if errors.Is(err, unix.EROFS) || errors.Is(err, os.ErrPermission) {
+			msg += ". The folder must be writable by the account the controller runs as; an installed controller may write below /var/lib/virticle, /mnt, /media and /srv"
+		}
+		return errors.New(msg)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return why(err)
+	}
+	f, err := os.CreateTemp(dir, ".virticle-write-test-")
+	if err != nil {
+		return why(err)
+	}
+	f.Close()
+	return os.Remove(f.Name())
 }
 
 var cbAtRE = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
@@ -167,7 +210,7 @@ func recView(kind string, r ctlbackup.Record) *cbRecordView {
 func (s *Server) ctlBackupStatus(w http.ResponseWriter, r *http.Request) {
 	c := s.cbSettings()
 	st := cbStatus{Daily: c.Daily, Mode: c.Mode, At: c.At, EveryHours: c.EveryHours, Policy: c.Policy, Zone: zoneName(time.Now()),
-		Dir: filepath.Join(s.DataDir, "backups"), Command: "sudo systemctl stop virticle && sudo virticle restore FILE"}
+		Dir: s.cbDir(), Command: "sudo systemctl stop virticle && sudo virticle restore FILE"}
 	if c.Daily {
 		cbSched.Lock()
 		if !cbSched.next.IsZero() {
@@ -200,6 +243,15 @@ func (s *Server) putCtlBackup(w http.ResponseWriter, r *http.Request) {
 	if err := req.validate(); err != nil {
 		fail(w, badRequest(err.Error()))
 		return
+	}
+	if req.Dir = strings.TrimSpace(req.Dir); req.Dir != "" {
+		req.Dir = filepath.Clean(req.Dir)
+		if req.Dir == filepath.Join(s.DataDir, "backups") {
+			req.Dir = "" // the default is stored as "not set", so it follows the data directory
+		} else if err := s.cbCheckDir(req.Dir); err != nil {
+			fail(w, badRequest(err.Error()))
+			return
+		}
 	}
 	was := cur.Daily
 	b, _ := json.Marshal(req)
@@ -446,7 +498,7 @@ func (s *Server) writeDailyBackup() (int64, int, error) {
 		return 0, 0, err
 	}
 	src.Now = time.Now
-	dir := filepath.Join(s.DataDir, "backups")
+	dir := s.cbDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return 0, 0, err
 	}
@@ -493,7 +545,10 @@ func (s *Server) previewCtlBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	out := projectSchedule(runs, c.step(), 1, c.Policy, now)
 	out.NextRuns = nextRuns(c.next(now, last, 0), c.step(), c.Mode == "daily", 3)
-	dir := filepath.Join(s.DataDir, "backups")
+	dir := s.cbDir()
+	if d := strings.TrimSpace(c.Dir); filepath.IsAbs(d) { // the folder in the form, saved or not
+		dir = filepath.Clean(d)
+	}
 	files, _ := ctlbackup.Files(dir)
 	var size uint64
 	for _, f := range files {
@@ -507,7 +562,14 @@ func (s *Server) previewCtlBackup(w http.ResponseWriter, r *http.Request) {
 	if size > 0 {
 		out.Size = &projSize{Basis: "last", Full: size, Low: size * uint64(out.Kept), High: size * uint64(out.Kept), Fulls: out.Kept}
 	}
-	if free, err := freeBytesLocal(s.DataDir); err == nil {
+	at := dir // a folder that does not exist yet is made on the file system of its nearest existing parent
+	for at != "/" {
+		if _, err := os.Stat(at); err == nil {
+			break
+		}
+		at = filepath.Dir(at)
+	}
+	if free, err := freeBytesLocal(at); err == nil {
 		out.Free = &free
 	}
 	writeJSON(w, out)

@@ -149,7 +149,7 @@ function AddShared({ nodes, onClose, onDone }: { nodes: NodeStatus[]; onClose: (
         <p className="muted">
           Mounts an NFS share on {online.length > 1 ? "every node" : "the node"} under the same name and path.
         </p>
-        <Field label="Name" hint="Also the folder it is mounted in: /mnt/name.">
+        <Field label="Name" help="Also the folder it is mounted in: /mnt/name.">
           <input value={f.name} onChange={set("name")} required autoFocus placeholder="shared" />
         </Field>
         <div className="grid2">

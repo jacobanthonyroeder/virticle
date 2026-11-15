@@ -65,7 +65,7 @@ export default function CloudInitFields(props: { value: CloudInitValues; onChang
       </summary>
       {usable && <p className="hint">Needs cloud-init in the image; installs the guest agent.</p>}
       {usable && profiles && profiles.length > 0 && (
-        <Field label="Profile" hint="Fields you leave empty are taken from the profile.">
+        <Field label="Profile" help="Fields you leave empty are taken from the profile.">
           <Select label="Profile" value={String(v.profile)} onChange={(x) => onChange({ ...v, profile: Number(x) })} options={[{ value: "0", label: "None" }, ...profiles.map((p) => ({ value: String(p.id), label: p.name + (p.default ? " (default)" : "") }))]} />
         </Field>
       )}

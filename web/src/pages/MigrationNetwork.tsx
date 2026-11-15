@@ -83,7 +83,7 @@ export function networkOptions(info: MigNetInfo) {
 /** The select of the migration network. The caller shows it only when `info.show`. */
 export function NetworkSelect({ info, value, onChange }: { info: MigNetInfo; value: string; onChange: (v: string) => void }) {
   return (
-    <Field label="Migration network" hint="Where other nodes send migration data and file copies.">
+    <Field label="Migration network" help="Where other nodes send migration data and file copies.">
       <Select label="Migration network" value={value} onChange={onChange} options={networkOptions(info)} />
     </Field>
   );
@@ -94,7 +94,7 @@ export function LimitField({ value, onChange }: { value: string; onChange: (v: s
   const { kind, mbit } = splitLimit(value);
   return (
     <>
-      <Field label="Limit on a shared link" hint="Applies when migration shares a network card with management.">
+      <Field label="Limit on a shared link" help="Applies when migration shares a network card with management.">
         <Select
           label="Limit on a shared link"
           value={kind}

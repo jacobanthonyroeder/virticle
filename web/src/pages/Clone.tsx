@@ -4,6 +4,7 @@ import { get, post, put, VMDetail } from "../api";
 import { ErrorBox, Field, Modal, useAction } from "../ui";
 import CloudInitFields, { cloudInitPayload, cloudInitUsed, CloudInitValues, emptyCloudInit } from "./CloudInit";
 import DialogAdvanced from "./DialogAdvanced";
+import Help from "../Help";
 import { StatusLine } from "../Checks";
 
 interface CloneInfo {
@@ -81,7 +82,12 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
         {d.template && (
           <label className="check">
             <input type="checkbox" checked={fullCopy} onChange={(e) => setFullCopy(e.target.checked)} />
-            Full copy
+            <span>
+              Full copy
+              <Help label="About Full copy">
+              Without it the clone is linked: it is made at once and stores only what it changes, reading the rest from the template's disk. The template cannot be deleted while such a clone exists. A full copy copies the whole disk: it takes time and the disk's full space, and does not depend on the template.
+              </Help>
+            </span>
           </label>
         )}
         <div className="field">

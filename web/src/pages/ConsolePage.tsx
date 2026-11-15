@@ -4,7 +4,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { get, VMDetail } from "../api";
 import { useRole } from "../auth";
 import { useLive } from "../live";
-import { SerialConsole, VNCConsole } from "./Console";
+import { LiveConsole } from "./Console";
 import "./console.css";
 
 export default function ConsolePage() {
@@ -27,7 +27,6 @@ export default function ConsolePage() {
   if (viewer) return msg("Only operators and administrators.");
   if (!d) return vm.error ? msg(vm.error) : null;
   if (d.state === "shutoff") return msg("Shutoff");
-  const serial = params.get("kind") === "serial" || !d.hasVNC;
-  if (serial && !d.hasSerial) return msg("No VNC display or serial console");
-  return serial ? <SerialConsole node={node} uuid={uuid} variant="page" /> : <VNCConsole node={node} uuid={uuid} name={d.name} variant="page" />;
+  if (!d.hasVNC && !d.hasSerial) return msg("No console");
+  return <LiveConsole d={d} variant="page" serialFirst={params.get("kind") === "serial"} />;
 }

@@ -150,7 +150,7 @@ earlier versions no longer exist.
   synced as soon as the agent answers (up to 5 minutes), when it is more than 2 seconds off: a Windows guest in another
   time zone would otherwise run hours off until Windows corrects itself. A VM started by the node at boot (autostart) is
   not synced.
-- **Serial console**: added to every new VM; the Console tab adds one to a VM that has none.
+- **Serial console**: added to every new VM; the Console card on the Overview adds one to a VM that has none.
 - **Firmware** (Linux): UEFI, with the UEFI variables in a qcow2 file so the VM can take internal snapshots. A node without UEFI firmware gets BIOS. Windows always gets UEFI.
 
 ## Migration network and limit

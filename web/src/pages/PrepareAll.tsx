@@ -139,7 +139,7 @@ export default function PrepareAll({ nodes, onClose }: { nodes: NodeStatus[]; on
           </Field>
         </div>
         {cred === "password" ? (
-          <Field label="Password" hint="Used for this run only and not stored. Also used for sudo when the user is not root.">
+          <Field label="Password" help="Used for this run only and not stored. Also used for sudo when the user is not root.">
             <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} required autoComplete="new-password" autoFocus />
           </Field>
         ) : (
