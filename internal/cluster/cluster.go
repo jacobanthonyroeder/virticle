@@ -25,6 +25,7 @@ type Event struct {
 	UUID   string `json:"uuid,omitempty"`   // domain uuid
 	Detail string `json:"detail,omitempty"` // lifecycle event name, node state
 	Task   any    `json:"task,omitempty"`
+	Alert  any    `json:"alert,omitempty"` // the alert of an "alert" event with Detail "raised"
 }
 
 var lifecycle = []string{"defined", "undefined", "started", "suspended", "resumed", "stopped", "shutdown", "pmsuspended", "crashed"}

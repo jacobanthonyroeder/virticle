@@ -452,7 +452,7 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 				s.syncClockAfterStart(user, p.dst, dom)
 			}
 		}
-		return err
+		return doneOr(err, "%s", restoreNote(p))
 	})
 	if err == nil {
 		release = nil // the task releases it

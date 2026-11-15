@@ -1,7 +1,7 @@
 // Migrate dialog: pre-flight list, live migration n1 -> n2 and back, progress, landing on the new node's page.
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, expectBadge, vmAction } from "../lib/ui";
+import { dialog, dockRow, expectBadge, vmAction } from "../lib/ui";
 
 const NAME = `${P}mig1`;
 
@@ -28,10 +28,11 @@ test.describe.serial("live migration", () => {
     const go = dlg.getByRole("button", { name: "Migrate", exact: true });
     await expect(go).toBeEnabled();
     await go.click();
-    // progress is shown while the task runs
-    await expect(dlg.getByRole("progressbar")).toBeVisible();
-    await expect(dlg).toContainText(`Moving ${NAME} to ${toName}`);
-    await expect(dlg).toContainText("Done.", { timeout: 240_000 });
+    // the dialog closes once the server accepted the migration; the Tasks dock follows it
+    await expect(dlg).toBeHidden();
+    const task = dockRow(page, "migrate", NAME).first();
+    await expect(task).toContainText("Ok", { timeout: 240_000 });
+    await expect(task.locator(".c-res")).toContainText(`to ${toName}`);
     // and the page follows the VM to its new node
     await expect(page).toHaveURL(new RegExp(`/vm/${to}/${vm.uuid}`), { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1, name: NAME })).toBeVisible();

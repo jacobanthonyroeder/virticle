@@ -1,7 +1,7 @@
 // Backups tab: back up now, restore as a new VM, export download, delete; global Backups page.
 import { cleanVMs, createCirros, expect, openVM, stopTask, tab, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, expectBadge, row } from "../lib/ui";
+import { dialog, dockRow, expectBadge, row } from "../lib/ui";
 import { readFileSync, statSync } from "fs";
 
 const NAME = `${P}bak1`;
@@ -21,20 +21,9 @@ test.describe.serial("backups", () => {
     const dlg = dialog(page, `Back up ${NAME}`);
     await expect(dlg.getByRole("combobox", { name: "Target pool" })).toContainText("default");
     await dlg.getByRole("button", { name: "Back up now" }).click();
-    await expect(dlg.getByRole("progressbar")).toBeVisible();
-    await expect(dlg).toContainText(/ok/i, { timeout: 200_000 });
-    // a finished task shows a full bar that is not alarming red
-    const color = await dlg.getByRole("progressbar").locator("div").evaluate((e) => getComputedStyle(e).backgroundColor);
-    const accent = await page.evaluate(() => {
-      const el = document.createElement("div");
-      el.style.background = "var(--danger)";
-      document.body.appendChild(el);
-      const c = getComputedStyle(el).backgroundColor;
-      el.remove();
-      return c;
-    });
-    expect(color).not.toBe(accent);
-    await dlg.getByRole("button", { name: "Close dialog" }).click();
+    // the dialog closes once the server accepted the backup; the Tasks dock follows it
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "backup", NAME).first()).toContainText("Ok", { timeout: 200_000 });
     const r = page.locator("tbody tr").first();
     await expect(r).toContainText("default");
     await expect(r).toContainText("vda");
@@ -71,9 +60,8 @@ test.describe.serial("backups", () => {
     await expect(dlg.getByLabel("Start the VM afterwards")).toBeChecked(); // on by default
     await dlg.getByLabel("Start the VM afterwards").uncheck(); // the checks below expect it shut off
     await dlg.getByRole("button", { name: "Restore", exact: true }).click();
-    await expect(dlg.getByRole("progressbar")).toBeVisible();
-    await expect(dlg).toContainText(/ok/i, { timeout: 200_000 });
-    await dlg.getByRole("button", { name: "Close dialog" }).click();
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "restore", RESTORED).first()).toContainText("Ok", { timeout: 200_000 });
     const got = await api.vmByName(RESTORED);
     expect(got).toBeTruthy();
     expect(got.uuid).not.toBe(vm.uuid);

@@ -20,12 +20,21 @@ function ago(since: number): string {
   return `${Math.round(s / 86400)} d ago`;
 }
 
+const OPEN_EVENT = "virticle-open-alerts";
+/** Opens the alerts panel of the bell (from a toast, for example). */
+export const openAlerts = () => window.dispatchEvent(new Event(OPEN_EVENT));
+
 /** Bell in the navigation with a count; opens a panel listing the alerts. */
 export function AlertBell() {
   const alerts = useAlerts();
   const [open, setOpen] = useState(false);
   const admin = useRole() === "admin";
   const critical = alerts.filter((a) => a.severity === "critical").length;
+  useEffect(() => {
+    const on = () => setOpen(true);
+    window.addEventListener(OPEN_EVENT, on);
+    return () => window.removeEventListener(OPEN_EVENT, on);
+  }, []);
   useEffect(() => {
     if (!open) return;
     const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);

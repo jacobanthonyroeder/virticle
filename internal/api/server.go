@@ -491,10 +491,21 @@ func (s *Server) taskStop(r *http.Request, kind, target, node string, stop taskS
 		}
 	})
 	s.unstoppable(&t)
-	s.Store.FinishTask(&t, err)
+	var dn doneNote
+	if errors.As(err, &dn) {
+		err = nil
+	}
+	s.Store.FinishTaskNote(&t, err, string(dn))
+	s.pokeAlertsOnFail(err)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 	return err
 }
+
+// taskDone is what the function of a task returns to end well with the fact the Result column shows: what was
+// made or where it went, with a size or count where one exists ("web-2, linked", "to pool fast, live"). Terse, no
+// sentence. The task call itself then returns nil. Every task function ends with it, or returns nil only when
+// there is nothing to say; an error ends the task as failed and its text is the Result.
+func taskDone(format string, a ...any) error { return doneNote(fmt.Sprintf(format, a...)) }
 
 // taskStop is how a running task is stopped and the role that may do it. The zero value is a task that
 // cannot be stopped. stop only asks: the task's own function notices, cleans up and ends the task.
@@ -551,6 +562,18 @@ func (s *Server) taskAsync(r *http.Request, kind, target, node string, fn func(p
 		return s.task(r, kind, target, node, fn)
 	}
 	id, err := s.startBackground(r, kind, target, node, fn)
+	if err != nil {
+		return err
+	}
+	return accepted{Task: id}
+}
+
+// taskStopAsync is taskAsync for work that can be stopped while it runs.
+func (s *Server) taskStopAsync(r *http.Request, kind, target, node string, stop taskStop, fn func(progress func(float64)) error) error {
+	if r == nil || r.URL == nil || r.URL.Query().Get("async") != "1" {
+		return s.taskStop(r, kind, target, node, stop, fn)
+	}
+	id, _, err := s.startBackgroundStop(r, kind, target, node, stop, fn)
 	if err != nil {
 		return err
 	}

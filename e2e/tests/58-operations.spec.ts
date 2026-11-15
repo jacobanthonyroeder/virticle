@@ -54,11 +54,12 @@ test.describe("operations", () => {
     }
   });
 
-  test("a task opens to its operations on the Tasks page", async ({ page }) => {
+  test("a task detail on the Tasks page holds its operations", async ({ page }) => {
     await page.goto("/datacenter/tasks");
-    const row = page.locator("tbody tr").filter({ hasText: "start" }).filter({ hasText: VM }).first();
-    await row.getByRole("button", { name: "1 operation" }).click();
-    await expect(page.locator(".oplist").first().locator(".op")).toContainText(`virsh start ${VM}`);
+    // The task's detail (a click on the row's Action cell) holds the operations.
+    const row = page.locator(".taskpage [role=row]").filter({ hasText: "start" }).filter({ hasText: VM }).first();
+    await row.locator(".c-kind").click();
+    await expect(page.getByRole("dialog").locator(".oplist .op").first()).toContainText(`virsh start ${VM}`);
     await noSideScroll(page);
   });
 });

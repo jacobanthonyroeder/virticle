@@ -303,7 +303,7 @@ function Disks({ d, disks, send, run, busy, onChanged, bare }: CardProps & { dis
       </table>
       </div>
       {adding && <AddDisk d={d} send={send} onClose={() => setAdding(false)} />}
-      {moving && <DiskMoveDialog d={d} disk={moving} onClose={() => setMoving(undefined)} onDone={onChanged} />}
+      {moving && <DiskMoveDialog d={d} disk={moving} onClose={() => setMoving(undefined)} />}
       {resizing && <ResizeDisk disk={resizing} send={send} onClose={() => setResizing(undefined)} />}
       {detaching && (
         <Modal title={`Detach ${detaching.target}?`} onClose={() => setDetaching(undefined)}>

@@ -2,7 +2,7 @@
 // nodes with a green CPU pre-flight row, and Advanced switches it to host-model and back.
 import { cleanVMs, expect, openVM, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, field, pick, vmAction } from "../lib/ui";
+import { dialog, dockRow, field, pick, vmAction } from "../lib/ui";
 
 const NAME = `${P}cpu1`;
 const NAME2 = `${P}cpu2`;
@@ -93,7 +93,8 @@ test.describe.serial("cluster CPU baseline", () => {
     await expect(cpu.getByRole("img", { name: "ok" })).toBeVisible();
     await expect(dlg.getByRole("img", { name: "failed" })).toHaveCount(0);
     await dlg.getByRole("button", { name: "Migrate", exact: true }).click();
-    await expect(dlg).toContainText("Done.", { timeout: 240_000 });
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "migrate", NAME).first()).toContainText("Ok", { timeout: 240_000 });
     await expect(page).toHaveURL(new RegExp(`/vm/${n2}/${vm.uuid}`), { timeout: 30_000 });
     const d = await api.vmDetail(n2, vm.uuid);
     expect(d.state).toBe("running");

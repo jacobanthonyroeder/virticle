@@ -2,10 +2,10 @@ import { describeWhen, NextRunLine } from "../ScheduleTime";
 import ScheduleAssistant, { describeKeep, effectiveKeep, Freq, Keep, keepOf, Projection } from "../ScheduleAssistant";
 import { browserZone, localToUtc, utcToLocal } from "../tz";
 import DialogAdvanced from "./DialogAdvanced";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, bytes, del, get, NodeStatus, Pool, post, put, Task, VMDetail } from "../api";
 import { useRole } from "../auth";
-import { useEvents, useLive } from "../live";
+import { useLive } from "../live";
 import PoolSelect from "../PoolSelect";
 import Select from "../Select";
 import { ErrorBox, Field, Modal, NodePicker, Progress, useAction, useConfirm, usePrompt } from "../ui";
@@ -67,47 +67,6 @@ const hasLaterOnes = (n?: number) => (n ?? 0) > 0;
 const tpmLine = (m: Manifest) =>
   m.tpmState ? " The TPM state is restored too." : m.tpm ? " Its TPM state is not included: the restored VM starts with an empty TPM." : "";
 
-/** Follows a task started in the background, showing progress and the result. */
-function TaskFollow(props: { id: number; onDone: (ok: boolean) => void; onCancel?: () => void }) {
-  const confirm = useConfirm();
-  const [t, setT] = useState<Task | undefined>();
-  useEffect(() => {
-    let finished = false;
-    const poll = () =>
-      get<Task[]>("/tasks").then((ts) => {
-        const x = ts.find((y) => y.id === props.id);
-        if (x) {
-          setT(x);
-          if (x.status !== "running" && !finished) {
-            finished = true;
-            props.onDone(x.status === "ok");
-          }
-        }
-      }, () => {});
-    poll();
-    const h = setInterval(poll, 1000);
-    return () => clearInterval(h);
-  }, [props.id]);
-  return (
-    <div>
-      <p>
-        {t ? t.kind : "task"} {t?.target}: <strong>{t?.status ?? "starting"}</strong>
-      </p>
-      <Progress value={t?.status === "ok" ? 1 : (t?.progress ?? 0)} failed={t?.status === "failed"} />
-      {confirm.dialog}
-      {t?.status === "failed" && <ErrorBox error={t.error} />}
-      {t?.status === "running" && props.onCancel && (
-        <button
-          className="danger"
-          onClick={async () => (await confirm.ask({ title: "Stop backup", message: "The running backup is stopped before it finishes. No usable backup of this run is kept.", confirm: "Stop backup" })) && props.onCancel?.()}
-        >
-          Cancel
-        </button>
-      )}
-    </div>
-  );
-}
-
 function usePools(node: number) {
   const [pools, setPools] = useState<Pool[]>([]);
   useEffect(() => {
@@ -144,87 +103,46 @@ function Target(props: { node: number; pool: string; setNode: (n: number) => voi
   );
 }
 
-function BackupNow(props: { d: VMDetail; onClose: () => void; onDone: () => void }) {
+function BackupNow(props: { d: VMDetail; onClose: () => void }) {
   const { d } = props;
   const act = useAction();
   const [node, setNode] = useState(d.node);
   const [pool, setPool] = useState("");
   const [keep, setKeep] = useState(7);
-  const [task, setTask] = useState(0);
   // A backup into the schedule's target is pruned by the schedule's rules (the server decides; this only shows it).
   const sched = useLive(() => get<{ schedule: BackupSched | null }>(`/nodes/${d.node}/vms/${d.uuid}/backup-schedule`), `/nodes/${d.node}/vms/${d.uuid}/backup-schedule`, () => false);
   const sch = sched.data?.schedule;
   const bySchedule = !!sch && (sch.targetNode || d.node) === node && sch.pool === pool;
-  const [kind, setKind] = useState("");
-  const [why, setWhy] = useState("");
-  const [finished, setFinished] = useState(false);
   const base = `/nodes/${d.node}/vms/${d.uuid}`;
-  // The kind in the start answer is the plan: libvirt may refuse an incremental backup and the run then makes a
-  // full one. Once the run is over, the manifest of the new backup says what it really is.
-  const done = async (ok: boolean) => {
-    if (ok) {
-      try {
-        const l = await get<BackupEntry[]>(`/backups?uuid=${d.uuid}`);
-        const newest = l.filter((b) => b.manifest).sort((x, y) => Date.parse(y.manifest!.created) - Date.parse(x.manifest!.created))[0];
-        if (newest?.manifest) {
-          setKind(newest.manifest.kind ?? "full");
-          setWhy(newest.manifest.fullReason ?? "");
-          setFinished(true);
-        }
-      } catch {
-        // keep the planned kind
-      }
-    }
-    props.onDone();
-  };
+  // Once the server accepted the backup the dialog closes; the Tasks dock follows it and shows what kind it was.
   const submit = async () => {
-    await act.run(async () => {
-      const r = await post<{ task: number; plannedKind: string }>(`${base}/backup`, { targetNode: node === d.node ? 0 : node, pool, keepLast: keep });
-      setKind(r.plannedKind);
-      setTask(r.task);
-    });
+    if (await act.run(() => post(`${base}/backup`, { targetNode: node === d.node ? 0 : node, pool, keepLast: keep }))) props.onClose();
   };
   return (
     <Modal title={`Back up ${d.name}`} onClose={props.onClose}>
-      {task ? (
-        <>
-          <p className="muted">
-            {finished
-              ? kind === "incremental"
-                ? "Incremental backup"
-                : `Full backup.${why ? " " + why : ""}`
-              : kind === "incremental"
-                ? "Planned as an incremental backup; a full backup if that is not possible."
-                : "Full backup"}
-          </p>
-          <TaskFollow id={task} onDone={done} onCancel={() => post(`${base}/backup/cancel`)} />
-        </>
+      <p className="muted">Incremental when possible, otherwise full. Snapshots are not included; the TPM 2.0 state is, so keep backups as safe as the VM.</p>
+      <Target node={node} pool={pool} setNode={setNode} setPool={setPool} />
+      {bySchedule ? (
+        <p className="muted" title="This pool is the schedule's target: its rules decide which older backups go">
+          Retention: schedule ({describeKeep(sch)}).
+        </p>
       ) : (
-        <>
-          <p className="muted">Incremental when possible, otherwise full. Snapshots are not included; the TPM 2.0 state is, so keep backups as safe as the VM.</p>
-          <Target node={node} pool={pool} setNode={setNode} setPool={setPool} />
-          {bySchedule ? (
-            <p className="muted" title="This pool is the schedule's target: its rules decide which older backups go">
-              Retention: schedule ({describeKeep(sch)}).
-            </p>
-          ) : (
-            <Field label="Keep the newest" help="Older backups of this VM in this pool are deleted, except those a kept incremental backup builds on. 0 keeps all.">
-              <input type="number" min={0} max={1000} value={keep} onChange={(e) => setKeep(Number(e.target.value))} />
-            </Field>
-          )}
-          <ErrorBox error={act.error} />
-          <div className="actions">
-            <button className="primary" disabled={act.busy || !pool} onClick={submit}>
-              Back up now
-            </button>
-          </div>
-        </>
+        <Field label="Keep the newest" help="Older backups of this VM in this pool are deleted, except those a kept incremental backup builds on. 0 keeps all.">
+          <input type="number" min={0} max={1000} value={keep} onChange={(e) => setKeep(Number(e.target.value))} />
+        </Field>
       )}
+      <ErrorBox error={act.error} />
+      <div className="actions">
+        <button className="primary" disabled={act.busy || !pool} onClick={submit}>
+          Back up now
+        </button>
+      </div>
     </Modal>
   );
 }
 
-function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => void }) {
+/** Restore a backup. The dialog closes once the server accepted it; only warnings of the restore keep it open to be read. */
+function Restore(props: { b: BackupEntry; onClose: () => void }) {
   const { b } = props;
   const m = b.manifest!;
   const act = useAction();
@@ -235,7 +153,6 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
   const [pool, setPool] = useState(b.pool);
   const [start, setStart] = useState(true);
   const [passphrase, setPassphrase] = useState("");
-  const [task, setTask] = useState(0);
   const [warnings, setWarnings] = useState<string[]>([]);
   // Replacing needs the original VM on the target node and shut off.
   const whyNot = !b.vmExists
@@ -258,21 +175,26 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
     return act.run(async () => {
       const r = await post<{ task: number; warnings: string[] }>(`${url(b)}/restore`, { mode: doReplace ? "original" : "new", name, targetNode: node, pool, replace: doReplace, start, ...(b.needsKey ? { passphrase } : {}) });
       setPassphrase("");
-      setWarnings(r.warnings ?? []);
-      setTask(r.task);
+      if (r.warnings?.length) setWarnings(r.warnings);
+      else props.onClose();
     });
   };
   return (
     <Modal title={`Restore ${m.vm}`} onClose={props.onClose}>
       {confirm.dialog}
-      {task ? (
+      {warnings.length > 0 ? (
         <>
-          <TaskFollow id={task} onDone={props.onDone} />
+          <p>Restore started.</p>
           {warnings.map((w) => (
-            <p key={w} className="muted">
+            <StatusLine key={w} status="warning">
               {w}
-            </p>
+            </StatusLine>
           ))}
+          <footer>
+            <button className="primary" autoFocus onClick={props.onClose}>
+              Close
+            </button>
+          </footer>
         </>
       ) : (
         <>
@@ -318,59 +240,10 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
   );
 }
 
-/** Verifies a backup and the backups it builds on: follows the task through the event stream. */
-function Verify(props: { b: BackupEntry; onClose: () => void }) {
-  const { b } = props;
-  const act = useAction();
-  const [id, setId] = useState(0);
-  const [seen, setSeen] = useState<Record<number, Task>>({});
-  // Task events can come before the start answer: keep them by id. After the start answer, and after the event
-  // stream reconnects, the task list is read once.
-  const keep = (t: Task) => setSeen((m) => (m[t.id] && m[t.id].status !== "running" && t.status === "running" ? m : { ...m, [t.id]: t }));
-  const reread = (task: number) => get<Task[]>("/tasks").then((l) => l.filter((x) => x.id === task).forEach(keep), () => {});
-  useEvents((e) => {
-    if (e.type === "task" && e.task && e.task.kind === "verify" && e.task.target === b.dir) keep(e.task);
-    if (e.type === "node" && e.detail === "resync" && id) reread(id);
-  });
-  useEffect(() => {
-    if (id) reread(id);
-  }, [id]);
-  const started = useRef(false);
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    act.run(async () => setId((await post<{ task: number }>(url(b) + "/verify")).task));
-  }, []);
-  const t = id ? seen[id] : undefined;
-  const status = t?.status ?? "running";
-  return (
-    <Modal title={`Verify ${b.manifest?.vm ?? b.dir}`} onClose={props.onClose}>
-      <p className="muted">{b.manifest ? when(b.manifest.created) : b.dir}</p>
-      <ErrorBox error={act.error} />
-      {!act.error && (
-        <>
-          <p>
-            <span className={"badge s-" + (status === "ok" ? "ok" : status === "failed" ? "failed" : "running")}>{status === "ok" ? "Intact" : status === "failed" ? "Damaged" : "Verifying"}</span>
-          </p>
-          <Progress value={status === "ok" ? 1 : (t?.progress ?? 0)} failed={status === "failed"} />
-          {status === "ok" && t?.note && <p className="muted">{t.note}</p>}
-          {status === "failed" && <ErrorBox error={t?.error} />}
-          {status === "running" && id > 0 && (
-            <div className="actions">
-              <button onClick={() => post(`/tasks/${id}/cancel`).catch(() => {})}>Stop</button>
-            </div>
-          )}
-        </>
-      )}
-    </Modal>
-  );
-}
-
 function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () => void }) {
   const role = useRole();
   const [restoring, setRestoring] = useState<BackupEntry | undefined>();
   const [deleting, setDeleting] = useState<BackupEntry | undefined>();
-  const [verifying, setVerifying] = useState<BackupEntry | undefined>();
   const act = useAction();
   const prompt = usePrompt();
   // An encrypted incremental backup is put together for the export, which needs the key: the passphrase is checked
@@ -447,7 +320,7 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
                     </button>
                   )}
                   {b.manifest && role !== "viewer" && (
-                    <button onClick={() => setVerifying(b)} title={isIncremental(b) ? "Check every file and checksum, with the earlier backups it needs" : "Check every file and checksum"}>
+                    <button disabled={act.busy} onClick={() => act.run(() => post(url(b) + "/verify"))} title={isIncremental(b) ? "Check every file and checksum, with the earlier backups it needs" : "Check every file and checksum"}>
                       Verify
                     </button>
                   )}
@@ -470,8 +343,7 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
           ))}
         </tbody>
       </table>
-      {restoring && <Restore b={restoring} onClose={() => setRestoring(undefined)} onDone={props.reload} />}
-      {verifying && <Verify b={verifying} onClose={() => setVerifying(undefined)} />}
+      {restoring && <Restore b={restoring} onClose={() => setRestoring(undefined)} />}
       {deleting && (
         <Modal title="Delete backup" onClose={() => setDeleting(undefined)}>
           <p>
@@ -658,7 +530,7 @@ export default function BackupsTab({ d }: { d: VMDetail; base: string }) {
           )
         }
       </SubNav>
-      {making && <BackupNow d={d} onClose={() => setMaking(false)} onDone={list.reload} />}
+      {making && <BackupNow d={d} onClose={() => setMaking(false)} />}
     </>
   );
 }

@@ -6,7 +6,7 @@
 import { Page } from "@playwright/test";
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { P } from "../lib/env";
-import { dialog, field } from "../lib/ui";
+import { dialog, dockRow, field } from "../lib/ui";
 import { Api } from "../lib/api";
 
 const NAME = `${P}enc1`;
@@ -27,8 +27,9 @@ async function backupNow(page: Page) {
   const dlg = dialog(page, `Back up ${NAME}`);
   await expect(dlg.getByRole("combobox", { name: "Target pool" })).toContainText("default");
   await dlg.getByRole("button", { name: "Back up now" }).click();
-  await expect(dlg).toContainText(/ok/i, { timeout: 200_000 });
-  await dlg.getByRole("button", { name: "Close dialog" }).click();
+  // the dialog closes once the server accepted the backup; the Tasks dock follows it
+  await expect(dlg).toBeHidden();
+  await expect(dockRow(page, "backup", NAME).first()).toContainText("Ok", { timeout: 200_000 });
 }
 
 async function backups(api: Api, uuid: string) {
@@ -115,7 +116,8 @@ test.describe.serial("backup encryption", () => {
     expect(await api.vmByName(R1)).toBeUndefined();
     await field(dlg, "Backup key passphrase").fill(PASS);
     await restore.click();
-    await expect(dlg).toContainText(/ok/i, { timeout: 250_000 });
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "restore", R1).first()).toContainText("Ok", { timeout: 250_000 });
     const r = await api.waitFor("restored VM", () => api.vmByName(R1), 30_000);
     await api.waitFor("restored VM running", async () => (await api.vmDetail(r.node, r.uuid)).state === "running", 60_000);
   });
@@ -144,7 +146,8 @@ test.describe.serial("backup encryption", () => {
     await dlg.getByLabel("New VM name").fill(R2);
     await field(dlg, "Backup key passphrase").fill(PASS);
     await dlg.getByRole("button", { name: "Restore", exact: true }).click();
-    await expect(dlg).toContainText(/ok/i, { timeout: 250_000 });
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "restore", R2).first()).toContainText("Ok", { timeout: 250_000 });
     await api.waitFor("second restored VM", () => api.vmByName(R2), 30_000);
   });
 

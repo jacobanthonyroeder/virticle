@@ -476,9 +476,9 @@ func (s *Server) dailyBackupRun() error {
 	t, terr := s.Store.StartTask(cbTaskKind, "controller", "", "scheduler")
 	size, gone, err := s.writeDailyBackup()
 	if terr == nil {
-		note := ""
+		note := ctlBackupNote(size, s.backupRecipient() != "")
 		if gone > 0 {
-			note = fmt.Sprintf("%d older %s deleted (keep %s)", gone, plural(gone, "backup", "backups"), s.cbSettings().Policy)
+			note = joinFacts(note, fmt.Sprintf("%d older %s deleted (keep %s)", gone, plural(gone, "backup", "backups"), s.cbSettings().Policy))
 		}
 		s.Store.FinishTaskNote(&t, err, note)
 	}

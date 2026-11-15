@@ -128,7 +128,7 @@ func (s *Server) vmTags(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	err = s.task(r, "set tags", dom.Name, h.Name, func(func(float64)) error { return setTags(h, dom, tags) })
+	err = s.task(r, "set tags", dom.Name, h.Name, func(func(float64)) error { return doneOr(setTags(h, dom, tags), "%s", tagsNote(tags)) })
 	if err != nil {
 		fail(w, err)
 		return

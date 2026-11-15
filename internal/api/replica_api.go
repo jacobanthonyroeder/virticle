@@ -314,7 +314,8 @@ func (s *Server) deleteReplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.task(r, "replication stop", dom.Name, h.Name, func(func(float64)) error {
-		return s.stopReplication(h, dom, *cfg, r.URL.Query().Get("deleteReplica") == "1")
+		deleteCopy := r.URL.Query().Get("deleteReplica") == "1"
+		return doneOr(s.stopReplication(h, dom, *cfg, deleteCopy), "%s", replStopNote(deleteCopy))
 	})
 	if err != nil {
 		fail(w, err)

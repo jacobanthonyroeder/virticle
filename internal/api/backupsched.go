@@ -400,7 +400,7 @@ func (s *Server) updateBackupSchedule(w http.ResponseWriter, r *http.Request, h 
 		if err != nil {
 			return badRequest(err.Error())
 		}
-		return setDomainMeta(h, dom, meta)
+		return doneOr(setDomainMeta(h, dom, meta), "%s", savedOrRemoved(elem))
 	})
 	if err != nil {
 		fail(w, err)

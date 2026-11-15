@@ -2,7 +2,7 @@ import { FormEvent, useState } from "react";
 import { post } from "../api";
 import { ErrorBox, Field, Modal, useAction } from "../ui";
 
-/** Asks the node to fetch a URL into a pool. Progress shows in the task log. */
+/** Asks the node to fetch a URL into a pool. The dialog closes once the server accepted it; the Tasks dock follows the download. */
 export default function DownloadVolume(props: { node: number; pool: string; onClose: () => void; onDone: () => void }) {
   const act = useAction();
   const [url, setUrl] = useState("");
@@ -15,7 +15,7 @@ export default function DownloadVolume(props: { node: number; pool: string; onCl
   };
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (await act.run(() => post(`/nodes/${props.node}/pools/${encodeURIComponent(props.pool)}/volumes/download`, { name, url }))) {
+    if (await act.run(() => post(`/nodes/${props.node}/pools/${encodeURIComponent(props.pool)}/volumes/download?async=1`, { name, url }))) {
       props.onDone();
       props.onClose();
     }
@@ -35,7 +35,7 @@ export default function DownloadVolume(props: { node: number; pool: string; onCl
             Cancel
           </button>
           <button className="primary" disabled={act.busy}>
-            {act.busy ? "Downloading" : "Download"}
+            {act.busy ? "Starting" : "Download"}
           </button>
         </footer>
       </form>

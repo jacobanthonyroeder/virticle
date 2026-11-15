@@ -72,6 +72,9 @@ type Task struct {
 	Cancel string `json:"cancel,omitempty"`
 	// Ops is how many operations the task's trace has (ops.go).
 	Ops int `json:"ops,omitempty"`
+	// Background is set on the events of a task that runs after its request was answered (the requester is not
+	// waiting for it, so a failure needs its own message). It is not stored.
+	Background bool `json:"background,omitempty"`
 }
 
 func Open(path string) (*Store, error) {

@@ -40,4 +40,11 @@ func TestMaintenanceFlagAndSchedulerTasks(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].Status != "failed" || got[0].Target != "vm1" {
 		t.Fatalf("scheduler tasks: %+v %v", got, err)
 	}
+	all, err := s.TasksSince(0)
+	if err != nil || len(all) != 2 || all[0].User != "scheduler" || all[1].User != "alice" {
+		t.Fatalf("tasks of every user: %+v %v", all, err)
+	}
+	if none, _ := s.TasksSince(1 << 40); len(none) != 0 {
+		t.Fatalf("tasks since the far future: %+v", none)
+	}
 }

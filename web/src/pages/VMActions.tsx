@@ -147,7 +147,7 @@ export default function VMActions(props: {
       {converting && <ConvertDialog d={d} base={base} onClose={() => setConverting(false)} onDone={props.onChanged} />}
       {taking && <TakeSnapshot d={d} base={base} onClose={() => setTaking(false)} onDone={props.onChanged} />}
       {migrating && <MigrateDialog d={d} onClose={() => setMigrating(false)} />}
-      {moveDisk && <DiskMoveDialog d={d} disk={moveDisk} onClose={() => setMovingDisk(undefined)} onDone={props.onChanged} />}
+      {moveDisk && <DiskMoveDialog d={d} disk={moveDisk} onClose={() => setMovingDisk(undefined)} />}
       {deleting && <DeleteVM d={d} base={base} onClose={() => setDeleting(false)} onDeleted={() => nav("/datacenter/vms")} />}
     </>
   );

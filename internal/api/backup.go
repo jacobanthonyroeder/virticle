@@ -114,6 +114,7 @@ type bkRun struct {
 	// sets it: a replication run, which shares the copy code, never encrypts (its standby must be able to start).
 	enc       string
 	pruneNote string          // how many older backups retention deleted ("" for none)
+	doneFact  string          // "full, 3.2 GiB": what the finished backup is, for the task
 	ctx       context.Context // cancelled by cancel(); ends a running node to node transfer
 	stopCtx   context.CancelFunc
 
@@ -663,6 +664,7 @@ func (m *bkRun) run() (err error) {
 		return err
 	}
 	m.progress(m.ph.storedAt)
+	m.doneFact = backupFact(m.plan.Kind, m.disks)
 	// From here on the backup exists; the work directories are gone.
 	gone[dstWork.path] = true
 	srcWork, dstWork = nil, nil
@@ -1394,7 +1396,7 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		return removeBackupDir(b.h, b.pd.Dir, b.name)
+		return doneOr(removeBackupDir(b.h, b.pd.Dir, b.name), "%s", backupDeleteNote(b.name, len(later)))
 	})
 	if err != nil {
 		fail(w, err)
@@ -1433,7 +1435,7 @@ func (m *bkRun) finishFreeze(err error) error {
 	}
 	if err == nil {
 		var notes []string
-		for _, n := range []string{m.fz.Text, m.tpmNote, m.pruneNote} {
+		for _, n := range []string{m.doneFact, m.fz.Text, m.tpmNote, m.pruneNote} {
 			if n != "" {
 				notes = append(notes, n)
 			}

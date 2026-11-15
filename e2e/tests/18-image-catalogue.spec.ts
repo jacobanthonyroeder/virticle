@@ -4,7 +4,7 @@
 // <data>/images.json override (see the notes in internal/catalog/catalog.go); without it that test skips.
 import { expect, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, field, row, pick, pickPool } from "../lib/ui";
+import { dialog, dockRow, field, row, pick, pickPool } from "../lib/ui";
 
 const POOL = `${P}icpool`;
 const EMPTY = `${P}icempty`;
@@ -52,7 +52,11 @@ test.describe.serial("image catalogue", () => {
     await expect(dlg.locator("li.catitem", { hasText: "Debian 13" })).toContainText("cloud-init");
     await expect(item).toContainText("no cloud-init");
     await item.getByRole("button", { name: "Download" }).click();
-    await expect(item.locator(".catok")).toHaveText("Already in this pool", { timeout: 120_000 });
+    // the dialog closes once the server accepted the download; the Tasks dock follows it
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "image", CIRROS_VOL).first()).toContainText("Ok", { timeout: 120_000 });
+    await page.getByRole("button", { name: "Image catalogue" }).click();
+    await expect(item.locator(".catok")).toHaveText("Already in this pool");
     await expect(item.getByRole("link", { name: "Create VM from this image" })).toBeVisible();
     const v = (await vols(api, n1)).find((x) => x.name === CIRROS_VOL);
     expect(v).toBeTruthy();

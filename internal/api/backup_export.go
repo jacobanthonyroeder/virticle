@@ -104,7 +104,7 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 			}
 			out.progress = func(f float64) { progress(0.5 + f*0.5) }
 		}
-		return b.h.TarPack(st.Ctx(), dir, names, out)
+		return doneOr(b.h.TarPack(st.Ctx(), dir, names, out), "%s", fileFact(out.filename, out.n.Load()))
 	})
 	if err != nil {
 		if !out.started {
@@ -310,7 +310,7 @@ func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
 		if !st.commit() { // the checks and the move into place are short: a stop from here on changes nothing
 			return stoppedErr("backup import")
 		}
-		return finishImport(h, pd, wd, v.names, &res)
+		return doneOr(finishImport(h, pd, wd, v.names, &res), "%s", backupImportNote(&res))
 	})
 	if err != nil {
 		fail(w, err)

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { get, put, VMDetail } from "../api";
+import { useInventory } from "../inventory";
 import { useLive } from "../live";
 import { secOfCard } from "../SubNav";
 import { useRole } from "../auth";
@@ -24,6 +25,14 @@ export default function VMDetailPage() {
     e.type === "node" ? true : e.type === "domain" ? e.uuid === uuid : e.task?.status !== "running",
   );
   const act = useAction();
+  // The VM now lives on another node (a migration finished while this page was open): follow it.
+  const nav = useNavigate();
+  const loc = useLocation();
+  const here = useInventory().vms.filter((x) => x.uuid === uuid);
+  const moved = here.length > 0 && !here.some((x) => x.node === node) ? here[0] : undefined;
+  useEffect(() => {
+    if (moved) nav(`/vm/${moved.node}/${uuid}${loc.search}`, { replace: true });
+  }, [moved?.node]);
   // libvirt sends no event when the guest agent comes up, so look again while it is not connected.
   const waitingForAgent = vm.data?.state === "running" && vm.data.agent !== "connected";
   useEffect(() => {
