@@ -59,6 +59,7 @@
 }
 /* "Advanced" in a dialog: one box, closed by default. */
 .dlg-adv { margin: 10px 0; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
+.dlg-adv.flat { margin: 0; border: 0; padding: 0; }
 .dlgadv { padding-top: 10px; }
 .dlgadv[hidden] { display: none; }
 .disc-head { flex-wrap: wrap; white-space: normal; }

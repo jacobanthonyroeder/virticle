@@ -3,8 +3,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import Tree from "./Tree";
 import "./shell.css";
-import { get, post, Role, setUnauthorizedHandler, Task } from "./api";
-import { startEvents, stopEvents, useEvents } from "./live";
+import { get, post, Role, setUnauthorizedHandler } from "./api";
+import { startEvents, stopEvents } from "./live";
 import { ErrorBox, Field, useAction } from "./ui";
 import { StatusLine } from "./Checks";
 import Datacenter from "./pages/Datacenter";
@@ -27,6 +27,7 @@ import { DropdownMenu } from "./Menu";
 import { RoleContext } from "./auth";
 import { ThemeToggle } from "./theme";
 import TasksDock, { useDockOpen } from "./TasksDock";
+import Toasts from "./Toasts";
 import { bindPrefs, loadPrefs, usePref } from "./prefs";
 import Resizer, { clampSize } from "./Resizer";
 
@@ -180,7 +181,7 @@ export default function App() {
       {dockOpen && <Resizer axis="y" cssVar="--dock-h" pref="dockH" min={DOCK_MIN} max={dockMax} current={() => document.querySelector(".dock")?.getBoundingClientRect().height ?? 200} label="Resize the tasks panel" />}
       <TasksDock />
       </div>
-      <Toasts />
+      <Toasts user={session.user} role={session.role} />
     </div>
     </RoleContext.Provider>
   );
@@ -299,26 +300,3 @@ function TwoStepRequired({ user, onDone, onSignOut }: { user: string; onDone: ()
   );
 }
 
-/** Shows failed tasks as they happen, wherever the user is. */
-function Toasts() {
-  const [failed, setFailed] = useState<Task[]>([]);
-  useEvents((e) => {
-    if (e.type === "task" && e.task?.status === "failed") {
-      const t = e.task;
-      setFailed((f) => [...f.filter((x) => x.id !== t.id), t].slice(-3));
-      setTimeout(() => setFailed((f) => f.filter((x) => x.id !== t.id)), 10000);
-    }
-  });
-  return (
-    <div className="toasts">
-      {failed.map((t) => (
-        <div key={t.id} className="toast" onClick={() => setFailed((f) => f.filter((x) => x.id !== t.id))}>
-          <strong>
-            {t.kind} {t.target} failed
-          </strong>
-          <div>{t.error}</div>
-        </div>
-      ))}
-    </div>
-  );
-}

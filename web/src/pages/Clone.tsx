@@ -1,5 +1,4 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { get, post, put, VMDetail } from "../api";
 import { ErrorBox, Field, Modal, useAction } from "../ui";
 import CloudInitFields, { cloudInitPayload, cloudInitUsed, CloudInitValues, emptyCloudInit } from "./CloudInit";
@@ -53,7 +52,6 @@ function setupLine(g: GuestSetup | undefined, error: string | undefined, templat
  * A clone of a template gets a new identity when the node can do it; Advanced has the opt-out.
  */
 export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; onClose: () => void }) {
-  const nav = useNavigate();
   const act = useAction();
   const [info, setInfo] = useState<CloneInfo>();
   const [infoError, setInfoError] = useState<string>();
@@ -63,7 +61,6 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
   // undefined: not touched, so the default applies (on for a template when the node can do it).
   const [sysprepChoice, setSysprepChoice] = useState<boolean>();
   const [ci, setCi] = useState<CloudInitValues>(emptyCloudInit);
-  const [result, setResult] = useState<string>();
   // Looked up when the Guest setup section is first opened: looking into the disks takes seconds.
   const [setupAsked, setSetupAsked] = useState(false);
   const [gs, setGs] = useState<GuestSetup>();
@@ -86,9 +83,8 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
   const onDisk = gs?.setup === "disk";
   const noSetup = !!gs && !gs.setup;
   const customize = cloudInitUsed(windows || onDisk ? { ...ci, profile: 0, rawUserData: onDisk ? "" : ci.rawUserData } : ci);
+  // The server checks the request and starts the clone as a task; the dialog then closes and the Tasks dock follows it.
   const submit = async () => {
-    let uuid = "";
-    let note = "";
     const ok = await act.run(async () => {
       const p = cloudInitPayload(ci, name);
       const body = {
@@ -98,13 +94,9 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
         sysprep,
         customize: customize ? { hostname: p.hostname, user: p.user, password: p.password, sshKeys: p.sshKeys, packages: p.packages, rawUserData: onDisk ? undefined : p.rawUserData, profile: windows || onDisk ? undefined : p.profile } : undefined,
       };
-      const r = await post<{ uuid: string; sysprep: string; setup?: string; startError?: string }>(`${base}/clone`, body);
-      uuid = r.uuid;
-      note = [r.sysprep && `Identity reset by: ${r.sysprep}.`, r.setup === "disk" && "User and settings written into the disk.", r.startError && `It was created but did not start: ${r.startError}`].filter(Boolean).join(" ");
+      await post(`${base}/clone?async=1`, body);
     });
-    if (!ok) return;
-    if (note) setResult(note + "\n\nOpening the new VM.");
-    setTimeout(() => nav(`/vm/${d.node}/${uuid}`), note ? 2500 : 0);
+    if (ok) onClose();
   };
 
   return (
@@ -151,7 +143,6 @@ export function CloneDialog({ d, base, onClose }: { d: VMDetail; base: string; o
         </div>
       </DialogAdvanced>
       <ErrorBox error={act.error} />
-      {result && <StatusLine status="info">{result}</StatusLine>}
       <footer>
         <button onClick={onClose}>Cancel</button>
         <button className="primary" disabled={act.busy || !name} onClick={submit}>

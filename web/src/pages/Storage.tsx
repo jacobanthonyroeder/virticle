@@ -298,7 +298,7 @@ function Volumes({ node, nodeName, showNode, pool, openCatalogue }: { node: numb
       {confirm.dialog}
       {prompt.dialog}
       {downloading && <DownloadVolume node={node} pool={pool.name} onClose={() => setDownloading(false)} onDone={vols.reload} />}
-      {catalogue && <ImageCatalogue node={node} nodeName={nodeName} pool={pool.name} onClose={() => setCatalogue(false)} onDone={vols.reload} />}
+      {catalogue && <ImageCatalogue node={node} pool={pool.name} onClose={() => setCatalogue(false)} />}
       {creating && <CreateVolume base={base} pool={pool} onClose={() => setCreating(false)} />}
       {importing !== undefined && <ImportDialog node={node} pool={pool.name} volumes={vols.data ?? []} initial={importing} onClose={() => setImporting(undefined)} onDone={vols.reload} />}
     </>

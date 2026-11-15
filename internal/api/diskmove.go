@@ -582,7 +582,7 @@ func (s *Server) diskMove(w http.ResponseWriter, r *http.Request) {
 			moveRuns.Unlock()
 		}()
 		m.progress = progress
-		return m.run()
+		return doneOr(m.run(), "%s", moveNote(req.Pool, f.Running))
 	})
 	if err != nil {
 		moveRuns.Lock()
@@ -808,9 +808,12 @@ func (m *moveRun) runOffline() error {
 	// honoured when the copy returns, before the definition is touched.
 	nv, err := h.StorageVolCreateXMLFrom(f.DstPool, volumeXML(f.DstName, f.DstFormat, f.Capacity), f.SrcVol, 0)
 	if err != nil {
-		// libvirt may have left a partial file behind.
+		// libvirt may have left a partial file behind. Not when it refused because the name exists: that file is
+		// someone else's (made since the plan), and it stays.
+		var lv libvirt.Error
+		taken := errors.As(err, &lv) && lv.Code == uint32(libvirt.ErrStorageVolExist) || strings.Contains(err.Error(), "already exists")
 		h.StoragePoolRefresh(f.DstPool, 0)
-		if v, lerr := h.StorageVolLookupByName(f.DstPool, f.DstName); lerr == nil {
+		if v, lerr := h.StorageVolLookupByName(f.DstPool, f.DstName); lerr == nil && !taken {
 			m.created = &v
 		}
 		return m.finishFail(fmt.Errorf("copying the volume: %w", err), m.dropTarget())

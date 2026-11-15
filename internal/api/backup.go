@@ -114,6 +114,7 @@ type bkRun struct {
 	// sets it: a replication run, which shares the copy code, never encrypts (its standby must be able to start).
 	enc       string
 	pruneNote string          // how many older backups retention deleted ("" for none)
+	doneFact  string          // "full, 3.2 GiB": what the finished backup is, for the task
 	ctx       context.Context // cancelled by cancel(); ends a running node to node transfer
 	stopCtx   context.CancelFunc
 
@@ -214,18 +215,28 @@ func (s *Server) planBackup(srcID int64, src *hostconn.Host, dom libvirt.Domain,
 		}
 	}
 	m.plan = s.planIncremental(m, pd, allQcow2)
+	incr := false
 	if m.plan.Kind == kindIncremental {
 		// Only the changed blocks are copied; libvirt knows how many.
 		if n, ok := changedBytes(src, dom, m.plan.ParentCheckpoint); ok {
 			m.changed = n
 			need = n + n/8 + importFreeMargin
+			incr = true
 		}
 	}
-	if m.enc != "" && !m.remote {
-		need += sealSpace(m.disks) // a plain file and its encrypted copy exist together for a moment
+	var seal uint64
+	if m.enc != "" {
+		seal = sealSpace(m.disks, m.changed, incr) // a plain file and its encrypted copy exist together for a moment
+	}
+	if !m.remote {
+		need += seal
 	}
 	if uint64(free) < need {
-		return nil, badRequest(fmt.Sprintf("not enough free space in %s on %s: %s available, about %s needed", pd.Dir, m.dst.Name, fmtBytes(uint64(free)), fmtBytes(need)))
+		msg := fmt.Sprintf("not enough free space in %s on %s: %s available, about %s needed", pd.Dir, m.dst.Name, fmtBytes(uint64(free)), fmtBytes(need))
+		if seal > 0 && !m.remote {
+			msg += fmt.Sprintf(" (%s of it to encrypt the largest file next to its plain copy)", fmtBytes(seal))
+		}
+		return nil, badRequest(msg)
 	}
 
 	m.srcDir = m.dstDir
@@ -244,10 +255,7 @@ func (s *Server) planBackup(srcID int64, src *hostconn.Host, dom libvirt.Domain,
 		if !safePathRE.MatchString(m.srcDir) {
 			return nil, badRequest("unsupported characters in the pool directory " + m.srcDir)
 		}
-		stage := need
-		if m.enc != "" {
-			stage += sealSpace(m.disks)
-		}
+		stage := need + seal
 		if sf, err := bkFreeBytes(src, m.srcDir); err != nil || uint64(sf) < stage {
 			return nil, badRequest(fmt.Sprintf("not enough free space in %s on %s to stage the backup", m.srcDir, src.Name))
 		}
@@ -388,6 +396,7 @@ func backupTarget(vm, node, pool string) string { return vm + " → " + node + "
 // launchBackup registers the planned run (one per VM) and starts it as a
 // background task; the channel receives its result.
 func (s *Server) launchBackup(r *http.Request, h *hostconn.Host, m *bkRun) (int64, <-chan error, error) {
+	h, m.src, m.dst = s.traceHost(r, h), s.traceHost(r, m.src), s.traceHost(r, m.dst)
 	bkRuns.Lock()
 	if _, busy := bkRuns.m[m.uuid]; busy {
 		bkRuns.Unlock()
@@ -662,6 +671,7 @@ func (m *bkRun) run() (err error) {
 		return err
 	}
 	m.progress(m.ph.storedAt)
+	m.doneFact = backupFact(m.plan.Kind, m.disks)
 	// From here on the backup exists; the work directories are gone.
 	gone[dstWork.path] = true
 	srcWork, dstWork = nil, nil
@@ -723,6 +733,7 @@ func (m *bkRun) liveBackup(wd *bkWork, stamp time.Time, lo, hi float64) error {
 		m.fz = out
 		if out.ThawErr != nil {
 			m.thawErr = out.ThawErr
+			noteFrozen(m.src.Name, m.uuid, m.name, out.ThawErr) // an alert until the guest is seen thawed
 		}
 		if err == nil {
 			m.ckName = name
@@ -981,6 +992,11 @@ func (s *Server) pruneBackups(h *hostconn.Host, pool, uuid string, pol retention
 		}
 	}
 	n := 0
+	defer func() {
+		if n > 0 {
+			s.refreshBackupPool(h, pd)
+		}
+	}()
 	// Newest first, and stop at the first failure, so that no backup is ever left without its parent.
 	for _, key := range prunePolicy(all, uuid, pol, just, readingIn(h.Name, pd.Dir), time.Local) {
 		if err := removeBackupDir(h, pd.Dir, key); err != nil {
@@ -1006,6 +1022,57 @@ func removeBackupDir(h *hostconn.Host, poolDir, name string) error {
 		return fmt.Errorf("cannot delete %s on %s: %w", dir, h.Name, err)
 	}
 	return nil
+}
+
+// refreshBackupPool lets libvirt rescan a pool that backups were deleted from. libvirt lists each backup
+// directory as a volume of the pool and only notices that one is gone, and the space it freed, when the pool is
+// refreshed; the alert pass does that for local pools once a minute, never for NFS pools. Best effort: the
+// backups are deleted either way.
+//
+// The pool on h is refreshed at once: its mount has just answered the delete. An NFS share is also a pool on every
+// other node that mounts it; those are refreshed in the background, and only where the mount answers (poolDirs
+// leaves out the others), since a refresh on a share that does not answer waits for its server.
+func (s *Server) refreshBackupPool(h *hostconn.Host, pd poolDir) {
+	if p, err := h.StoragePoolLookupByName(pd.Name); err == nil {
+		h.StoragePoolRefresh(p, 0)
+	}
+	descs, err := poolDescs(h)
+	if err != nil || !descs[pd.Dir].isNFS() || s.Nodes == nil {
+		return
+	}
+	share := shareID(h, descs[pd.Dir])
+	for _, n := range s.Nodes.Status() {
+		if n.State != "online" {
+			continue
+		}
+		o, err := s.Nodes.Host(n.ID)
+		if err != nil || o == h {
+			continue
+		}
+		go func(o *hostconn.Host) {
+			dirs, err := poolDirs(o)
+			if err != nil {
+				return
+			}
+			od, _ := poolDescs(o)
+			for _, name := range poolsOfShare(share, dirs, od, func(p poolDesc) string { return shareID(o, p) }) {
+				if p, err := o.StoragePoolLookupByName(name); err == nil {
+					o.StoragePoolRefresh(p, 0)
+				}
+			}
+		}(o)
+	}
+}
+
+// poolsOfShare names the pools among dirs that are the NFS share share.
+func poolsOfShare(share string, dirs []poolDir, descs map[string]poolDesc, id func(poolDesc) string) []string {
+	var out []string
+	for _, d := range dirs {
+		if p, ok := descs[d.Dir]; ok && p.isNFS() && id(p) == share {
+			out = append(out, d.Name)
+		}
+	}
+	return out
 }
 
 // --- listing ---
@@ -1388,12 +1455,13 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.task(r, "backup delete", b.name, b.h.Name, func(func(float64)) error {
+		defer s.refreshBackupPool(b.h, b.pd)
 		for _, d := range later { // newest first: no backup is ever left without its parent
 			if err := removeBackupDir(b.h, b.pd.Dir, d); err != nil {
 				return err
 			}
 		}
-		return removeBackupDir(b.h, b.pd.Dir, b.name)
+		return doneOr(removeBackupDir(b.h, b.pd.Dir, b.name), "%s", backupDeleteNote(b.name, len(later)))
 	})
 	if err != nil {
 		fail(w, err)
@@ -1432,7 +1500,7 @@ func (m *bkRun) finishFreeze(err error) error {
 	}
 	if err == nil {
 		var notes []string
-		for _, n := range []string{m.fz.Text, m.tpmNote, m.pruneNote} {
+		for _, n := range []string{m.doneFact, m.fz.Text, m.tpmNote, m.pruneNote} {
 			if n != "" {
 				notes = append(notes, n)
 			}

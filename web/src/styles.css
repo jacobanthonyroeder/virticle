@@ -206,8 +206,15 @@ footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px
 .signin .card { width: 360px; max-width: 100%; display: grid; gap: 4px; }
 .signin h1 { margin-bottom: 4px; }
 
-.toasts { position: fixed; right: 18px; bottom: calc(var(--dock-h, 0px) + 12px); display: grid; gap: 8px; z-index: 500; max-width: 440px; }
-.toast { background: var(--panel); border: 1px solid var(--danger); border-left-width: 4px; border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--shadow-pop); cursor: pointer; word-break: break-word; }
+.toasts { position: fixed; right: 18px; bottom: calc(var(--dock-h, 0px) + 12px); display: grid; gap: 8px; z-index: 500; width: 440px; max-width: calc(100vw - 24px); max-height: 60dvh; overflow-y: auto; }
+.toast { display: flex; align-items: flex-start; gap: 8px; background: var(--panel); border: 1px solid var(--danger); border-left-width: 4px; border-radius: var(--radius); padding: 10px 8px 10px 12px; box-shadow: var(--shadow-pop); }
+.toast.warning { border-color: var(--warn); }
+.toast-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-text { margin-top: 2px; }
+.toast-links { display: flex; gap: 14px; margin-top: 6px; }
+.toast-x { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 4px; }
+.toast-x:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.toast-more { justify-self: end; padding: 3px 10px; }
 
 @media (max-width: 760px) {
   main { padding: 16px; }
@@ -222,9 +229,7 @@ footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px
   pre, textarea, .mono.wrap { max-width: 100%; }
 }
 
-.cloudinit { margin: 10px 0; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
-.cloudinit summary { cursor: pointer; font-weight: 600; }
-.cloudinit .hint { margin: 6px 0 10px; opacity: 0.75; font-size: 13px; }
+.dlgadv > .hint { margin: 6px 0 10px; opacity: 0.75; font-size: 13px; }
 /* migration pre-flight list */
 
 /* Roles: the server enforces them; this only hides controls a viewer cannot use. */
@@ -268,6 +273,8 @@ th.sel, td.sel { width: 28px; padding-right: 0; }
 .alertpanel ul { list-style: none; margin: 0; padding: 0; }
 .alertpanel li { padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .alertpanel .amsg { margin: 4px 0; word-break: break-word; }
+.alertpanel .aactions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.alertpanel .error { margin: 8px 14px; }
 .alertpanel footer { padding: 8px 14px; font-size: 12px; }
 .alertpanel a { color: var(--link); }
 .pad { padding: 14px; }
@@ -298,7 +305,7 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
 textarea[readonly] { opacity: 0.8; }
 
 @media (max-width: 760px) {
-  .alertpanel { position: fixed; left: 8px; right: 8px; top: 56px; bottom: auto; width: auto; }
+  .alertpanel, header.topbar .alertpanel { position: fixed; left: 8px; right: 8px; top: 56px; bottom: auto; width: auto; margin-top: 0; }
 }
 @media (max-width: 760px) {
   .segmented { display: flex; flex-wrap: wrap; }

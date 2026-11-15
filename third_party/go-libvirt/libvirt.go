@@ -62,6 +62,13 @@ const (
 
 // Libvirt implements libvirt's remote procedure call protocol.
 type Libvirt struct {
+	*rpcState
+	// hook sees the calls made through this value; see WithCallHook.
+	hook CallHook
+}
+
+// rpcState is the connection a Libvirt and its views from WithCallHook share.
+type rpcState struct {
 	// socket connection
 	socket *socket.Socket
 	// closed after cleanup complete following the underlying connection to
@@ -843,12 +850,12 @@ func (l *Libvirt) waitAndDisconnect() {
 // until Connect is called.  The same Libvirt object may be used to re-connect
 // multiple times.
 func NewWithDialer(dialer socket.Dialer) *Libvirt {
-	l := &Libvirt{
+	l := &Libvirt{rpcState: &rpcState{
 		s:            0,
 		disconnected: make(chan struct{}),
 		callbacks:    make(map[int32]chan response),
 		events:       make(map[int32]*event.Stream),
-	}
+	}}
 
 	l.socket = socket.New(dialer, l)
 

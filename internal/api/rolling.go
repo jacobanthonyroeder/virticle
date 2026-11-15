@@ -490,7 +490,7 @@ func (s *Server) startRoll(run *rollRun) (*rollExec, error) {
 		target = "1 node"
 	}
 	stop := taskStop{admin, func() { e.mutate(func(r *rollRun) { r.Cancel = true }) }}
-	taskID, _, err := s.startBackgroundStop(userRequest(run.User), "rolling-update", target, "", stop, func(progress func(float64)) error {
+	taskID, _, err := s.startBackgroundStop(s.traced(userRequest(run.User)), "rolling-update", target, "", stop, func(progress func(float64)) error {
 		e.progress = progress
 		return e.execute()
 	})
@@ -567,7 +567,7 @@ func (e *rollExec) execute() error {
 	if errors.Is(err, errRollCancelled) {
 		return errors.New("cancelled: " + e.snapshot().Condition)
 	}
-	return nil
+	return taskDone("%s", rollNote(e.snapshot()))
 }
 
 func (e *rollExec) moreWork() bool {
@@ -880,7 +880,7 @@ func (e *rollExec) livePlan(n *rollNode) (rollNodePlan, rollSnapshot) {
 }
 
 func (e *rollExec) migrateVM(srcID int64, src *hostconn.Host, dom libvirt.Domain, target int64) error {
-	l, pre, err := e.s.launchMigration(userRequest(e.run.User), srcID, src, dom, migReq{Target: target})
+	l, pre, err := e.s.launchMigration(e.s.traced(userRequest(e.run.User)), srcID, src, dom, migReq{Target: target})
 	if errors.Is(err, errPreflight) {
 		return errors.New("pre-flight failed: " + strings.Join(blockingReasons(pre.Checks), "; "))
 	}

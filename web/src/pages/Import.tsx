@@ -61,7 +61,13 @@ export default function ImportDialog({ node, pool, volumes, initial, onClose, on
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const target = `${pool}/${info?.kind === "disk" ? name + (name.endsWith(".qcow2") ? "" : ".qcow2") : name}`;
+    // A disk becomes a volume: the server accepts it as a task and the dialog closes; the Tasks dock follows it. An OVA
+    // stays here: its answer holds the VM settings for the next step.
+    if (info?.kind === "disk") {
+      if (await act.run(() => post(`/nodes/${node}/import?async=1`, { source, pool, name }))) onClose();
+      return;
+    }
+    const target = `${pool}/${name}`;
     setProgress(0);
     timer.current = window.setInterval(async () => {
       try {

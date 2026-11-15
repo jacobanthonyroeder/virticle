@@ -1042,6 +1042,10 @@ func (s *Server) launchReplica(req *http.Request, r *replRun) (int64, <-chan err
 	if err := claimRepl(r); err != nil {
 		return 0, nil, err
 	}
+	r.src, r.dst = s.traceHost(req, r.src), s.traceHost(req, r.dst)
+	if r.bk != nil {
+		r.bk.src, r.bk.dst = s.traceHost(req, r.bk.src), s.traceHost(req, r.bk.dst)
+	}
 	id, done, err := s.startBackgroundStop(req, "replicate", replTarget2(r.name, r.dst.Name), r.src.Name, taskStop{operator, r.cancel}, func(progress func(float64)) error {
 		defer releaseRepl(r)
 		r.progress = forwardOnly(progress)
@@ -1052,7 +1056,7 @@ func (s *Server) launchReplica(req *http.Request, r *replRun) (int64, <-chan err
 			err = res
 		}
 		setReplError(r.uuid, err)
-		return res
+		return replicateResult(r, res)
 	})
 	if err != nil {
 		releaseRepl(r)

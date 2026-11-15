@@ -1,6 +1,7 @@
 import Select from "../Select";
 import { ReactNode, useEffect, useState } from "react";
 import { Field } from "../ui";
+import DialogAdvanced from "./DialogAdvanced";
 import { CloudProfile, useCloudProfiles } from "./CloudProfiles";
 
 /** Cloud-init settings as the create-VM API takes them. The host name is always the VM's name. */
@@ -76,11 +77,16 @@ export default function CloudInitFields(props: {
   const raw = off || (rawField && v.rawUserData.trim() !== "") || !!prof?.rawUserData.trim();
   const keyHint = prof?.sshKeys.length ? `${prof.sshKeys.length} key${prof.sshKeys.length > 1 ? "s" : ""} from the profile are added` : "ssh-ed25519 AAAA me@host";
   return (
-    <details className="cloudinit" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary>
-        Guest setup{cloudInitUsed(v) ? " (configured)" : ""}
-        {prof ? `: ${prof.name}` : ""}
-      </summary>
+    <DialogAdvanced
+      open={open}
+      onToggle={setOpen}
+      title={
+        <>
+          Guest setup{cloudInitUsed(v) ? " (configured)" : ""}
+          {prof ? `: ${prof.name}` : ""}
+        </>
+      }
+    >
       {props.status !== undefined ? <p className="hint">{props.status}</p> : usable && <p className="hint">Needs cloud-init in the image; installs the guest agent.</p>}
       {usable && profiles && profiles.length > 0 && (
         <Field label="Profile" help="Fields you leave empty are taken from the profile.">
@@ -99,8 +105,7 @@ export default function CloudInitFields(props: {
       <Field label="SSH public keys" hint="One per line.">
         <textarea rows={3} value={v.sshKeys} onChange={set("sshKeys")} placeholder={keyHint} disabled={raw} spellCheck={false} />
       </Field>
-      <details className="cloudinit">
-        <summary>{rawField ? "Packages and raw user-data" : "Packages"}</summary>
+      <DialogAdvanced title={rawField ? "Packages and raw user-data" : "Packages"}>
         <Field label="Packages" hint="Separated by spaces or commas.">
           <input value={v.packages} onChange={set("packages")} placeholder={prof?.packages.length ? prof.packages.join(" ") : "e.g. htop curl"} disabled={raw} />
         </Field>
@@ -109,7 +114,7 @@ export default function CloudInitFields(props: {
             <textarea rows={5} value={v.rawUserData} onChange={set("rawUserData")} disabled={off} spellCheck={false} />
           </Field>
         )}
-      </details>
-    </details>
+      </DialogAdvanced>
+    </DialogAdvanced>
   );
 }

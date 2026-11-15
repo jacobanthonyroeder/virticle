@@ -51,25 +51,25 @@ test.describe.serial("prepare all", () => {
     await expect(page.locator(".prepbanner")).toBeVisible();
     const online = await page.locator("tbody tr").count();
     expect(online).toBeGreaterThanOrEqual(2);
-    await expect(page.locator(".prepbanner")).toContainText(`${online} nodes need preparing`);
+    await expect(page.locator(".prepbanner")).toContainText(`${online} nodes need a Virticle update`);
     await expect(page.locator("tbody .badge.s-needs-prepare")).toHaveCount(online);
-    await expect(page.locator("tbody .badge.s-needs-prepare").first()).toHaveText("Outdated");
-    await expect(page.locator(".prepbanner").getByRole("button", { name: "Prepare all" })).toBeVisible();
+    await expect(page.locator("tbody .badge.s-needs-prepare").first()).toHaveText("Virticle update needed");
+    await expect(page.locator(".prepbanner").getByRole("button", { name: "Update Virticle on nodes" })).toBeVisible();
     await noSideways(page);
   });
 
   test("the datacenter Nodes tab shows it as well", async ({ page }) => {
     await page.goto("/datacenter/nodes");
-    await expect(page.locator(".prepbanner")).toContainText("need preparing");
+    await expect(page.locator(".prepbanner")).toContainText("Virticle update");
   });
 
   test("Prepare all runs every node, a failure does not stop the rest, and the notice goes", async ({ page }) => {
     started.length = 0;
     await page.goto("/nodes");
-    await page.getByRole("button", { name: "Prepare all" }).click();
-    const dlg = dialog(page, "Prepare all");
+    await page.getByRole("button", { name: "Update Virticle on nodes" }).click();
+    const dlg = dialog(page, "Update Virticle on nodes");
     await dlg.getByRole("textbox", { name: "Password" }).fill("secret");
-    await dlg.getByRole("button", { name: "Prepare all" }).click();
+    await dlg.getByRole("button", { name: "Update", exact: true }).click();
     await expect(dlg.locator(".badge.s-failed")).toHaveText("Failed");
     await expect(dlg).toContainText("could not sign in: permission denied");
     await expect(dlg.locator(".badge.s-ok").first()).toHaveText("Prepared");

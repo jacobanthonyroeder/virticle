@@ -473,7 +473,7 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
           s={s}
           accents={accents}
           act={switchActions(s)}
-          onEdit={editOf(s.name, s.hostAddresses)}
+          onEdit={s.kind === "libvirt" ? undefined : editOf(s.name, s.hostAddresses)} // no node can be reached on a bridge libvirt owns
           ctl={ctl}
           onAddNetwork={operator && (s.kind === "linux-bridge" || s.kind === "openvswitch") ? () => setAddNet(s.name) : undefined}
           folded={!filtering && i >= SWITCHES_OPEN}

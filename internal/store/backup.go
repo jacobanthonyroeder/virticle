@@ -26,7 +26,9 @@ import (
 //	4  notify_destinations table (alert notifications)
 //	5  two-step sign-in and external sign-in: user columns and recovery_codes
 //	6  rolling_runs table (rolling node updates)
-const SchemaVersion = 6
+//	7  operation traces: ops table, trace columns on audit and tasks
+//	8  mig_runs and mig_files tables (the journal of files a migration made on its target)
+const SchemaVersion = 8
 
 // keepBackups is how many pre-migration copies stay in the data directory.
 const keepBackups = 3

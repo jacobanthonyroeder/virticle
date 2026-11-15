@@ -246,6 +246,8 @@ export interface Task {
   started: number;
   finished?: number;
   cancel?: Role; // set while the task runs and can be stopped: the role that may stop it
+  ops?: number; // operations recorded for the task (OperationList)
+  background?: boolean; // on its events: the task runs after its request was answered
 }
 export interface ServerEvent {
   type: "node" | "domain" | "network" | "pool" | "task" | "alert" | "tags" | "cpubaseline" | "rolling" | "backupkey";
@@ -254,6 +256,8 @@ export interface ServerEvent {
   uuid?: string;
   detail?: string;
   task?: Task;
+  /** On an "alert" event with detail "raised": the alert that was just raised. */
+  alert?: Alert;
 }
 
 export function bytes(n: number): string {
@@ -297,6 +301,7 @@ export interface AuditEntry {
   path: string;
   status: number;
   detail?: string;
+  ops?: number; // operations recorded for the request (OperationList)
 }
 export interface GuestInfo {
   available: boolean;
@@ -332,13 +337,37 @@ export interface AgentHelp {
 
 export interface Alert {
   id: string;
-  kind: "node-down" | "pool-usage" | "host-memory" | "failed-job" | "vm-state" | "tls-expiry" | "scheduler-conflict" | "net-link" | "net-bond" | "net-drift" | "storage-unavailable" | "rolling-update" | "replica-age" | "stale-copy";
+  kind: "node-down" | "pool-usage" | "host-memory" | "failed-job" | "vm-state" | "tls-expiry" | "scheduler-conflict" | "net-link" | "net-bond" | "net-drift" | "storage-unavailable" | "rolling-update" | "replica-age" | "stale-copy" | "guest-frozen" | "migration-leftover";
   severity: "warning" | "critical";
   title: string;
   message: string;
   node?: number;
   link?: string;
   since: number;
+  /** The person whose action failed, for an alert about a task they started; empty for the scheduler and the rest. */
+  user?: string;
+}
+/** A migration in the journal of files made on its target (GET /api/migration-leftovers). */
+export interface MigRun {
+  id: number;
+  uuid: string;
+  name: string;
+  srcName: string;
+  dstName: string;
+  state: "prepare" | "switching" | "failed" | "attention";
+  unsure: boolean;
+  note?: string;
+  files: { path: string; size: number; state: "present" | "kept"; reason?: string }[];
+}
+/** What a Remove of such files did. */
+export interface CleanResult {
+  run: number;
+  name: string;
+  node: string;
+  removed: { path: string; size: number }[];
+  kept: { path: string; size: number; reason?: string }[];
+  note?: string;
+  state: string;
 }
 export interface EvacVM {
   uuid: string;

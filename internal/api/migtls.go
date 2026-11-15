@@ -240,8 +240,10 @@ func (s *Server) migTLSSetup(w http.ResponseWriter, r *http.Request) {
 	var res migTLSInfo
 	err = s.task(r, "migration-tls", h.Name, h.Name, func(progress func(float64)) error {
 		var err error
-		res, err = s.installMigTLS(id, h, req, progress)
-		return err
+		if res, err = s.installMigTLS(id, h, req, progress); err != nil {
+			return err
+		}
+		return taskDone("%s", tlsNote(res, "installed"))
 	})
 	if err != nil {
 		fail(w, err)
@@ -458,8 +460,10 @@ func (s *Server) migTLSRemove(w http.ResponseWriter, r *http.Request) {
 	var res migTLSInfo
 	err = s.task(r, "migration-tls-remove", h.Name, h.Name, func(progress func(float64)) error {
 		var err error
-		res, err = s.removeMigTLS(h, req)
-		return err
+		if res, err = s.removeMigTLS(h, req); err != nil {
+			return err
+		}
+		return taskDone("%s", tlsNote(res, "removed"))
 	})
 	if err != nil {
 		fail(w, err)

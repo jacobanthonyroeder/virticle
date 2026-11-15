@@ -336,9 +336,14 @@ func (s *Server) createSnapshot(r *http.Request, h *hostconn.Host, dom libvirt.D
 			return err
 		}
 		if withMemory {
-			return withJobProgress(h, dom, progress, create)
+			err = withJobProgress(h, dom, progress, create)
+		} else {
+			err = create()
 		}
-		return create()
+		if err != nil {
+			return err
+		}
+		return taskDone("%s", snapshotNote(q.Name, withMemory))
 	})
 	return q.Name, err
 }
@@ -389,7 +394,7 @@ func (s *Server) revertSnapshot(w http.ResponseWriter, r *http.Request) {
 		// The disks go back in time without the change tracking of backups noticing:
 		// the next backup has to be a full one.
 		dropBackupCheckpoints(h, dom)
-		return h.DomainRevertToSnapshot(sn, uint32(flags))
+		return doneOr(h.DomainRevertToSnapshot(sn, uint32(flags)), "%s", joinFacts("to "+sn.Name, q.Start))
 	})
 	if err != nil {
 		fail(w, err)
@@ -433,7 +438,7 @@ func (s *Server) deleteSnapshot(w http.ResponseWriter, r *http.Request) {
 			}
 			progress(float64(i+1) / float64(len(victims)))
 		}
-		return nil
+		return taskDone("%s", snapshotsDeletedNote(victims))
 	})
 	if err != nil {
 		fail(w, err)

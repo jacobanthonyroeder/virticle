@@ -8,6 +8,7 @@ import (
 
 	"github.com/digitalocean/go-libvirt"
 
+	"virticle/internal/cluster"
 	"virticle/internal/hostconn"
 )
 
@@ -169,12 +170,17 @@ func (a agentFreezer) Freeze() error {
 	return freezeWithin(freezeWait, func() error {
 		_, err := a.h.DomainFsfreeze(a.dom, nil, 0)
 		return err
-	}, func() {
-		log.Printf("backup: the guest file systems of %s froze after the wait had ended; thawing them", a.dom.Name)
-		if err := thawWithRetries(a); err != nil {
-			log.Printf("backup: %s", thawProblem(a.dom.Name, err))
-		}
-	})
+	}, func() { lateThaw(a, a.h.Name, cluster.FormatUUID(a.dom.UUID), a.dom.Name) })
+}
+
+// lateThaw thaws a guest whose freeze took effect after the backup stopped waiting for it. The task has ended by
+// then, so a guest that stays frozen after every try becomes an alert (backup_frozen.go).
+func lateThaw(g guestFreezer, host, uuid, name string) {
+	log.Printf("backup: the guest file systems of %s froze after the wait had ended; thawing them", name)
+	if err := thawWithRetries(g); err != nil {
+		log.Printf("backup: %s", thawProblem(name, err))
+		noteFrozen(host, uuid, name, err)
+	}
 }
 
 // freezeWithin runs freeze and waits for it up to d. When the wait runs out the

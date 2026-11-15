@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"virticle/internal/optrace"
 	"virticle/internal/store"
 )
 
@@ -96,7 +97,12 @@ var routeLevels = map[string]string{
 	"POST /api/rolling-update/continue":      admin,
 	"POST /api/rolling-update/restore":       admin,
 	"POST /api/rolling-update/dismiss":       admin,
-	"GET /api/nodes/{node}/interfaces":       viewer,
+
+	// The journal of files failed migrations left on their targets (migjournal.go).
+	"GET /api/migration-leftovers":              viewer,
+	"POST /api/migration-leftovers/{id}/remove": admin,
+	"POST /api/migration-leftovers/{id}/keep":   admin,
+	"GET /api/nodes/{node}/interfaces":          viewer,
 
 	// Host bridges change the network the controller reaches the node over: admin, even for reading the plan.
 	"GET /api/nodes/{node}/hostnet":           admin,
@@ -116,6 +122,9 @@ var routeLevels = map[string]string{
 	"PUT /api/users/{id}":    admin,
 	"DELETE /api/users/{id}": admin,
 	"GET /api/audit":         admin,
+	// What a request or task ran on the nodes: as much the administrator's as the audit log.
+	"GET /api/audit/{id}/ops": admin,
+	"GET /api/tasks/{id}/ops": admin,
 
 	// Own account: every role, session only (see accountSession).
 	"GET /api/account/2fa":                 viewer,
@@ -482,7 +491,11 @@ func (s *Server) wrap(next http.Handler) http.Handler {
 			return
 		}
 		info := &reqInfo{}
-		r = r.WithContext(context.WithValue(r.Context(), infoKey{}, info))
+		ctx := context.WithValue(r.Context(), infoKey{}, info)
+		if !isSafeMethod(r.Method) {
+			ctx = optrace.With(ctx, s.newTrace()) // what the request does on the nodes (optrace.go)
+		}
+		r = r.WithContext(ctx)
 		start := time.Now()
 		rec := &recorder{ResponseWriter: w}
 		var once sync.Once
@@ -507,8 +520,12 @@ func (s *Server) audit(r *http.Request, info *reqInfo, status int, start time.Ti
 	if status == http.StatusTooManyRequests {
 		return
 	}
+	var trace int64
+	if tr := optrace.From(r.Context()); tr != nil {
+		trace = tr.Assigned()
+	}
 	err := s.Store.AddAudit(store.AuditEntry{
-		Time: start.Unix(), User: info.user, Token: info.token, IP: viewOf(r).IP, Method: r.Method, Path: r.URL.Path, Status: status, Detail: info.detail,
+		Time: start.Unix(), User: info.user, Token: info.token, IP: viewOf(r).IP, Method: r.Method, Path: r.URL.Path, Status: status, Detail: info.detail, Trace: trace,
 	})
 	if err != nil {
 		logf("audit: %v", err)

@@ -2,7 +2,7 @@
 // a restore of the incremental one works, and deleting the full one takes the later ones with it.
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { P } from "../lib/env";
-import { dialog } from "../lib/ui";
+import { dialog, dockRow } from "../lib/ui";
 
 const NAME = `${P}incr1`;
 const RESTORED = `${P}incr1-restored`;
@@ -16,18 +16,23 @@ test.describe.serial("incremental backups", () => {
     await page.getByRole("button", { name: "Back up now" }).first().click();
     const dlg = dialog(page, `Back up ${NAME}`);
     await expect(dlg.getByRole("combobox", { name: "Target pool" })).toContainText("default");
+    const rows = dockRow(page, "backup", NAME);
+    const before = await rows.count();
     await dlg.getByRole("button", { name: "Back up now" }).click();
-    await expect(dlg).toContainText(expected, { timeout: 30_000 });
-    await expect(dlg).toContainText(/ok/i, { timeout: 200_000 });
-    await dlg.getByRole("button", { name: "Close dialog" }).click();
+    // the dialog closes once the server accepted the backup; the Tasks dock says what kind it was (newest row first)
+    await expect(dlg).toBeHidden();
+    await expect(rows).toHaveCount(before + 1);
+    const newest = rows.first();
+    await expect(newest).toContainText("Ok", { timeout: 200_000 });
+    await expect(newest.locator(".c-res")).toContainText(expected);
   }
 
   test("the first backup of a running VM is full, the second is incremental and small", async ({ page, api, n1 }) => {
     test.setTimeout(400_000);
     vm = await createCirros(api, n1, NAME, { start: true });
     await openVM(page, vm, "backups");
-    await backupNow(page, /Full backup/);
-    await backupNow(page, /Incremental backup/);
+    await backupNow(page, /^full/i);
+    await backupNow(page, /^incremental/i);
     const list = (await api.get(`/backups?uuid=${vm.uuid}`)).sort((a: any, b: any) => a.manifest.created.localeCompare(b.manifest.created));
     expect(list).toHaveLength(2);
     expect(list[0].manifest.kind ?? "full").toBe("full");
@@ -47,7 +52,8 @@ test.describe.serial("incremental backups", () => {
     const dlg = dialog(page, `Restore ${NAME}`);
     await dlg.getByLabel("New VM name").fill(RESTORED);
     await dlg.getByRole("button", { name: "Restore", exact: true }).click();
-    await expect(dlg).toContainText(/ok/i, { timeout: 250_000 });
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "restore", RESTORED).first()).toContainText("Ok", { timeout: 250_000 });
     const all = await api.vms();
     expect(all.some((v: any) => v.name === RESTORED)).toBe(true);
   });

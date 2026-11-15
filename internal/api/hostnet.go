@@ -411,7 +411,10 @@ func (s *Server) hostnetApply(w http.ResponseWriter, r *http.Request) {
 	}
 	node := h.Name
 	err = s.taskAsync(r, "host network", req.Bridge, node, func(progress func(float64)) error {
-		return s.hostnetRun(id, h, req, progress)
+		if err := s.hostnetRun(id, h, req, progress); err != nil {
+			return err
+		}
+		return taskDone("%s", hostnetNote(req))
 	})
 	if err != nil {
 		fail(w, err)

@@ -11,6 +11,8 @@ import "./menu.css";
 export type MenuEntry =
   | "sep"
   | {
+      /** Names the entry for "?do=<id>" (see vmMenu.ts). */
+      id?: string;
       label: string;
       icon?: LucideIcon;
       run?: () => void;

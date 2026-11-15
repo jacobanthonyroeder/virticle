@@ -8,8 +8,9 @@ import type { LucideIcon } from "lucide-react";
 import { MenuPopup, MenuEntry } from "./Menu";
 import { useConfirm } from "./ui";
 import { powerConfirm, powerLabel } from "./power";
-import { ChevronRight, ChevronDown, Ellipsis, Play, Power, Terminal, Pause, RotateCw, Camera, Copy, ArrowRightLeft, Plus, Wrench, HardDrive, Network, Cable, Boxes, LayoutTemplate, ExternalLink, Search } from "lucide-react";
-import { get, NodeStatus, Network as Net, Pool, post, put, ServerEvent, VM } from "./api";
+import { ChevronRight, ChevronDown, Ellipsis, Play, Power, Terminal, ArrowRightLeft, Plus, Wrench, HardDrive, Network, Cable, Boxes, LayoutTemplate, ExternalLink, Search } from "lucide-react";
+import { get, NodeStatus, Network as Net, Pool, post, put, ServerEvent, VM, VMDetail } from "./api";
+import { vmMenu } from "./vmMenu";
 import { atLeast, useRole } from "./auth";
 import { useEvents } from "./live";
 import { getPref } from "./storage";
@@ -103,7 +104,8 @@ export default function Tree() {
   const [tabKey, setTabKey] = useState("");
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
-  const [menu, setMenu] = useState<{ x: number; y: number; up: number; items: MenuItem[]; key: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; up: number; row: RowModel; key: string } | null>(null);
+  const [detail, setDetail] = useState<{ key: string; d: VMDetail } | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const confirm = useConfirm();
   const askRef = useRef(confirm.ask);
@@ -322,11 +324,12 @@ export default function Tree() {
     const t = setTimeout(() => setError(""), 8000);
     return () => clearTimeout(t);
   }, [error]);
-  const vmAction = useCallback(async (v: VM, a: string) => {
+  // Runs a call on a VM with its row marked busy; the list is read again afterwards.
+  const vmRun = useCallback(async (v: VM, fn: () => Promise<unknown>) => {
     const k = `v:${v.node}/${v.uuid}`;
     setBusy((b) => new Set(b).add(k));
     try {
-      await post(`/nodes/${v.node}/vms/${v.uuid}/action`, { action: a });
+      await fn();
       loadVMs();
     } catch (e) {
       fail(e);
@@ -344,9 +347,9 @@ export default function Tree() {
     async (v: VM, a: string) => {
       const spec = powerConfirm(a, [v.name]);
       if (spec && !(await askRef.current(spec))) return;
-      return vmAction(v, a);
+      return vmRun(v, () => post(`/nodes/${v.node}/vms/${v.uuid}/action`, { action: a }));
     },
-    [vmAction],
+    [vmRun],
   );
 
   const quick = useCallback(
@@ -362,43 +365,46 @@ export default function Tree() {
         ];
       return [];
     },
-    [canOp, nav, vmAction, power],
+    [canOp, nav, power],
   );
   const vmItems = useCallback(
-    (v: VM): MenuItem[] => {
-      const page = (tab?: string) => nav(`/vm/${v.node}/${v.uuid}` + (tab ? `?tab=${tab}` : ""));
+    (v: VM, det?: VMDetail): MenuItem[] => {
+      const url = `/vm/${v.node}/${v.uuid}`;
+      const page = (tab?: string) => nav(url + (tab ? `?tab=${tab}` : ""));
       const items: MenuItem[] = [{ label: "Open", icon: ExternalLink, run: () => page() }];
-      if (!canOp || v.state === "replica" || v.state === "stale") return items;
-      const on = v.state !== "shutoff";
-      if (v.state === "shutoff" && !v.template) items.push({ label: powerLabel.start, icon: Play, run: () => power(v, "start") });
-      if (v.state === "paused") items.push({ label: powerLabel.resume, icon: Play, run: () => power(v, "resume") });
-      if (v.state === "running") {
-        items.push({ label: powerLabel.reboot, icon: RotateCw, run: () => power(v, "reboot") });
-        items.push({ label: powerLabel.shutdown, icon: Power, run: () => power(v, "shutdown") });
-        items.push({ label: powerLabel.pause, icon: Pause, run: () => power(v, "pause") });
+      if (v.state === "replica") return items;
+      const live = v.state === "running" || v.state === "paused" || v.state === "blocked";
+      if (v.state !== "stale") {
+        const why = v.template ? "A template has no console" : "The VM is shut off";
+        items.push({ label: "Console", icon: Terminal, run: () => page("console"), disabled: !live || v.template, title: live && !v.template ? undefined : why });
       }
-      if (on) {
-        items.push({ label: powerLabel.poweroff, icon: Power, danger: true, run: () => power(v, "poweroff") });
-        items.push({ label: powerLabel.reset, icon: RotateCw, danger: true, run: () => power(v, "reset") });
-        items.push({ label: "Console", icon: Terminal, run: () => page("console") });
-      }
-      const todo = (what: string) => nav(`/vm/${v.node}/${v.uuid}?do=${what}`);
-      items.push(
-        "sep",
-        { label: "Snapshots", icon: Camera, run: () => page("snapshots") },
-        {
-          label: "Migrate",
-          icon: ArrowRightLeft,
-          items: [
-            { label: "Migrate to another node", run: () => todo("migrate") },
-            { label: "Move the disk to another pool", run: () => todo("move-disk") },
-          ],
-        },
-        { label: "Clone", icon: Copy, run: () => todo("clone"), disabled: v.state !== "shutoff", title: v.state !== "shutoff" ? "Shut the VM down to clone it" : undefined },
-      );
-      return items;
+      items.push("sep");
+      const base = `/nodes/${v.node}/vms/${v.uuid}`;
+      const go = (id: string) => nav(`${url}?do=${encodeURIComponent(id)}`);
+      return [
+        ...items,
+        ...vmMenu(
+          { vm: { name: v.name, state: v.state, template: v.template, agent: det?.agent, disks: det?.disks }, op: canOp, busy: busy.has(`v:${v.node}/${v.uuid}`) },
+          {
+            power: (_, a) => power(v, a),
+            clock: () => vmRun(v, () => post(`${base}/clock/sync`)),
+            edit: go,
+            takeSnapshot: go,
+            snapshots: go,
+            schedule: go,
+            clone: go,
+            convert: go,
+            convertBack: () => vmRun(v, () => put(`${base}/template`, { template: false })),
+            migrate: go,
+            moveDisk: go,
+            replication: go,
+            xml: go,
+            remove: go,
+          },
+        ),
+      ];
     },
-    [canOp, nav, power],
+    [canOp, nav, power, vmRun, busy],
   );
   const nodeItems = useCallback(
     (n: NodeStatus): MenuItem[] => {
@@ -423,11 +429,18 @@ export default function Tree() {
     if (r.kind === "node" && canOp && (r.data as NodeStatus).state === "online") return [{ label: "Add VM", icon: Plus, run: () => nav(`/?new=${r.node}`) }];
     return [];
   };
-  const rowItems = (r: RowModel): MenuItem[] => (r.kind === "vm" ? vmItems(r.data as VM) : r.kind === "node" ? nodeItems(r.data as NodeStatus) : []);
+  const hasItems = (r: RowModel) => r.kind === "vm" || (r.kind === "node" && nodeItems(r.data as NodeStatus).length > 0);
+  // The open menu's entries, built on every render: the VM's detail arrives after the menu is shown.
+  const menuItems = (): MenuItem[] => {
+    if (!menu) return [];
+    if (menu.row.kind === "node") return nodeItems(menu.row.data as NodeStatus);
+    const v = (vms ?? []).find((x) => `v:${x.node}/${x.uuid}` === menu.key) ?? (menu.row.data as VM);
+    return vmItems(v, detail?.key === menu.key ? detail.d : undefined);
+  };
 
   // ---- handlers shared by memoised rows (read latest state through a ref) ----
-  const latest = useRef({ rows, rowQuick, rowItems, setOpenKey, nav });
-  latest.current = { rows, rowQuick, rowItems, setOpenKey, nav };
+  const latest = useRef({ rows, rowQuick, hasItems, setOpenKey, nav });
+  latest.current = { rows, rowQuick, hasItems, setOpenKey, nav };
   const handlers = useRef({
     toggle: (key: string) => {
       const r = latest.current.rows.find((x) => x.key === key);
@@ -435,8 +448,13 @@ export default function Tree() {
     },
     quick: (r: RowModel) => latest.current.rowQuick(r),
     menu: (r: RowModel, x: number, y: number, up = y) => {
-      const items = latest.current.rowItems(r);
-      if (items.length) setMenu({ x, y, up, items, key: r.key });
+      if (!latest.current.hasItems(r)) return;
+      setMenu({ x, y, up, row: r, key: r.key });
+      if (r.kind !== "vm") return;
+      // One request for what the list lacks (guest agent, disks); the menu is already shown without it.
+      const v = r.data as VM;
+      setDetail(null);
+      get<VMDetail>(`/nodes/${v.node}/vms/${v.uuid}`).then((d) => setDetail({ key: r.key, d }), () => {});
     },
     focus: (key: string) => setTabKey(key),
   }).current;
@@ -510,7 +528,7 @@ export default function Tree() {
         {nodes && nodes.length === 0 && <div className="tree-note">No nodes</div>}
         {needle && rows.length === 1 && <div className="tree-note">Nothing matches.</div>}
       </div>
-      {menu && <MenuPopup x={menu.x} y={menu.y} up={menu.up} items={menu.items} onClose={() => { setMenu(null); focusKey(menu.key); }} />}
+      {menu && <MenuPopup x={menu.x} y={menu.y} up={menu.up} items={menuItems()} onClose={() => { setMenu(null); focusKey(menu.key); }} />}
       {confirm.dialog}
     </div>
   );

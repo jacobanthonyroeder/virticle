@@ -38,10 +38,12 @@ test.describe.serial("resource tree", () => {
     await expect(row.locator(".dot.v-running")).toBeVisible();
     expect((await api.vmDetail(vm.node, vm.uuid)).state).toBe("running");
     await row.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Power", exact: true }).click();
     await page.getByRole("menuitem", { name: "Halt (Force Shutdown)" }).click();
     await cancelConfirm(page, "Halt (Force Shutdown)");
     expect((await api.vmDetail(vm.node, vm.uuid)).state).toBe("running");
     await row.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Power", exact: true }).click();
     await page.getByRole("menuitem", { name: "Halt (Force Shutdown)" }).click();
     await confirm(page, "Halt (Force Shutdown)");
     await expect(row).toHaveAttribute("data-state", "shutoff");

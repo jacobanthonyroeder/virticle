@@ -763,11 +763,25 @@ func verbPeerSend(c *Ctx) error {
 		}
 		return Fail("sending to %s@%s failed: %s", user, host, firstLinesJoined(out, 3))
 	}
-	if strings.TrimRight(string(out), "\n") != fmt.Sprintf("@@received %d", size) {
+	id, ok := receivedID(strings.TrimRight(string(out), "\n"), size)
+	if !ok {
 		return Fail("the peer did not confirm the file: %s", firstLine(out))
 	}
-	fmt.Fprintf(c.Stdout, "@@done %d\n", size)
+	fmt.Fprintf(c.Stdout, "@@done %d %s\n", size, id)
 	return nil
+}
+
+// receivedID reads the confirmation of peer-recv, "@@received SIZE ID". ID is "-" when the receiving file system
+// offers no identity.
+func receivedID(out string, size int64) (string, bool) {
+	f := strings.Fields(out)
+	if strings.Contains(out, "\n") || len(f) != 3 || f[0] != "@@received" || f[1] != strconv.FormatInt(size, 10) {
+		return "", false
+	}
+	if f[2] != "-" && !ValidIdentity(f[2]) {
+		return "", false
+	}
+	return f[2], true
 }
 
 // verbPeerRecv is the forced command of a peer key. Stdin: one header line,
@@ -838,7 +852,7 @@ func verbPeerRecv(c *Ctx) error {
 			return err
 		}
 		defer r.Close()
-		err = c.CreateNew(r, uint32(m), func(out *os.File) error {
+		id, err := c.CreateNewID(r, uint32(m), func(out *os.File) error {
 			n, err := io.CopyN(out, rd, size)
 			if err != nil || n != size {
 				return Fail("the file arrived incomplete")
@@ -848,7 +862,9 @@ func verbPeerRecv(c *Ctx) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(c.Stdout, "@@received %d\n", size)
+		// The identity of the file just made (verbs_fileid.go), so that the sender's caller can prove later that
+		// a file under this name is still this one.
+		fmt.Fprintf(c.Stdout, "@@received %d %s\n", size, idOrDash(id))
 		return nil
 	}
 	return Die("unsupported header")

@@ -11,22 +11,28 @@ import (
 	"virticle/internal/webaccess"
 )
 
-// -data: the packages' directory when it holds a database, else "data".
+// -data: the packages' directory when it holds a database or the package is installed, else "data".
 func TestPickDataDir(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope")
-	if got := pickDataDir(missing); got != "data" {
+	if got := pickDataDir(missing, missing); got != "data" {
 		t.Errorf("missing directory: %q", got)
 	}
 	empty := t.TempDir()
-	if got := pickDataDir(empty); got != "data" {
+	if got := pickDataDir(empty, missing); got != "data" {
 		t.Errorf("directory without a database: %q", got)
 	}
 	with := t.TempDir()
 	if err := os.WriteFile(filepath.Join(with, store.DBName), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := pickDataDir(with); got != with {
+	if got := pickDataDir(with, missing); got != with {
 		t.Errorf("directory with a database: %q", got)
+	}
+	// The package is installed but its service never ran: setup must work on the service's directory.
+	unit := filepath.Join(t.TempDir(), "virticle.service")
+	os.WriteFile(unit, nil, 0o644)
+	if got := pickDataDir(missing, unit); got != missing {
+		t.Errorf("installed package: %q", got)
 	}
 }
 

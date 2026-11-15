@@ -1,0 +1,25 @@
+/* Operations of an audit entry or task (OperationList). Long command lines and XML wrap inside their box; the
+   page never scrolls sideways. */
+.oplist { min-width: 0; max-width: 100%; }
+.op-head { font-weight: 600; color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
+.ops { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.op { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; background: var(--panel); min-width: 0; }
+.op-main { display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; min-width: 0; }
+.op-cmd { flex: 1 1 320px; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.op-meta { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; font-size: 12.5px; }
+.op-api { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.op-meta .badge { font-size: 12.5px; }
+.op-copy { font-size: 12.5px; }
+.op-err { color: var(--text); font-size: 12.5px; margin-top: 4px; overflow-wrap: anywhere; }
+.op .dlg-adv { margin-top: 4px; }
+.op-xml { margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.op-limit { border-style: dashed; }
+/* An audit or task row that opens to its operations. */
+.row-open { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--text); font: 13px var(--sans); cursor: pointer; text-align: left; word-break: normal; }
+.row-open svg { flex: none; color: var(--muted); }
+tr.ops-row > td { background: var(--bg); }
+/* On a phone a table scrolls inside itself; the operations stay in the visible part of it (main padding 16 px,
+   cell padding 12 px). */
+@media (max-width: 760px) {
+  tr.ops-row > td > .oplist { position: sticky; left: 12px; width: calc(100vw - 58px); }
+}

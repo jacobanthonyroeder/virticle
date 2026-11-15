@@ -141,6 +141,21 @@ func TestSetNICSource(t *testing.T) {
 	}
 }
 
+func TestSetNICSourceOVS(t *testing.T) {
+	d, _ := Parse(sample)
+	out, err := d.SetNICSourceOVS(d.Devices("interface")[0], "", "ovsbr0", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "<source bridge='ovsbr0'/>") || !strings.Contains(out, "<virtualport type='openvswitch'/>") {
+		t.Errorf("Open vSwitch bridge:\n%s", out)
+	}
+	out, _ = d.SetNICSourceOVS(d.Devices("interface")[0], "", "br0", "", false)
+	if strings.Contains(out, "virtualport") {
+		t.Errorf("Linux bridge:\n%s", out)
+	}
+}
+
 func TestNextTarget(t *testing.T) {
 	if got := NextTarget("vd", []string{"vda", "vdb", "sda"}); got != "vdc" {
 		t.Error(got)

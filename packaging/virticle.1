@@ -2,13 +2,19 @@
 .SH NAME
 virticle \- web controller for KVM/libvirt hosts
 .SH SYNOPSIS
-.B virticle
-[\fIflags\fR]
+.B sudo virticle setup
+[\fB\-\-admin\fR \fIname\fR \fB\-\-admin\-password\-file\fR \fIfile\fR] [\fB\-\-node\fR | \fB\-\-no\-node\fR] [\fB\-\-address\fR \fIaddr\fR] [\fB\-\-port\fR \fIn\fR] [\fB\-\-no\-firewall\fR] [\fB\-\-yes\fR] [\fB\-\-check\fR] [\fB\-\-undo\fR]
 .br
-.B virticle version
+.B sudo virticle node add
+[\fIoptions\fR] [[\fIuser\fR@]\fIhost\fR[:\fIport\fR]]
 .br
-.B virticle setup
-[\fB\-\-address\fR \fIaddr\fR] [\fB\-\-port\fR \fIn\fR] [\fB\-\-check\fR] [\fB\-\-undo\fR] [\fB\-\-no\-firewall\fR] [\fB\-\-yes\fR] [\fB\-data\fR \fIdir\fR]
+.B sudo virticle status
+.br
+.B sudo virticle node list
+[\fB\-\-json\fR]
+.br
+.B sudo virticle node remove
+[\fB\-\-yes\fR] \fIname\fR
 .br
 .B virticle node prepare
 [\fIoptions\fR] [[\fIuser\fR@]\fIhost\fR[:\fIport\fR]]
@@ -24,11 +30,16 @@ virticle \- web controller for KVM/libvirt hosts
 .br
 .B virticle web
 .BR show | set | reset
-[\fB\-data\fR \fIdir\fR] [\fIoptions\fR]
+[\fIoptions\fR]
 .br
 .B virticle user
 .BR reset\-2fa | reset\-password
-\fIuser\fR [\fB\-data\fR \fIdir\fR]
+\fIuser\fR
+.br
+.B virticle version
+.br
+.B virticle
+[\fIflags\fR]
 .SH DESCRIPTION
 Virticle is one program that serves a web UI and API and manages libvirt
 nodes over SSH. Nothing but a small node command is installed on the managed
@@ -40,24 +51,43 @@ The package runs it as the systemd service
 as user
 .BR virticle ,
 serving HTTPS with a self-signed certificate on port 8463. The package does
-not change the firewall: run
+not change the firewall and creates no administrator: run
 .B sudo virticle setup
-once. It asks which address and port to use, asks before it opens the web port
-and prints the address to open to create the administrator account.
+once. On one machine that is all; add more machines with
+.BR "sudo virticle node add root@" \fIhost\fR.
+.PP
+The commands below except
+.B version
+work on the controller's data directory: run them as root or as the
+controller's account. Each takes
+.B \-\-data
+.I dir
+(default /var/lib/virticle on an installed machine). While the controller
+runs they reach it through the socket control.sock in the data directory
+(mode 0600; only root and the controller's account), so changes show at once
+in the web UI. While it is stopped they work on the data directory themselves.
 .SH COMMANDS
 .TP
-.B virticle
-Run the controller.
-.TP
-.B virticle version
-Print the version, commit and build date.
-.TP
 .B virticle setup
-Run once as root after installing. On a terminal it asks which address and
-port the web interface listens on (Enter keeps all addresses and port 8463).
-It checks that the port is free, asks before it opens the port in firewalld or
-ufw, makes sure the service runs and prints the address to open. Running it
-again changes nothing; after a change of the web port it moves the rule.
+Run once as root after installing. It chooses the web address and port (asked
+on a terminal; Enter keeps all addresses and port 8463), checks that the port
+is free, opens it in firewalld or ufw (asked on a terminal), makes sure the
+service runs, creates the first administrator (asked on a terminal), and, when
+this machine can run virtual machines, asks "Use this machine as a node too?"
+and adds it. It ends with a summary (controller, administrator, nodes) and the
+address to open. Running it again changes nothing and says what is done.
+.B \-\-admin
+.I name
+and
+.B \-\-admin\-password\-file
+.I file
+(the first line; or the variable VIRTICLE_ADMIN_PASSWORD) create the
+administrator without questions.
+.B \-\-node
+and
+.B \-\-no\-node
+answer the node question; without a terminal and without them the machine is
+not added.
 .B \-\-address
 .I addr
 (an IP address of this machine, or
@@ -65,9 +95,8 @@ again changes nothing; after a change of the web port it moves the rule.
 and
 .B \-\-port
 .I n
-answer the two questions. They apply only while no administrator exists; later
-the Web access page changes the address.
-Without a terminal nothing is asked and the port is opened, unless
+answer the address questions; they apply only while no administrator exists.
+Without a terminal the port is opened, unless
 .B \-\-no\-firewall
 is given.
 .B \-\-yes
@@ -77,29 +106,58 @@ changes nothing.
 .B \-\-undo
 removes the firewall rule that setup added (do this before uninstalling).
 .TP
-.B virticle node prepare \fR[[\fIuser\fR@]\fIhost\fR]
-Prepare a host as a node; without a host, this machine (run as root). Installs libvirt, QEMU, the guest disk tools and the
-node command, sets up the access the controller needs and opens the migration
-ports (TCP 49152 to 49215) in firewalld or ufw. The controller signs in as the
-account virticle\-node, which may run the node command as root and nothing
-else.
-.B \-\-root
-gives it root instead.
-.B \-\-check
-changes nothing.
-.B \-\-take\-over
-answers yes when the node is managed by another Virticle controller (that
-controller's key is removed).
-.B \-\-jump
-.I user@host
-reaches the node through a jump host.
+.B virticle node add \fR[[\fIuser\fR@]\fIhost\fR]
+Prepare a host when it needs it and add it as a node, as Nodes > Add node does
+in the web UI; without a host, this machine (run as root). The administrator
+(root, or a user that may use sudo) signs in with the SSH agent,
 .B \-\-identity
 .IR file ,
-.B \-\-password\-stdin
-choose how to sign in to another host as administrator (default: the SSH
-agent; without one, a terminal asks for the password). See
-.B virticle node \-h
-for all options.
+or a password: asked on a terminal, or from
+.B \-\-password\-file
+.IR file ,
+VIRTICLE_NODE_PASSWORD or
+.BR \-\-password\-stdin .
+It is used for this run only. A host that this controller's key already gets
+into needs none.
+.B \-\-root
+lets the controller sign in as root instead of the service account
+virticle\-node;
+.B \-\-user
+.I name
+names the service account;
+.B \-\-jump
+.I user@host
+reaches the host through a jump host;
+.B \-\-take\-over
+takes over a host that another Virticle controller manages (a terminal asks
+instead).
+.TP
+.B virticle node list
+The nodes, one line each: name, address and state. A node with an older
+Virticle node command reads "Virticle update needed" and the command that
+updates it.
+.B \-\-json
+prints JSON.
+.TP
+.B virticle node remove \fIname\fR
+Remove a node (name: its host name, address or id) from the controller.
+Nothing is uninstalled from it. A terminal asks first;
+.B \-\-yes
+does not.
+.TP
+.B virticle status
+The controller's version, web address, service, administrator and every node
+with its state, and for each problem the command that fixes it. Exit status 1
+when something needs attention.
+.TP
+.B virticle node prepare \fR[[\fIuser\fR@]\fIhost\fR]
+Prepare a host without adding it (what node add runs first; also how a node
+gets this version's node command). Installs libvirt, QEMU, the guest disk
+tools and the node command, sets up the access the controller needs and opens
+the migration ports (TCP 49152 to 49215) in firewalld or ufw.
+.B \-\-check
+changes nothing. It takes the options of node add, and more; see
+.BR "virticle node \-\-help" .
 .TP
 .B virticle node unprepare
 Undo prepare: removes the account, key, node command, sudo rule and firewall
@@ -141,6 +199,12 @@ Recover a sign\-in from the controller's machine:
 turns two\-step sign\-in off for a user,
 .B reset\-password
 sets a new password for a local account. No restart is needed.
+.TP
+.B virticle version
+Print the version, commit and build date.
+.TP
+.B virticle
+Run the controller (the service does this).
 .SH OPTIONS
 Run
 .B virticle \-help
@@ -163,11 +227,21 @@ Do not run scheduled snapshots and backups from this controller.
 Print the version, commit and build date and exit.
 .SH ENVIRONMENT
 .TP
+.B VIRTICLE_ADMIN_PASSWORD
+For scripts: the first administrator's password for setup.
+.TP
+.B VIRTICLE_NODE_PASSWORD
+For scripts: the host administrator's password for node add, prepare and
+unprepare.
+.TP
 .B VIRTICLE_JUMP_PASSWORD
 Password for node jump hosts.
 .TP
 .B VIRTICLE_LISTEN
 Default for \-listen.
+.SH EXIT STATUS
+0 on success; 1 when a command failed or, for status, when something needs
+attention; 2 for a wrong command line.
 .SH FILES
 .TP
 .I /etc/virticle/virticle.env
@@ -176,10 +250,26 @@ Kept across upgrades.
 .TP
 .I /var/lib/virticle
 Data directory: virticle.db, id_ed25519, known_hosts, instance\-id, secret.key,
-metrics.db, certificates, and backups/ with the scheduled controller backups
+metrics.db, certificates, control.sock (the command line's socket while the
+controller runs), and backups/ with the scheduled controller backups
 (unless another folder is chosen under Settings > Controller backup). Copies of the database made before a schema
 upgrade are named
 .IR virticle.db.bak\-<version>\-<time> .
+.SH EXAMPLES
+One machine:
+.PP
+.nf
+    sudo apt install virticle
+    sudo virticle setup
+.fi
+.PP
+From a script:
+.PP
+.nf
+    virticle setup \-\-admin admin \-\-admin\-password\-file /root/admin.pw \-\-node
+    virticle node add \-\-password\-file /root/node.pw root@192.0.2.11
+    virticle status
+.fi
 .SH SEE ALSO
 .IR /usr/share/doc/virticle/docs/install.md ,
 .I /usr/share/doc/virticle/README.md

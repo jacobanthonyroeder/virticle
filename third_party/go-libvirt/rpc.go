@@ -265,7 +265,22 @@ func (l *Libvirt) request(proc uint32, program uint32, payload []byte) (response
 
 // requestStream performs a libvirt RPC request. The `out` and `in` parameters
 // are optional, and should be nil when RPC endpoints don't return a stream.
+// A hook set with WithCallHook sees the call first and its outcome after.
 func (l *Libvirt) requestStream(proc uint32, program uint32, payload []byte,
+	out io.Reader, in io.Writer) (response, error) {
+	if l.hook == nil {
+		return l.call(proc, program, payload, out, in)
+	}
+	done := l.hook(program, proc, payload)
+	resp, err := l.call(proc, program, payload, out, in)
+	if done != nil {
+		done(err)
+	}
+	return resp, err
+}
+
+// call is requestStream without the hook.
+func (l *Libvirt) call(proc uint32, program uint32, payload []byte,
 	out io.Reader, in io.Writer) (response, error) {
 	serial := l.serial()
 	c := make(chan response)

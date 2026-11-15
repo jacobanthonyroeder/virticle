@@ -1,7 +1,7 @@
 // Migrate dialog: pre-flight list, live migration n1 -> n2 and back, progress, landing on the new node's page.
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, expectBadge, vmAction } from "../lib/ui";
+import { dialog, dockRow, expectBadge, vmAction } from "../lib/ui";
 
 const NAME = `${P}mig1`;
 
@@ -28,10 +28,11 @@ test.describe.serial("live migration", () => {
     const go = dlg.getByRole("button", { name: "Migrate", exact: true });
     await expect(go).toBeEnabled();
     await go.click();
-    // progress is shown while the task runs
-    await expect(dlg.getByRole("progressbar")).toBeVisible();
-    await expect(dlg).toContainText(`Moving ${NAME} to ${toName}`);
-    await expect(dlg).toContainText("Done.", { timeout: 240_000 });
+    // the dialog closes once the server accepted the migration; the Tasks dock follows it
+    await expect(dlg).toBeHidden();
+    const task = dockRow(page, "migrate", NAME).first();
+    await expect(task).toContainText("Ok", { timeout: 240_000 });
+    await expect(task.locator(".c-res")).toContainText(`to ${toName}`);
     // and the page follows the VM to its new node
     await expect(page).toHaveURL(new RegExp(`/vm/${to}/${vm.uuid}`), { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1, name: NAME })).toBeVisible();
@@ -64,5 +65,25 @@ test.describe.serial("live migration", () => {
     await expect(dlg.getByLabel(/Live migration/)).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(dlg).toBeHidden();
+  });
+
+  test("Migrate stays off until the pre-flight checks have an answer", async ({ page, n1 }) => {
+    // hold the answer back: while the dialog says Checking, the button is disabled
+    let release = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    await page.route("**/migrate/check", async (route) => {
+      await held;
+      await route.continue();
+    });
+    await openVM(page, { node: n1, uuid: vm.uuid, name: NAME });
+    await vmAction(page, "Migrate", "Migrate to another node");
+    const dlg = dialog(page, `Migrate ${NAME}`);
+    const go = dlg.getByRole("button", { name: "Migrate", exact: true });
+    await expect(dlg.getByText(/^Checking/)).toBeVisible();
+    await expect(go).toBeDisabled();
+    release();
+    await expect(dlg.getByText(/^Checking/)).toHaveCount(0);
+    await expect(dlg).toContainText("Offline: the VM is shut off", { timeout: 60_000 });
+    await page.keyboard.press("Escape");
   });
 });

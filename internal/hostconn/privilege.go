@@ -51,13 +51,13 @@ func Quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + 
 
 // SetPrivilege records how this connection obtains root; the cluster sets it
 // from the node's configuration.
-func (h *Host) SetPrivilege(p Privilege) { h.priv = p }
+func (h *Host) SetPrivilege(p Privilege) { h.Base().priv = p }
 
 // Privilege is the setting last given to SetPrivilege.
-func (h *Host) Privilege() Privilege { return h.priv }
+func (h *Host) Privilege() Privilege { return h.Base().priv }
 
 // CanRoot reports whether the node command can be used on this host.
-func (h *Host) CanRoot() bool { return h.priv != PrivNone }
+func (h *Host) CanRoot() bool { return h.Base().priv != PrivNone }
 
 // DetectScript prints what ParseDetect reads: the uid, the version the node
 // command reports (through sudo for a service account, directly for root), and

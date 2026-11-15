@@ -624,7 +624,7 @@ func (s *Server) createNetwork(w http.ResponseWriter, r *http.Request) {
 			h.NetworkUndefine(n)
 			return fmt.Errorf("%w (the network was removed again)", err)
 		}
-		return nil
+		return taskDone("%s", networkCreateNote(req))
 	})
 	if err != nil {
 		fail(w, err)
@@ -714,7 +714,9 @@ func (s *Server) networkAction(w http.ResponseWriter, r *http.Request) {
 		fail(w, badRequest("unknown action "+req.Action))
 		return
 	}
-	if err := s.task(r, req.Action+" network", n.Name, h.Name, func(func(float64)) error { return fn() }); err != nil {
+	if err := s.task(r, req.Action+" network", n.Name, h.Name, func(func(float64)) error {
+		return doneOr(fn(), "%s", networkActionNote(req.Action))
+	}); err != nil {
 		fail(w, err)
 		return
 	}
@@ -749,8 +751,13 @@ func (s *Server) putNetworkXML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.task(r, "edit network XML", n.Name, h.Name, func(func(float64)) error {
-		_, err := h.NetworkDefineXMLFlags(req.XML, uint32(libvirt.NetworkDefineValidate))
-		return err
+		if _, err := h.NetworkDefineXMLFlags(req.XML, uint32(libvirt.NetworkDefineValidate)); err != nil {
+			return err
+		}
+		if a, _ := h.NetworkIsActive(n); a != 0 {
+			return taskDone("saved, applies at the next start")
+		}
+		return taskDone("saved")
 	})
 	if err != nil {
 		fail(w, err)
@@ -852,7 +859,7 @@ func (s *Server) updateHosts(w http.ResponseWriter, r *http.Request, cmd libvirt
 	err = s.task(r, kind+" DHCP reservation", n.Name+" "+mac, h.Name, func(func(float64)) error {
 		// NetworkUpdateCompat picks the argument order the daemon expects;
 		// older libvirt versions swapped command and section on the wire.
-		return h.NetworkUpdateCompat(n, cmd, libvirt.NetworkSectionIPDhcpHost, int32(idx), frag, flags)
+		return doneOr(h.NetworkUpdateCompat(n, cmd, libvirt.NetworkSectionIPDhcpHost, int32(idx), frag, flags), "%s", reservationNote(entry))
 	})
 	if err != nil {
 		fail(w, err)

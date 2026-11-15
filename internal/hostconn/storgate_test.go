@@ -1,6 +1,7 @@
 package hostconn
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func TestStorageGateSlots(t *testing.T) {
 		}
 	}
 	start := time.Now()
-	if err := g.acquire(); err != ErrStorageBusy {
+	if err := g.acquire(); !errors.Is(err, ErrStorageBusy) {
 		t.Fatalf("a full gate must refuse, got %v", err)
 	}
 	if time.Since(start) > time.Second {
@@ -46,7 +47,7 @@ func TestStorageGateStuckCalls(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := g.call(func() { <-block }); err != ErrStorageBusy {
+			if err := g.call(func() { <-block }); !errors.Is(err, ErrStorageBusy) {
 				t.Errorf("a stuck call is given up on: %v", err)
 			}
 		}()
@@ -54,7 +55,7 @@ func TestStorageGateStuckCalls(t *testing.T) {
 	wg.Wait()
 	start := time.Now()
 	ran := false
-	if err := g.call(func() { ran = true }); err != ErrStorageBusy || ran {
+	if err := g.call(func() { ran = true }); !errors.Is(err, ErrStorageBusy) || ran {
 		t.Fatalf("with every slot stuck a call must fail without running: %v %v", err, ran)
 	}
 	if time.Since(start) > 20*time.Millisecond {
@@ -83,5 +84,33 @@ func TestStorageGateNormalCall(t *testing.T) {
 	}
 	if n != 10 {
 		t.Errorf("%d", n)
+	}
+}
+
+// The error names the node and says what is known: a call that took too long, or one that was not made. It does
+// not guess the cause.
+func TestBusyError(t *testing.T) {
+	shortGate(t)
+	h := &Host{Name: "kvm3"}
+	var g storGate
+	block := make(chan struct{})
+	defer close(block)
+	slow := h.busy(g.call(func() { <-block }))
+	var be *BusyError
+	if !errors.As(slow, &be) || !be.Slow || !errors.Is(slow, ErrStorageBusy) {
+		t.Fatalf("slow call: %#v", slow)
+	}
+	if got := slow.Error(); got != "libvirt on kvm3 did not answer within 50ms" {
+		t.Errorf("slow call: %q", got)
+	}
+	refused := h.busy(ErrStorageBusy)
+	if !errors.As(refused, &be) || be.Slow || !errors.Is(refused, ErrStorageBusy) {
+		t.Fatalf("refused call: %#v", refused)
+	}
+	if got := refused.Error(); got != "libvirt on kvm3 has not answered earlier calls yet, so this one was not made" {
+		t.Errorf("refused call: %q", got)
+	}
+	if h.busy(nil) != nil {
+		t.Error("no refusal, no error")
 	}
 }

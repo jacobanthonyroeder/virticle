@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"virticle/internal/store"
 )
@@ -18,13 +20,16 @@ import (
 
 type Alert struct {
 	ID       string `json:"id"`
-	Kind     string `json:"kind"`     // node-down | pool-usage | host-memory | failed-job | vm-state | tls-expiry | scheduler-conflict | net-link | net-bond | net-drift | storage-unavailable | rolling-update | replica-age | stale-copy
+	Kind     string `json:"kind"`     // node-down | pool-usage | host-memory | failed-job | vm-state | tls-expiry | scheduler-conflict | net-link | net-bond | net-drift | storage-unavailable | rolling-update | replica-age | stale-copy | guest-frozen | migration-leftover
 	Severity string `json:"severity"` // warning | critical
 	Title    string `json:"title"`
 	Message  string `json:"message"`
 	Node     int64  `json:"node,omitempty"`
 	Link     string `json:"link,omitempty"` // UI route of the affected object
 	Since    int64  `json:"since"`
+	// User is the person who ran the failed task of a failed-job alert; empty for everything the scheduler did and
+	// for alerts that no task caused. Alerts with a user are shown in the web UI only, never sent to destinations.
+	User string `json:"user,omitempty"`
 }
 
 type alertConfig struct {
@@ -88,6 +93,14 @@ type alertStale struct {
 	Name, To       string
 }
 
+// alertFrozen is a guest whose file systems a backup froze and could not thaw (backup_frozen.go).
+type alertFrozen struct {
+	Node           int64
+	NodeName, UUID string
+	Name, Err      string
+	At             time.Time
+}
+
 type alertVM struct {
 	Node           int64
 	NodeName, UUID string
@@ -111,11 +124,13 @@ type alertInput struct {
 	Pools      []alertPool
 	Mem        []alertMem
 	VMs        []alertVM
+	Frozen     []alertFrozen
 	Replicas   []alertReplica
 	Stale      []alertStale
-	Jobs       []store.Task    // tasks of the scheduler in the window
+	Jobs       []store.Task    // tasks of the scheduler and of users in the window
 	Conflicts  []schedConflict // nodes where another controller takes scheduled snapshots
 	Rolling    *Alert          // a rolling update that stopped and was neither continued, put back nor dismissed
+	Leftovers  []alertLeftover // journalled runs of failed migrations (migjournal.go)
 	CertExpiry time.Time       // zero when the UI does not use a certificate of its own
 	// Debounced are alerts about network state (card links, bonds, drift between nodes) that flap easily: one is
 	// raised only after it was seen on two consecutive passes, and cleared only after it was missing on two.
@@ -198,6 +213,12 @@ func (t *alertTracker) step(in alertInput, now time.Time) (raised, cleared, all 
 			Title: v.Name + " " + v.Why, Link: fmt.Sprintf("/vm/%d/%s", v.Node, v.UUID),
 			Message: fmt.Sprintf("VM %s on %s is %s.", v.Name, v.NodeName, v.Why)})
 	}
+	for _, f := range in.Frozen {
+		add(Alert{ID: fmt.Sprintf("frozen:%d:%s", f.Node, f.UUID), Kind: "guest-frozen", Severity: "critical", Node: f.Node,
+			Title: fmt.Sprintf("%s may be frozen", f.Name), Link: fmt.Sprintf("/vm/%d/%s", f.Node, f.UUID),
+			Message: fmt.Sprintf("A backup froze the file systems of %s on %s at %s and could not thaw them (%s): writes in the guest may hang. The thaw is tried again every minute; virsh domfsthaw %s thaws it now. The alert clears when the guest agent reports the file systems thawed or the VM stops.",
+				f.Name, f.NodeName, f.At.Format("15:04:05"), f.Err, f.Name)})
+	}
 	for _, rp := range in.Replicas {
 		if rp.Last.IsZero() || rp.Every <= 0 {
 			continue // the first copy is still on its way
@@ -225,9 +246,16 @@ func (t *alertTracker) step(in alertInput, now time.Time) (raised, cleared, all 
 	if in.Rolling != nil {
 		add(*in.Rolling)
 	}
-	// A job is in trouble when its newest run failed; a later success clears it.
+	for _, l := range in.Leftovers {
+		add(leftoverAlert(l))
+	}
+	// A job is in trouble when its newest run failed; a later success clears it. Runs of the scheduler and of users
+	// of one kind on one target are one job: the newest decides, whoever ran it.
 	latest := map[string]store.Task{}
 	for _, j := range in.Jobs {
+		if !jobCounts(j) {
+			continue
+		}
 		k := j.Kind + "\x00" + jobVM(j.Target) + "\x00" + j.Node
 		if old, ok := latest[k]; !ok || j.ID > old.ID {
 			latest[k] = j
@@ -242,13 +270,22 @@ func (t *alertTracker) step(in alertInput, now time.Time) (raised, cleared, all 
 				Message: fmt.Sprintf("The backup written to the backups folder failed at %s: %s", time.Unix(j.Finished, 0).Format("2006-01-02 15:04:05"), j.Error)})
 			continue
 		}
+		user := jobUser(j)
 		title := fmt.Sprintf("Scheduled %s of %s failed", j.Kind, jobVM(j.Target))
-		if j.Kind == "replicate" {
+		switch {
+		case j.Kind == "replicate":
 			title = fmt.Sprintf("Replication of %s failed", jobVM(j.Target))
+		case user != "" && jobVM(j.Target) == "":
+			title = upperFirst(j.Kind) + " failed"
+		case user != "":
+			title = fmt.Sprintf("%s of %s failed", upperFirst(j.Kind), jobVM(j.Target))
+		}
+		msg := fmt.Sprintf("%s on %s failed at %s: %s", j.Kind, j.Node, time.Unix(j.Finished, 0).Format("2006-01-02 15:04:05"), j.Error)
+		if user != "" {
+			msg = fmt.Sprintf("%s on %s by %s failed at %s: %s", j.Kind, j.Node, user, time.Unix(j.Finished, 0).Format("2006-01-02 15:04:05"), j.Error)
 		}
 		add(Alert{ID: fmt.Sprintf("job:%s:%s:%s", j.Kind, j.Node, jobVM(j.Target)), Kind: "failed-job", Severity: "warning",
-			Title: title, Link: "/tasks",
-			Message: fmt.Sprintf("%s on %s failed at %s: %s", j.Kind, j.Node, time.Unix(j.Finished, 0).Format("2006-01-02 15:04:05"), j.Error)})
+			Title: title, Link: "/tasks", Message: msg, User: user})
 	}
 	for _, c := range in.MigCerts {
 		left := c.NotAfter.Sub(now)
@@ -289,7 +326,8 @@ func (t *alertTracker) step(in alertInput, now time.Time) (raised, cleared, all 
 		if had {
 			a.Since = old.Since
 			cur[id] = a
-			if old.Severity != a.Severity {
+			// A failed job whose newest run was by someone else is news again (the user shown changes).
+			if old.Severity != a.Severity || old.User != a.User {
 				raised = append(raised, a)
 			}
 		} else {
@@ -349,6 +387,41 @@ func (t *alertTracker) debounce(in alertInput, cur map[string]Alert) {
 			delete(t.gone, id)
 		}
 	}
+}
+
+// jobUser is the person to show on the alert of a failed task: empty for the scheduler. A task without a user name
+// (a request that was not signed in) is still a person's, so it is shown as "unknown" and not mistaken for the scheduler.
+func jobUser(j store.Task) string {
+	switch j.User {
+	case "scheduler":
+		return ""
+	case "":
+		return "unknown"
+	}
+	return j.User
+}
+
+// jobCounts says whether a task takes part in the failed-job alerts. Everything the scheduler ran does. Of the
+// tasks of people, these do not: a stop the user asked for (the error text of taskstop.go ends in "cancelled"), the
+// clock sync that follows a VM start (its failure is only a missing guest agent), and the rolling update, which has
+// an alert of its own.
+func jobCounts(j store.Task) bool {
+	if jobUser(j) == "" {
+		return true
+	}
+	switch j.Kind {
+	case "sync guest clock", "rolling-update":
+		return false
+	}
+	return !(j.Status == "failed" && strings.Contains(strings.ToLower(j.Error), "cancelled"))
+}
+
+// upperFirst makes the first letter a capital.
+func upperFirst(s string) string {
+	for i, r := range s {
+		return string(unicode.ToUpper(r)) + s[i+utf8.RuneLen(r):]
+	}
+	return s
 }
 
 // jobVM is the VM a scheduler task is about. Snapshot tasks are named "vm"

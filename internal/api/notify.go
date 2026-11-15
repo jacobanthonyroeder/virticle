@@ -155,8 +155,10 @@ func (w *destWorker) status() destStatus {
 func (d notifyDest) allows(sev string) bool { return d.Severity != "critical" || sev == "critical" }
 
 // dispatch queues the raised and cleared alerts of one cycle for every
-// destination. It returns at once.
+// destination. It returns at once. Alerts about a task that a person started (User is set) are not sent: that
+// person was shown the failure in the web UI, and destinations are for what happens without anyone watching.
 func (n *notifier) dispatch(raised, cleared []Alert, base string, nodes map[int64]string) {
+	raised, cleared = withoutUserAlerts(raised), withoutUserAlerts(cleared)
 	if len(raised)+len(cleared) == 0 {
 		return
 	}
@@ -204,6 +206,17 @@ func (n *notifier) dispatch(raised, cleared []Alert, base string, nodes map[int6
 			}
 		}
 	}
+}
+
+// withoutUserAlerts drops the alerts that were caused by a person's task.
+func withoutUserAlerts(in []Alert) []Alert {
+	var out []Alert
+	for _, a := range in {
+		if a.User == "" {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func (w *destWorker) enqueue(m notifyMsg) {

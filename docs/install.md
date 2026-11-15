@@ -1,5 +1,45 @@
 # Installing Virticle
 
+## Quick start
+
+**One machine** (controller and node in one), Debian or Ubuntu with the [package repository](#install-from-the-package-repository) added:
+
+    sudo apt install virticle
+    sudo virticle setup
+
+Setup asks for the web address and port (Enter keeps the defaults), the administrator's name and password, and
+"Use this machine as a node too? [Y/n]". It ends like this:
+
+    Controller     service running, https://192.0.2.10:8463
+    Administrator  admin
+    Nodes          vmhost1 online
+    Open https://192.0.2.10:8463 to sign in.
+
+**More nodes.** On the controller's machine, for each host (root, or a user that may use sudo; the password is asked
+for and used once):
+
+    sudo virticle node add root@192.0.2.11
+
+**Check everything.** `sudo virticle status` lists the controller and the nodes, and prints the command that fixes
+anything that needs it. Its exit code is 1 then.
+
+**From a script.** Nothing is asked; the passwords come from files (or the environment variables
+`VIRTICLE_ADMIN_PASSWORD` and `VIRTICLE_NODE_PASSWORD`), never from the command line:
+
+    #!/bin/sh
+    set -e
+    apt-get install -y virticle
+    virticle setup --admin admin --admin-password-file /root/virticle-admin.pw --node
+    virticle node add --password-file /root/node-root.pw root@192.0.2.11
+    virticle node add --identity /root/.ssh/id_ed25519 root@192.0.2.12
+    virticle status
+
+Setup can run again: it changes nothing that is done and says so. `node add` of a host that is already a node says "HOST is a node
+already" (exit code 0) and changes nothing, so the script above can run again under `set -e`.
+The browser is only needed to use Virticle.
+
+## Overview
+
 Virticle is one controller program. It needs nothing on the machines it
 manages (the "nodes") except SSH access and libvirt. To get a node ready, see
 [install-node.md](install-node.md). For HTTPS and reverse proxies, see
@@ -8,6 +48,7 @@ manages (the "nodes") except SSH access and libvirt. To get a node ready, see
 On this page:
 
 - [Package repository](#install-from-the-package-repository) (preferred), [downloaded package](#package-from-a-download-debian-ubuntu-rhel-like), [container](#container) or [binary](#binary)
+- [Setup](#setup): web address, firewall, administrator, this machine as a node
 - [First run](#first-run)
 - [Upgrading](#upgrading), with the steps from 0.3.x, 0.2.0 and 0.1.0, and how to roll back
 - [Uninstall](#uninstall)
@@ -117,15 +158,18 @@ HTTPS default, one with users keeps what it has.
 | --- | --- |
 | Debian, RHEL | The service is enabled and started. An upgrade restarts it when it was running. |
 
-### Setup: choose the address and port, open the firewall
+### Setup
 
-The package does not touch the firewall. Run this once after installing:
+The package does not touch the firewall and creates no administrator. Run this once after installing:
 
     sudo virticle setup
 
 It asks which address and port to use, checks that the port is free, asks
 before it opens the port when firewalld or ufw is active, makes sure the service
-runs, and prints the address to open. Running it again changes nothing; if you
+runs, creates the first administrator, and, when the machine can run VMs, asks
+whether to add it as a node. It ends with a three-line summary (controller,
+administrator, nodes) and the address to open. Running it again changes
+nothing and says what is already done; if you
 later change the web port, run it again and it moves the rule to the new port.
 The **Web access** page tells you to run it while a port change waits for
 confirmation: setup then opens the new port and keeps the old one open, so run
@@ -134,9 +178,9 @@ it once more after you chose **Keep this setting** to close the old port.
 removes the firewall rule it added (do this before you uninstall). Then open
 the address it prints.
 
-#### Choose the address and port
+#### The questions
 
-On a terminal, on a machine that is not set up yet, setup asks two short
+On a terminal, on a machine that is not set up yet, setup asks these
 questions. Enter takes the answer in brackets:
 
     Which address should the web interface listen on?
@@ -145,7 +189,17 @@ questions. Enter takes the answer in brackets:
       198.51.100.7
     Address [all]:
     Port [8463]:
+    Administrator of the web interface [admin]:
+    Password for admin:
+    Again:
+    Use this machine as a node too? [Y/n]
     Open TCP port 8463 in firewalld for the web interface? [Y/n]
+
+The password needs at least 10 characters and is not shown. The node question
+comes only when the machine can run VMs (hardware virtualisation, `/dev/kvm`,
+not a container) and is not a node yet. Yes runs what `sudo virticle node add`
+runs (see [install-node.md](install-node.md)): it installs libvirt and QEMU and
+the node command, which takes a few minutes the first time.
 
 The default port is 8463 because 8443 is used by many other products. Setup
 tries to listen on the address and port first. If another program has the
@@ -156,16 +210,23 @@ a terminal it stops with an error.
 | --- | --- |
 | `--address ADDR` | An IP address of this machine, or `all`. Answers the first question. |
 | `--port N` | A port from 1 to 65535. Answers the second question. |
+| `--admin NAME` | The administrator's name. |
+| `--admin-password-file FILE` | The administrator's password, the first line of FILE (or the variable `VIRTICLE_ADMIN_PASSWORD`). |
+| `--node`, `--no-node` | Answer the node question. |
 | `--no-firewall` | Does not change the firewall. Prints the command to run yourself. |
-| `--yes` | Asks nothing: takes the defaults and answers yes. |
+| `--yes` | Asks nothing: takes the defaults and answers yes (firewall, node). |
 | `--check` | Changes nothing and asks nothing. Shows what setup would do. |
 | `--undo` | Removes the firewall rule that setup added, and nothing else. |
-| `-data DIR` | The data directory. Default `/var/lib/virticle` on an installed machine. |
+| `--data DIR` | The data directory. Default `/var/lib/virticle` on an installed machine. |
 
 Without a terminal (a script, a pipe) nothing is asked: setup uses the flags or
 the defaults, and opens the port in the firewall unless you give
-`--no-firewall`. If you answer no to the firewall question, setup prints the
-exact command to run later.
+`--no-firewall`. It creates the administrator only with `--admin` and a
+password, and adds the machine as a node only with `--node` (or `--yes`).
+Without them, create the administrator in the browser and add nodes later. If
+you answer no to the firewall question, setup prints the exact command to run
+later. A wrong input (a missing password file, a short password, `--node` on a
+machine without KVM) stops setup with one line before it changes anything.
 
 `--address` and `--port` work only while no administrator exists and the web
 settings are still the ones of a first start. On a machine that is set up,
@@ -182,7 +243,7 @@ Check the service with `systemctl status virticle`, `journalctl -u virticle` and
 | --- | --- | --- |
 | Controller | The web port, `8463` by default (set on the **Web access** page) | Browsers and the API. `virticle setup` opens it. |
 | Each node | SSH, `22` or the port you gave for the node | The controller signs in to the node. Open to the controller only if you restrict SSH. |
-| Each node, from the other nodes | TCP `49152` to `49215` | Data of live migrations. `virticle node prepare` opens it. |
+| Each node, from the other nodes | TCP `49152` to `49215` | Data of live migrations. `virticle node add` (or `node prepare`) opens it. |
 
 Consoles (VNC, serial) go through the web port and SSH and need no port of
 their own. Only firewalld and ufw are handled. With other firewall rules
@@ -248,13 +309,14 @@ To build from source, run `make build` (needs Go and Node.js). The result is
 1. Open the address that `sudo virticle setup` printed, for example
    `https://<address>:8463` (the journal line `open ... to create the
    administrator` says the same).
-2. Create the administrator account. The password needs at least 10
-   characters.
-3. Add nodes. If this machine will run your VMs too, choose **Set up this
-   machine as a node** on the **Datacenter** page (SSH must be running on it;
-   the administrator login is used once). Otherwise add each node from the **Nodes** page (**Add node**) or prepare it with
-   `virticle node prepare`. [install-node.md](install-node.md) describes the
-   preparation.
+2. Sign in with the administrator that setup created. If setup did not create
+   one (no terminal and no `--admin`), the page asks you to create it. The
+   password needs at least 10 characters.
+3. Add nodes, if setup did not: `sudo virticle node add [user@]host` on the
+   controller's machine (without a host: this machine), or **Nodes > Add node**
+   in the browser. While there are no nodes, the **Datacenter** page also offers
+   **Set up this machine as a node**. [install-node.md](install-node.md)
+   describes the preparation.
 
 ## Where data lives
 
@@ -304,6 +366,36 @@ file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
 
+### From 0.5.x to 0.6.0
+
+1. **Upgrade the controller** as above. Stop the old controller first; two controllers of different versions must never
+   manage the same nodes. The database schema goes from 6 to 8, so the controller copies the database first (see
+   above). Going back to 0.5.0 afterwards means putting that copy back.
+2. **Update Virticle on each node.** The node command has protocol 23 (0.5.0 had 22). After the upgrade every node is
+   marked **Virticle update needed**, and the **Nodes** page shows "N nodes need a Virticle update" with
+   **Update Virticle on nodes**. Until a node is updated, migration, backups, replication and the other features that
+   need root stop on it; VMs keep running. Choose **Update Virticle on nodes** (one administrator login for all nodes),
+   or **Settings > Update Virticle** on each node, or run `virticle node prepare admin@host` (add `--root` for a Root
+   node). On a node itself: `sudo virticle node prepare`.
+
+What changes by itself:
+
+| What | After the upgrade |
+| --- | --- |
+| Words on the Nodes page | **Outdated** is **Virticle update needed**; **Prepare all** is **Update Virticle on nodes**. The action is the same. |
+| Dialogs of long actions (migrate, clone, backup, snapshot and others) | Close once the task is accepted. The task runs in the dock at the bottom; a failure shows as a toast that stays and as an alert for the user who started it. **Run in background** is gone. |
+| Tasks dock and Tasks page | One table: columns do not wrap and can be resized, **Result** says what was done, a row opens the task. |
+| Audit | An administrator opens an entry or a task to see the libvirt calls (as `virsh` commands) and node commands it ran. Only changes made after the upgrade have them. |
+| A VM's menu in the tree | The same menu as **Actions** on the VM's page. |
+| A failed migration | Files it made on the target are removed only when they are proven to be its own and unused; otherwise they are kept and an alert lists them with **Remove** and **Keep**. Leftovers of migrations that failed before the upgrade are not known to it. |
+| A live migration whose last answer from the target is lost | The VM stays paused on the source until the target says where it runs. Before, the source resumed at once. |
+| Command line | `virticle setup` creates the first administrator and adds the machine as a node; `virticle node add`, `node list`, `node remove` and `status` talk to the running controller. Nothing to do for an existing install. |
+
+What to check:
+
+- **Nodes**: no node is marked **Virticle update needed** any more.
+- **Alerts**: no "Files of a failed migration ... are left" or "The migration of ... needs attention" alert you did not expect.
+
 ### From 0.4.x to 0.5.0
 
 1. **Upgrade the controller** as above. Stop the old controller first; two controllers of different versions must never
@@ -311,7 +403,7 @@ made when the schema version does not change.
 2. **Prepare each node again.** The node command has protocol 22 (0.4.x had 21). After the upgrade every node is marked
    **Outdated**, and the **Nodes** page shows "N nodes need preparing" with **Prepare all**. Until a node is prepared,
    migration, backups, replication and the other features that need root stop on it; VMs keep running. Choose
-   **Prepare all** (one administrator login for all nodes), or **Settings > Prepare this node** on each node, or run
+   **Prepare all** (one administrator login for all nodes), or **Settings > Update Virticle** on each node, or run
    `virticle node prepare admin@host` (add `--root` for a Root node). On a node itself: `sudo virticle node prepare`.
 
 What changes by itself:
@@ -347,7 +439,7 @@ The same steps for 0.3.0, 0.3.1 and 0.3.2.
    the node **Outdated** and shows the notice "N nodes need preparing" with **Prepare all**, and the node's **Settings**
    say "This node was prepared by an older version, so features that need root are off." Migration, backups,
    replication and the other features that need root stop on it. VMs keep running. Choose **Prepare all** (one
-   administrator login for all nodes), or **Settings > Prepare this node** on each node, or run
+   administrator login for all nodes), or **Settings > Update Virticle** on each node, or run
    `virticle node prepare admin@host` (add `--root` for a Root node).
 
 What stays as it was:
@@ -362,8 +454,9 @@ What stays as it was:
 
 ### From 0.2.0 to 0.3.0
 
-From 0.2.0 straight to 0.5.0: follow these steps, and read [From 0.3.x to 0.4.0](#from-03x-to-040) and
-[From 0.4.x to 0.5.0](#from-04x-to-050) first. The node command then has protocol 22.
+From 0.2.0 straight to 0.6.0: follow these steps, and read [From 0.3.x to 0.4.0](#from-03x-to-040),
+[From 0.4.x to 0.5.0](#from-04x-to-050) and [From 0.5.x to 0.6.0](#from-05x-to-060) first. The node command then has
+protocol 23.
 
 Nodes need to be prepared again, because the node command has a new version (protocol 20, it was 10). Until you do, a node
 shows "prepared by an older version" and the features that need root on it are off: migration, backups, replication,
@@ -384,7 +477,7 @@ Stop the old controller before you start the new one.
    itself. You do not need it when the controller keeps listening on `127.0.0.1`. Run it again after you change the web
    port.
 4. **Prepare each node again.** Either way works:
-   - In the web UI: open the node, then **Settings > Prepare this node**.
+   - In the web UI: open the node, then **Settings > Update Virticle** (**Prepare this node** for a node that was never prepared).
    - In a shell: `virticle node prepare admin@host`. Add `--root` if the node is a Root node.
 
    Preparing replaces the node command and also sets up what the new features need: it opens the migration ports (TCP

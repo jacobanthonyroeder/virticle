@@ -151,13 +151,14 @@ func hugepageShortage(sizeKiB, memKiB uint64, t hostTopo) []string {
 
 // tuningEdit applies a change to the saved definition by editing its XML
 // and redefining the domain. edit returns the new XML and an optional note.
-func (s *Server) tuningEdit(w http.ResponseWriter, r *http.Request, kind string, edit func(c hwCtx, raw string, topo hostTopo) (string, string, error)) {
-	s.tuningEditThen(w, r, kind, edit, nil)
+// fact is the Result of the task: what was set.
+func (s *Server) tuningEdit(w http.ResponseWriter, r *http.Request, kind, fact string, edit func(c hwCtx, raw string, topo hostTopo) (string, string, error)) {
+	s.tuningEditThen(w, r, kind, fact, edit, nil)
 }
 
 // tuningEditThen is tuningEdit with a step that runs once the new definition
 // is stored (a metadata change that belongs to the edit).
-func (s *Server) tuningEditThen(w http.ResponseWriter, r *http.Request, kind string, edit func(c hwCtx, raw string, topo hostTopo) (string, string, error), then func(c hwCtx) error) {
+func (s *Server) tuningEditThen(w http.ResponseWriter, r *http.Request, kind, fact string, edit func(c hwCtx, raw string, topo hostTopo) (string, string, error), then func(c hwCtx) error) {
 	c, err := s.hwContext(r)
 	if err != nil {
 		fail(w, err)
@@ -190,7 +191,7 @@ func (s *Server) tuningEditThen(w http.ResponseWriter, r *http.Request, kind str
 		res = c.result("config")
 		res.addNote(note)
 		res.addNote("Takes effect at the next start of the VM.")
-		return nil
+		return taskDone("%s", tuningNote(fact))
 	})
 	if err != nil {
 		fail(w, err)
@@ -314,7 +315,7 @@ func (s *Server) tuningPinning(w http.ResponseWriter, r *http.Request) {
 		}
 		res = c.result("config")
 		res.addNote("Takes effect at the next start of the VM.")
-		return nil
+		return taskDone("%s", tuningNote(pinFact(req.Clear, len(jobs), emu != nil)))
 	})
 	if err != nil {
 		fail(w, err)
@@ -337,7 +338,7 @@ func (s *Server) tuningCPU(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var base *cpuDef // set when the request asks for the cluster baseline
-	s.tuningEditThen(w, r, "set CPU model", func(c hwCtx, raw string, _ hostTopo) (string, string, error) {
+	s.tuningEditThen(w, r, "set CPU model", cpuModelFact(req.Mode, req.Model, req.Sockets, req.Cores, req.Threads, req.NoTopology), func(c hwCtx, raw string, _ hostTopo) (string, string, error) {
 		spec := domxml.CPUSpec{Mode: req.Mode, Model: req.Model, ClearTopology: req.NoTopology}
 		if spec.Mode == "baseline" {
 			b := s.clusterCPUBaseline()
@@ -427,7 +428,7 @@ func (s *Server) tuningHugepages(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	s.tuningEdit(w, r, "set huge pages", func(c hwCtx, raw string, topo hostTopo) (string, string, error) {
+	s.tuningEdit(w, r, "set huge pages", hugepagesFact(req.PageSizeKiB), func(c hwCtx, raw string, topo hostTopo) (string, string, error) {
 		note := ""
 		if req.PageSizeKiB != 0 {
 			sizes := topo.hugepageSizes()
@@ -461,7 +462,7 @@ func (s *Server) tuningNUMA(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	s.tuningEdit(w, r, "set NUMA policy", func(c hwCtx, raw string, topo hostTopo) (string, string, error) {
+	s.tuningEdit(w, r, "set NUMA policy", numaFact(req.Mode, req.Nodeset), func(c hwCtx, raw string, topo hostTopo) (string, string, error) {
 		switch req.Mode {
 		case "":
 			out, err := domxml.SetNumatune(raw, "", "")

@@ -282,7 +282,7 @@ func (s *Server) hwCPU(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var res hwResult
-	err = s.task(r, "set vCPUs", c.dom.Name, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "set vCPUs", c.dom.Name, c.h.Name, noted(func(func(float64)) error {
 		vcpus := func(f libvirt.DomainVCPUFlags) (int, error) {
 			n, err := c.h.DomainGetVcpusFlags(c.dom, uint32(f))
 			return int(n), err
@@ -354,7 +354,7 @@ func (s *Server) hwCPU(w http.ResponseWriter, r *http.Request) {
 			res.Note = strings.TrimSpace(res.Note + " The new maximum applies after a restart.")
 		}
 		return nil
-	})
+	}, func() string { return vcpuNote(req.VCPUs, req.MaxVCPUs, res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -397,7 +397,7 @@ func (s *Server) hwMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var res hwResult
-	err = s.task(r, "set memory", c.dom.Name, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "set memory", c.dom.Name, c.h.Name, noted(func(func(float64)) error {
 		_, cfg, err := c.docs()
 		if err != nil {
 			return err
@@ -456,7 +456,7 @@ func (s *Server) hwMemory(w http.ResponseWriter, r *http.Request) {
 			res.Note = strings.TrimSpace(res.Note + " The new maximum applies after a restart.")
 		}
 		return nil
-	})
+	}, func() string { return memNote(req.MemoryMiB, req.MaxMemoryMiB, res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -557,7 +557,7 @@ func (s *Server) hwDiskAdd(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	var res hwResult
-	err = s.task(r, "add disk", c.dom.Name, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "add disk", c.dom.Name, c.h.Name, noted(func(func(float64)) error {
 		live, cfg, err := c.docs()
 		if err != nil {
 			return err
@@ -634,7 +634,7 @@ func (s *Server) hwDiskAdd(w http.ResponseWriter, r *http.Request) {
 		res = c.result(applied)
 		res.Target = target
 		return nil
-	})
+	}, func() string { return diskAddNote(res.Target, req.Pool, req.Volume, newVolumeGiB(req.NewVolume), res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -658,7 +658,8 @@ func (s *Server) hwDiskDelete(w http.ResponseWriter, r *http.Request) {
 	target := r.PathValue("target")
 	wantDelete := r.URL.Query().Get("delete") == "1"
 	var res hwResult
-	err = s.task(r, "detach disk", c.dom.Name+"/"+target, c.h.Name, func(func(float64)) error {
+	deleted := false
+	err = s.task(r, "detach disk", c.dom.Name+"/"+target, c.h.Name, noted(func(func(float64)) error {
 		live, cfg, err := c.docs()
 		if err != nil {
 			return err
@@ -696,11 +697,13 @@ func (s *Server) hwDiskDelete(w http.ResponseWriter, r *http.Request) {
 					res.addNote("The volume was not deleted because other volumes are built on it: " + strings.Join(deps, ", ") + ".")
 				} else if err := c.h.StorageVolDelete(vol, 0); err != nil {
 					return fmt.Errorf("the disk was detached but its volume %s could not be deleted: %w", src, err)
+				} else {
+					deleted = true
 				}
 			}
 		}
 		return nil
-	})
+	}, func() string { return hwNote(joinFacts(target, volumeDeletedFact(deleted)), res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -728,7 +731,7 @@ func (s *Server) hwDiskResize(w http.ResponseWriter, r *http.Request) {
 	}
 	size := uint64(req.SizeGiB) << 30
 	var res hwResult
-	err = s.task(r, "resize disk", c.dom.Name+"/"+target, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "resize disk", c.dom.Name+"/"+target, c.h.Name, noted(func(func(float64)) error {
 		live, _, err := c.docs()
 		if err != nil {
 			return err
@@ -774,7 +777,7 @@ func (s *Server) hwDiskResize(w http.ResponseWriter, r *http.Request) {
 		}
 		res = hwResult{Applied: "config", Note: "grow the partition and filesystem inside the guest after it starts"}
 		return nil
-	})
+	}, func() string { return hwNote(joinFacts(target, gibText(req.SizeGiB)), res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -795,7 +798,7 @@ func (s *Server) hwCDROMAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var res hwResult
-	err = s.task(r, "add CD-ROM", c.dom.Name, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "add CD-ROM", c.dom.Name, c.h.Name, noted(func(func(float64)) error {
 		live, cfg, err := c.docs()
 		if err != nil {
 			return err
@@ -818,7 +821,7 @@ func (s *Server) hwCDROMAdd(w http.ResponseWriter, r *http.Request) {
 		res = c.result(applied)
 		res.Target = target
 		return nil
-	})
+	}, func() string { return hwNote(res.Target, res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -874,7 +877,7 @@ func (s *Server) hwCDROMMedia(w http.ResponseWriter, r *http.Request) {
 		kind = "insert CD-ROM media"
 	}
 	var res hwResult
-	err = s.task(r, kind, c.dom.Name+"/"+target, c.h.Name, func(func(float64)) error {
+	err = s.task(r, kind, c.dom.Name+"/"+target, c.h.Name, noted(func(func(float64)) error {
 		match := func(n *domxml.Node) bool { return diskMatch(target)(n) && n.Attrs["device"] == "cdrom" }
 		applied, err := c.update("disk", match, func(d *domxml.Doc, n *domxml.Node) (string, error) {
 			return d.DiskWithSource(n, source)
@@ -885,7 +888,7 @@ func (s *Server) hwCDROMMedia(w http.ResponseWriter, r *http.Request) {
 		res = c.result(applied)
 		res.Target = target
 		return nil
-	})
+	}, func() string { return hwNote(joinFacts(target, mediaFact(req.Volume)), res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -920,20 +923,21 @@ func macs(docs ...*domxml.Doc) map[string]bool {
 	return out
 }
 
-func (c hwCtx) checkAttachment(network, bridge string) error {
+// checkAttachment checks a network or a host bridge for a VM interface. ovs is true for an Open vSwitch bridge.
+func (c hwCtx) checkAttachment(network, bridge string) (ovs bool, err error) {
 	if (network == "") == (bridge == "") {
-		return badRequest("give either a network or a bridge")
+		return false, badRequest("give either a network or a bridge")
 	}
 	if network != "" {
 		_, err := c.h.NetworkLookupByName(network)
-		return err
+		return false, err
 	}
 	if !bridgeRE.MatchString(bridge) {
-		return badRequest("invalid bridge name")
+		return false, badRequest("invalid bridge name")
 	}
 	nics, err := hostNICList(c.h)
 	if err != nil {
-		return err
+		return false, err
 	}
 	return checkBridge(nics, bridge)
 }
@@ -962,6 +966,7 @@ func (s *Server) hwNICAdd(w http.ResponseWriter, r *http.Request) {
 	if req.Model == "" {
 		req.Model = "virtio"
 	}
+	var ovs bool
 	switch {
 	case !nicModel[req.Model]:
 		err = badRequest("model must be virtio, e1000, e1000e or rtl8139")
@@ -970,14 +975,14 @@ func (s *Server) hwNICAdd(w http.ResponseWriter, r *http.Request) {
 	case req.Limit.check() != nil:
 		err = req.Limit.check()
 	default:
-		err = c.checkAttachment(req.Network, req.Bridge)
+		ovs, err = c.checkAttachment(req.Network, req.Bridge)
 	}
 	if err != nil {
 		fail(w, err)
 		return
 	}
 	var res hwResult
-	err = s.task(r, "add network interface", c.dom.Name, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "add network interface", c.dom.Name, c.h.Name, noted(func(func(float64)) error {
 		live, cfg, err := c.docs()
 		if err != nil {
 			return err
@@ -999,6 +1004,9 @@ func (s *Server) hwNICAdd(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(&b, "<source network='%s'/>", domxml.Esc(req.Network))
 		} else {
 			fmt.Fprintf(&b, "<source bridge='%s'/>", domxml.Esc(req.Bridge))
+			if ovs {
+				b.WriteString("<virtualport type='openvswitch'/>")
+			}
 		}
 		fmt.Fprintf(&b, "<model type='%s'/>%s</interface>", req.Model, req.Limit.xml())
 		applied, err := c.attach(b.String())
@@ -1014,7 +1022,7 @@ func (s *Server) hwNICAdd(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		return nil
-	})
+	}, func() string { return hwNote(joinFacts(res.MAC, nicSideFact(req.Network, req.Bridge), req.Model), res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -1034,7 +1042,7 @@ func (s *Server) hwNICDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var res hwResult
-	err = s.task(r, "remove network interface", c.dom.Name+"/"+mac, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "remove network interface", c.dom.Name+"/"+mac, c.h.Name, noted(func(func(float64)) error {
 		applied, pending, err := c.detach("interface", nicMatch(mac))
 		if err != nil {
 			return err
@@ -1045,7 +1053,7 @@ func (s *Server) hwNICDelete(w http.ResponseWriter, r *http.Request) {
 			res.addNote("the guest has not released the interface yet; it disappears once the guest lets go of it, or at the next restart")
 		}
 		return nil
-	})
+	}, func() string { return hwNote(mac, res) }))
 	if err != nil {
 		fail(w, err)
 		return
@@ -1071,6 +1079,7 @@ func (s *Server) hwNICUpdate(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	var ovs bool
 	switch {
 	case !macRE.MatchString(mac):
 		err = badRequest("invalid MAC address")
@@ -1081,19 +1090,19 @@ func (s *Server) hwNICUpdate(w http.ResponseWriter, r *http.Request) {
 	case req.Network == "" && req.Bridge == "" && req.LinkState == "" && req.Limit == nil:
 		err = badRequest("nothing to change")
 	case req.Network != "" || req.Bridge != "":
-		err = c.checkAttachment(req.Network, req.Bridge)
+		ovs, err = c.checkAttachment(req.Network, req.Bridge)
 	}
 	if err != nil {
 		fail(w, err)
 		return
 	}
 	var res hwResult
-	err = s.task(r, "change network interface", c.dom.Name+"/"+mac, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "change network interface", c.dom.Name+"/"+mac, c.h.Name, noted(func(func(float64)) error {
 		applied := ""
 		if req.Network != "" || req.Bridge != "" || req.LinkState != "" {
 			var err error
 			if applied, err = c.update("interface", nicMatch(mac), func(d *domxml.Doc, n *domxml.Node) (string, error) {
-				return d.SetNICSource(n, req.Network, req.Bridge, req.LinkState)
+				return d.SetNICSourceOVS(n, req.Network, req.Bridge, req.LinkState, ovs)
 			}); err != nil {
 				return err
 			}
@@ -1113,7 +1122,9 @@ func (s *Server) hwNICUpdate(w http.ResponseWriter, r *http.Request) {
 		res = c.result(applied)
 		res.MAC = strings.ToLower(mac)
 		return nil
-	})
+	}, func() string {
+		return nicChangeNote(strings.ToLower(mac), req.Network, req.Bridge, req.LinkState, req.Limit != nil, res)
+	}))
 	if err != nil {
 		fail(w, err)
 		return
@@ -1143,7 +1154,7 @@ func (s *Server) hwBoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var res hwResult
-	err = s.task(r, "set boot order", c.dom.Name, c.h.Name, func(func(float64)) error {
+	err = s.task(r, "set boot order", c.dom.Name, c.h.Name, noted(func(func(float64)) error {
 		raw, err := c.h.DomainGetXMLDesc(c.dom, libvirt.DomainXMLInactive)
 		if err != nil {
 			return err
@@ -1157,7 +1168,7 @@ func (s *Server) hwBoot(w http.ResponseWriter, r *http.Request) {
 		}
 		res = c.result("config")
 		return nil
-	})
+	}, func() string { return strings.Join(req.Order, ", ") }))
 	if err != nil {
 		fail(w, err)
 		return

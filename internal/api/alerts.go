@@ -74,23 +74,75 @@ func (s *Server) reconcileOnReconnect() {
 	}()
 }
 
+// alertMinGap is the shortest time between two passes, however often a failed task asks for one.
+const alertMinGap = 2 * time.Second
+
+// alertPoke asks for a pass at once. The buffer of one makes a poke that nobody has picked up yet absorb the next.
+var alertPoke = make(chan struct{}, 1)
+
+// pokeAlerts asks the alert loop for a pass now instead of at the next tick. A task that failed calls it, so the
+// person who is watching is told within seconds. It never blocks.
+func (s *Server) pokeAlerts() {
+	select {
+	case alertPoke <- struct{}{}:
+	default:
+	}
+}
+
+// pokeAlertsOnFail is pokeAlerts for the place where a task ends: it pokes only when the task failed.
+func (s *Server) pokeAlertsOnFail(err error) {
+	if err != nil {
+		s.pokeAlerts()
+	}
+}
+
+// alertPokeDelay is how long a poke has to wait so that passes are at least alertMinGap apart.
+func alertPokeDelay(last, now time.Time) time.Duration {
+	if d := alertMinGap - now.Sub(last); d > 0 {
+		return d
+	}
+	return 0
+}
+
 func (s *Server) runAlerts(ctx context.Context, every, first time.Duration) {
 	tr := newAlertTracker(alertConfig{PoolWarn: s.Alerts.PoolWarn, PoolCrit: s.Alerts.PoolCrit, Mem: s.Alerts.Mem, CertDays: s.Alerts.CertDays})
 	wait := first
+	var last time.Time
 	for {
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-time.After(wait):
+		case <-timer.C:
+		case <-alertPoke:
+			timer.Stop()
+			// Keep the distance to the last pass; pokes that arrive meanwhile are the same request.
+			if d := alertPokeDelay(last, time.Now()); d > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(d):
+				}
+			}
+			select {
+			case <-alertPoke:
+			default:
+			}
 		}
 		wait = every
 		s.reconcileFailovers()
 		raised, cleared, all := tr.step(s.gatherAlertInput(time.Now()), time.Now())
+		last = time.Now()
 		alertHub.Lock()
 		alertHub.list = all
 		alertHub.Unlock()
 		if len(raised)+len(cleared) > 0 {
 			s.Nodes.Publish(cluster.Event{Type: "alert"})
+		}
+		// One more event for each raised alert, with the alert itself, so the web UI can tell the person at once.
+		for _, a := range raised {
+			s.Nodes.Publish(cluster.Event{Type: "alert", Detail: "raised", Alert: a})
 		}
 		s.dispatchAlerts(raised, cleared)
 	}
@@ -124,6 +176,7 @@ func (s *Server) gatherAlertInput(now time.Time) alertInput {
 		in.Pools = append(in.Pools, pools...)
 		in.Debounced = append(in.Debounced, storage...)
 		in.VMs = append(in.VMs, gatherBadVMs(h, n.ID, name)...)
+		in.Frozen = append(in.Frozen, gatherFrozen(h, n.ID, name)...)
 		reps, stale := gatherReplicas(h, n.ID, name)
 		in.Replicas = append(in.Replicas, reps...)
 		in.Stale = append(in.Stale, stale...)
@@ -149,10 +202,14 @@ func (s *Server) gatherAlertInput(now time.Time) alertInput {
 	}
 	in.Conflicts = s.currentConflicts()
 	in.Rolling = s.rollingAlert()
-	if jobs, err := s.Store.TasksBy("scheduler", now.Add(-24*time.Hour).Unix()); err == nil {
+	in.Leftovers = s.gatherLeftovers()
+	if len(in.Leftovers) > 0 {
+		go s.retryMigLeftovers(0) // files of failed migrations: tried again at most every migRetryGap each
+	}
+	if jobs, err := s.Store.TasksSince(now.Add(-24 * time.Hour).Unix()); err == nil {
 		in.Jobs = jobs
 	} else {
-		log.Printf("alerts: reading scheduler tasks: %v", err)
+		log.Printf("alerts: reading tasks: %v", err)
 	}
 	certFile := s.Alerts.CertFile
 	if s.Web != nil {

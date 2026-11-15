@@ -28,15 +28,34 @@ How to do the everyday things in the web UI. To install, see
   **Settings > Controller backup** is the backup of the controller itself.
 - **Tree** (left): nodes with their VMs, templates, storage and networks. Templates sit in a **Templates** group of
   their own under each node, closed until you open it. Type in **Filter** to narrow it. Right-click an entry for its
-  actions (on a VM, **Migrate** and **Clone** open their dialogs). Drag the edge to resize.
-- **Tasks** (bottom): the last actions with progress and result. Running tasks
-  stay on top. Drag the top edge to resize, or collapse it with the arrow.
-  **All tasks** opens the full log. A running task that can be stopped (backup,
+  actions. On a VM or template the menu is the **Actions** menu of its page, with **Open** and **Console** first.
+  Power actions, **Sync guest clock** and **Convert back to a VM** run at once; the other entries open the VM's page
+  with their dialog or tab. Drag the edge to resize.
+- **Tasks** (bottom): the last actions. Columns: Status, Action, Target, Node, By, Started, Duration and **Result**.
+  Running tasks stay on top. Drag the top edge to resize, or collapse it with the arrow.
+  **All tasks** opens the full log.
+  - **Result** of a running task is a progress bar. Of a task that ended well it is a short fact: what was made or
+    where it went (`before-upgrade, disk and memory`, `full, 3.2 GiB, frozen`, `to node-2, live`). Of a failed task it is
+    the error.
+  - No cell wraps. Text that is longer than its cell is cut at the cell's edge; point at it for the whole text, or click
+    the row to open the task with every field in full.
+  - Drag the right edge of a column head to resize it, or focus that edge and press the left and right arrow keys
+    (**Shift** for bigger steps). Double click it, or press **Home**, for the default width. **Result** takes the rest.
+    The widths are kept in this browser, and are the same on the **Tasks** page.
+  - On a phone the table shows Status, Target and Result; click a row for the rest.
+  - A running task that can be stopped (backup,
   restore, verify, replication copy, migration, disk move, clone, import, backup export
   or import, download, upload, evacuation, rolling update) has an **x** next to
   its progress: click it and confirm with **Stop task**. It then ends with an
   error that says "cancelled", and what it had made so far is removed. The
   **Tasks** page has the same **x**.
+- **Messages** (bottom right, above Tasks): a task that you started, that ran on in the background and that failed stays until you close it with its
+  **x**, and links to the task and its target. A task that your request waited for shows its error where you asked, and
+  its message goes after 10 seconds. A failed task of someone else, or of the scheduler, shows for 10 seconds
+  (operators and administrators). A new alert shows too: an error stays until closed, a warning goes after 10 seconds.
+  At most four show; the rest are counted and **N more** opens the alerts. Nothing is replayed after the page was closed:
+  the alert bell and the Tasks list still hold it. A failed task also becomes an alert, with your name on it; it clears
+  when the same action succeeds on the same target. These alerts are not sent to e-mail or webhooks.
 - **Status** is always a dot and the state name, for example green Running, amber Paused, red Offline, grey Shutoff.
 - **Help**: a small **?** after a label or a line. Point at it (or tab to it) and the explanation shows in a box.
 - **Sub pages**: some tabs hold several separate areas. They show a short list of sub pages at the left of the
@@ -54,8 +73,13 @@ How to do the everyday things in the web UI. To install, see
 The other tabs (Overview, Performance, a node's Summary, Virtual machines, Storage, Network and Updates) are
 one page each.
 
-Long actions (snapshots, migration, backups, downloads) run in the background.
-You can leave the page; the task keeps going.
+Long actions run as tasks. Their dialog checks the request, starts the task and closes by itself; the task is
+followed in the Tasks panel, and you can leave the page. This holds for migrate, move disk, back up, restore, verify,
+snapshot (take, delete), clone, download, image catalogue, import of a disk image, evacuate and the first copy of a
+replication. A request that the server refuses keeps the dialog open with the error. A few dialogs stay open because
+they need your reading or answer: revert to a snapshot (it can ask to **Revert anyway**), restore and replication when
+they come back with warnings, import of an OVA (its answer fills in the new VM), adding a node (the check rows), the
+virtual switch change (the countdown that undoes it) and the rolling update (its steps and pause).
 
 ## Nodes
 
@@ -92,19 +116,24 @@ To add another host:
 
 ![Add node dialog](img/add-node.png)
 
-When the node's **Settings** say it was prepared by an older version, choose
-**Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
+The same from a shell on the controller's machine: `sudo virticle node add root@host` (without a host: this machine).
+`sudo virticle node list` and `sudo virticle node remove NAME` list and remove nodes, and `sudo virticle status`
+shows what needs attention. An open Nodes page shows a node added this way at once. See
+[reference.md](reference.md#commands).
 
-After an upgrade the **Nodes** page marks each such node (**Outdated** or **Not prepared**) and
-shows one notice, "N nodes need preparing", with **Prepare all** (administrators). Enter the administrator login once
+When the node's **Settings** say it was prepared by an older version, choose
+**Update Virticle** there (a node that was never prepared has **Prepare this node**; after an upgrade: see [install.md](install.md#upgrading)).
+
+After an upgrade the **Nodes** page marks each such node (**Virticle update needed** or **Not prepared**) and
+shows one notice, "N nodes need a Virticle update", with **Update Virticle on nodes** (administrators). Enter the administrator login once
 (the same login must work on every node; used for this run only, not stored).
 The nodes are prepared one after another; a node that fails shows why and the others go on. Offline nodes are not
 listed: they cannot say, so prepare them when they are back.
 
-- **Prepare all** installs this Virticle version's node command on nodes that have an old one or none.
+- **Update Virticle on nodes** installs this Virticle version's node command on nodes that have an old one or none.
 - **Update packages** installs the operating system's package updates on the nodes ([below](#update-packages-rolling-update)).
 
-![Nodes page with two nodes that need preparing](img/prepare-all.png)
+![Nodes page with two nodes that need a Virticle update](img/prepare-all.png)
 
 A node has the tabs **Summary**, **Performance**, **Virtual machines**, **Storage**, **Network**,
 **Updates** and **Settings**.
@@ -286,7 +315,7 @@ Details: [reference](reference.md#guest-setup-on-clone).
 
 ![Snapshots](img/vm-snapshots.png)
 
-- **Take snapshot** runs as a task with a progress bar.
+- **Take snapshot** runs as a task; the dialog closes and the Tasks panel follows it.
 - The tree shows which snapshot the VM is based on (**You are here**).
 - The round arrow reverts; the bin deletes. **Delete snapshots** deletes several.
 - **Schedule** (sub page at the left): **Set up schedule** takes snapshots by itself, every so many hours or daily,
@@ -369,6 +398,8 @@ the files (databases and journals included). The task says "guest file systems f
 guest agent, agent not answering, no freeze within 2 minutes). If the freeze fails the backup is made anyway; a freeze that
 takes effect after the 2 minutes is thawed at once. Scheduled backups freeze the guest the same way.
 A shut-off VM has nothing to freeze. If Virticle cannot thaw the guest afterwards, the task fails and says how to thaw it by hand.
+A guest that may still be frozen, also after a late freeze, raises the critical alert **NAME may be frozen**. Virticle tries
+the thaw again every minute; the alert clears when the guest agent reports the file systems thawed or the VM stops.
 
 The **Backups** page in the top bar lists the backups of every VM on every node. The backup of the controller itself is
 under **Settings > Controller backup** ([controller-backup.md](controller-backup.md)). **Export** downloads a backup as one
@@ -401,10 +432,11 @@ Good to know:
   missing says it cannot be restored.
 - **Keep the newest** and the **Keep** rules count backups. An incremental backup is never kept without the backups it
   needs, so a few more than that number can stay for a while.
-- **Delete** on a backup that later incremental backups need deletes them too. The dialog names how many.
+- **Delete** on a backup that later incremental backups need deletes them too. The dialog names how many. The pool is
+  rescanned afterwards (on every node that mounts it, for NFS), so the Storage page and `virsh vol-list` no longer show it.
 - **Verify** reads every file of the backup and of the earlier backups it needs, and compares size and SHA-256 with the
-  manifest. It runs as a task on the node that holds the backup and changes nothing. The result is **Intact**, or
-  **Damaged** with the first missing or damaged file. An encrypted backup is checked as stored, without the passphrase.
+  manifest. It runs as a task on the node that holds the backup and changes nothing. The Result column of the task
+  says how many files are intact, or names the first missing or damaged file (the task then shows an error). An encrypted backup is checked as stored, without the passphrase.
   A disk image without a checksum (a shut-off VM backed up by a schedule) is checked by size only, and the result says so.
 - **Export** of an incremental backup puts the whole chain together into one full backup file.
 - Every backup holds the whole TPM state (a few KiB), incremental ones too.
@@ -447,6 +479,9 @@ Good to know:
 - A node prepared by an older version cannot encrypt. While encryption is on, a backup on such a node fails with a message
   to prepare the node again; it is never stored unencrypted.
 - Replication copies are not encrypted: the standby must be able to start.
+- Each file is encrypted next to its plain copy, which is deleted once the encrypted one is checked. So for a moment the
+  largest file exists twice: a full backup needs free space for one more copy of the largest disk's data, an
+  incremental one only for its changed blocks. The free-space message says how much of the total that is.
 
 **If the passphrase or the recovery key file is lost, the encrypted backups are lost. Nobody can recover them.**
 
@@ -575,7 +610,8 @@ How it works inside, and the API, are in [reference.md](reference.md#replication
    and the migration ports.
    - A red row blocks the move and names the fix.
    - A yellow row is a warning.
-4. Choose **Migrate**. With **Live migration** ticked the VM keeps running.
+4. Choose **Migrate**. A running VM is migrated live and keeps running. The dialog closes and the Tasks panel follows
+   the migration (**x** stops it). When it fails you see a message with the error, and the task stays in the list.
 
 Good to know:
 
@@ -600,6 +636,27 @@ Good to know:
   says **Set up by another controller**; **Fix** replaces them after you
   confirm. Virticle never replaces them by itself.
 - A Debian node and a RHEL-family node cannot exchange VMs.
+
+### When a migration fails
+
+The VM stays on the source. The copies made on the target are removed, and nothing else:
+
+| Situation | What happens |
+| --- | --- |
+| The target can be checked | The copies go at once. |
+| The target is offline, or cannot be checked | The copies stay. The alert **Files of a failed migration of NAME are left on NODE** lists them. They are removed when the node is back, and the alert clears. |
+| A copy was replaced by another file of the same name, or something uses it | That file stays. The alert says why. |
+| The connection to the target broke at the very end | The VM may run on the target already. Nothing is removed on either node. The alert **The migration of NAME needs attention** says where the VM runs. |
+| The controller restarted during the migration | The copies are found again after the restart and removed by the same rule. |
+
+An administrator can act on the alert:
+
+- **Remove** checks again and removes what is proven to be the migration's own copies. A window lists what was removed
+  and what was kept, and why.
+- **Keep** leaves the files as ordinary volumes. The controller no longer removes them.
+
+After a successful migration the source files go only when the VM is confirmed on the target with its disks. The rule
+is in [reference.md](reference.md#failed-migrations).
 
 ### Migration network
 
@@ -747,7 +804,7 @@ stopped); select the arrow to open one. The filter finds a switch, a network or 
 
 The card or bridge that holds the address the controller uses to reach the node is marked **Management**; the address
 that carries migrations is marked **Migration**. Administrators change both with **Edit** on a switch or on an unused card
-that has an address: one **Management** and one **Migration** checkbox per address, then **Save**.
+that has an address (a bridge that libvirt owns, for a NAT, routed or isolated network, has no **Edit**: no other node can reach the node there): one **Management** and one **Migration** checkbox per address, then **Save**.
 
 | Checkbox | Effect |
 | --- | --- |
@@ -1004,13 +1061,39 @@ The **Settings** menu in the top bar is for administrators. **Account** (your na
 | **Settings > Alerts** | Admin | Where alerts are sent. See [Notifications](#notifications). |
 | **Settings > Controller backup** | Admin | Download a backup of the controller, or keep a daily one. See [controller-backup.md](controller-backup.md). |
 | **Settings > Backup encryption** | Admin | Encrypt VM backups and the controller's scheduled copies. See [Encrypted backups](#encrypted-backups). |
-| **Settings > Audit** | Admin | Lists every state-changing request, who made it and from where. |
+| **Settings > Audit** | Admin | Lists every state-changing request, who made it and from where, and what it ran on the nodes. See [Operations](#operations). |
 | **Account** | Everyone | Change your password, turn two-step sign-in on or off, create API tokens. |
 
 ![Account page with two-step sign-in on](img/account.png)
 
 API tokens are described in [reference.md](reference.md#api-tokens). To read the numbers with Prometheus or Grafana, see
 [metrics.md](metrics.md).
+
+### Operations
+
+A request in the audit log that changed something on a node opens to its operations: **N operations** under the
+request. A task on the **Tasks** page opens the same way (administrators only).
+
+| Line | Shows |
+| --- | --- |
+| A libvirt call | The `virsh` command that does the same, run as root on the node, then the libvirt function and "equivalent". A call without such a command shows the function and its arguments. |
+| A program on the node | The command line as it ran, then the program. The node command shows as `virticle-node VERB arguments`, without `sudo` and its install path. |
+| Each line | OK or Failed, the time it took, **Copy**. An XML document the call carried opens under its file name. |
+
+- Reads (lists, XML, statistics) are not listed, on the node neither (file sizes, a scan for backups, a test that a path exists).
+- Passwords, keys, tokens, VNC and SPICE passwords and cloud-init data are replaced by `[redacted]` before anything is stored.
+- What a program read on standard input (keys, passwords) is never shown.
+
+Example: creating the VM `web-1` from the cirros image with **Start** on (`POST /api/nodes/1/vms`) opens to
+
+| Operation | Beside it |
+| --- | --- |
+| `virsh vol-create-from default volume.xml --inputpool default cirros-0.6.3.qcow2` | `virStorageVolCreateXMLFrom` equivalent, OK, 267 ms |
+| `virsh vol-resize web-1.qcow2 1073741824B --pool default` | `virStorageVolResize` equivalent, OK, 106 ms |
+| `virsh define domain.xml --validate` | `virDomainDefineXMLFlags` equivalent, OK, 144 ms |
+| `virsh start web-1` | `virDomainCreate` equivalent, OK, 3.2 s |
+
+Details: [reference.md](reference.md#operation-traces).
 
 ## Troubleshooting
 
@@ -1019,7 +1102,7 @@ API tokens are described in [reference.md](reference.md#api-tokens). To read the
 | Node shows Offline | Node **Settings > Test connection**. It names the failing step. |
 | Guest agent "Not responding" | Install and start `qemu-guest-agent` in the VM. |
 | Migration blocked | Read the red pre-flight row. Usually a missing network or pool on the target, or a firewall between the nodes (SSH between nodes, Migration ports). |
-| Migration or backup refused for a node | **Settings** says the node is not prepared: it has no node command, or one from an older version. Choose **Prepare this node** there, or run `virticle node prepare` for it again (see [install.md](install.md#upgrading)). |
+| Migration or backup refused for a node | **Settings** says the node is not prepared: it has no node command, or one from an older version. Choose **Update Virticle** (or **Prepare this node** for a node that was never prepared) there, or run `virticle node prepare` for it again (see [install.md](install.md#upgrading)). |
 | A virtual switch change did not stay | The node did not come back in time and restored its previous settings. Read the line in the node's **Network** tab, check the cable and address, and try again. From the node's console: [reference.md](reference.md#host-bridges-virtual-switches). |
 | Charts have gaps | The VM was not running, or the node or the controller could not be read. Nothing is drawn as zero. |
 | Locked out after a web access change | Wait 60 seconds for the automatic revert, or run `virticle web reset` and restart. |

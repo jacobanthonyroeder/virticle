@@ -15,13 +15,21 @@ import (
 // systemDataDir is where the packages keep the controller's data.
 const systemDataDir = "/var/lib/virticle"
 
-// defaultDataDir is the -data value when none is given: the packages' data
-// directory if it exists and holds a controller database (so that "virticle
-// web show" on an installed machine reads the real settings), else "data".
-func defaultDataDir() string { return pickDataDir(systemDataDir) }
+// packagedUnit is the service file the packages install.
+const packagedUnit = "/usr/lib/systemd/system/virticle.service"
 
-func pickDataDir(system string) string {
+// defaultDataDir is the -data value when none is given: the packages' data
+// directory if it holds a controller database (so that "virticle web show" on
+// an installed machine reads the real settings) or the package is installed
+// (so that "virticle setup" before the first start of the service sets up the
+// service's directory), else "data".
+func defaultDataDir() string { return pickDataDir(systemDataDir, packagedUnit) }
+
+func pickDataDir(system, unit string) string {
 	if st, err := os.Stat(system); err == nil && st.IsDir() && store.HasDatabase(system) {
+		return system
+	}
+	if _, err := os.Stat(unit); err == nil {
 		return system
 	}
 	return "data"
@@ -177,23 +185,26 @@ func warnDeprecated(logf func(string, ...any)) {
 // usage prints the help without the deprecated flags.
 func usage() {
 	out := flag.CommandLine.Output()
-	fmt.Fprint(out, `usage: virticle [flags]                  run the controller
-       virticle version
-       virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes] [-data DIR]
-                                         after installing (as root): choose the web address and port, open the port in the firewall
-       virticle node prepare|unprepare [options] [user@]host
-                                         prepare a host as a node, or undo it (virticle node -h)
-       virticle backup [-o FILE|DIR] [--encrypt] [--passphrase-file FILE]
-       virticle restore [--passphrase-file FILE] FILE
-                                         back up or restore the controller's own data
-       virticle web show|set|reset [-data DIR] ...
-                                         read or change the stored web access settings
-       virticle user reset-2fa|reset-password USER [-data DIR]
-                                         recover a sign-in from the controller's machine
+	fmt.Fprint(out, `usage:
+  sudo virticle setup                  after installing: web address, firewall, service, administrator,
+                                       and this machine as a node
+  sudo virticle node add [user@]host   prepare a host and add it as a node (without a host: this machine)
+  sudo virticle status                 the controller and its nodes, and what needs attention
 
-Run a command with -h for its options.
+More commands:
+  virticle node list|remove|prepare|unprepare   nodes (virticle node --help)
+  virticle backup [-o FILE|DIR] [--encrypt] [--passphrase-file FILE]
+  virticle restore [--passphrase-file FILE] FILE
+                                       back up or restore the controller's own data
+  virticle web show|set|reset          read or change the stored web access settings
+  virticle user reset-2fa|reset-password USER
+                                       recover a sign-in from the controller's machine
+  virticle version
+  virticle [flags]                     run the controller (the service does this)
 
-flags:
+Run a command with --help for its options.
+
+flags of the controller:
 `)
 	flag.VisitAll(func(f *flag.Flag) {
 		if _, hidden := deprecatedFlags[f.Name]; hidden {

@@ -54,11 +54,12 @@ test.describe.serial("XML editor, tasks, alerts", () => {
     await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
     // the second create fails: the toast shows up wherever the user is, and the table keeps the error
     await api.call("POST", `/nodes/${n1}/pools/default/volumes`, body, [400, 409, 422, 500]);
-    const failed = row(page.locator("main"), `default/${P}dupvol.qcow2`).filter({ hasText: "Error" });
+    const rows = page.locator("main .taskpage .dk-row", { hasText: `default/${P}dupvol.qcow2` });
+    const failed = rows.filter({ hasText: "Error" });
     await expect(failed.first()).toBeVisible();
-    await expect(failed.first().locator(".statusline")).not.toBeEmpty();
+    await expect(failed.first().locator(".dk-err")).not.toBeEmpty();
     await expect(page.locator(".toast", { hasText: "failed" }).first()).toBeVisible();
-    const ok = row(page.locator("main"), `default/${P}dupvol.qcow2`).filter({ hasText: "ok" });
+    const ok = rows.filter({ hasText: "Ok" });
     await expect(ok.first()).toBeVisible();
   });
 
@@ -68,6 +69,20 @@ test.describe.serial("XML editor, tasks, alerts", () => {
     const panel = page.getByRole("dialog", { name: "Alerts" });
     await expect(panel).toBeVisible();
     await expect(panel.locator("ul li, .pad").first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+  });
+
+  test("the Alerts panel is on screen at phone width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto("/datacenter/vms");
+    await page.getByRole("button", { name: /^Alerts/ }).click();
+    const panel = page.getByRole("dialog", { name: "Alerts" });
+    await expect(panel).toBeVisible();
+    const box = (await panel.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeLessThan(120);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
   });

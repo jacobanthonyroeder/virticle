@@ -6,12 +6,64 @@
 | --- | --- |
 | `virticle [flags]` | Runs the controller. |
 | `virticle version` | Prints version, commit and build date. |
-| `virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes]` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). On a terminal it asks which address and port the web interface uses (defaults: all addresses, 8463). `--address` (an IP address of this machine, or `all`) and `--port` answer those questions; they only apply while no administrator exists. It checks that the port is free, asks before it opens the port in firewalld or ufw (without a terminal it opens it, unless `--no-firewall`), makes sure the service runs and prints the address to open. `--yes` asks nothing and answers yes. `--check` changes nothing; `--undo` removes the firewall rule it added. Takes `-data`. See [install.md](install.md#setup-choose-the-address-and-port-open-the-firewall). |
-| `virticle node prepare\|unprepare` | Prepares a host as a node, or undoes it. See [install-node.md](install-node.md). |
+| `virticle setup` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). Chooses the web address and port, opens the port in the firewall, starts the service, creates the first administrator and adds this machine as a node. Ends with a summary and the address to open. Options below. See [install.md](install.md#setup). |
+| `virticle node add [user@]host[:port]` | Prepares the host when it needs it and adds it as a node, as **Nodes > Add node** does. Without a host: this machine (as root). Options below. See [install-node.md](install-node.md). |
+| `virticle node list [--json]` | The nodes, one line each: name, address, state. A node that runs an older Virticle node command reads `Virticle update needed:` and the command that updates it. |
+| `virticle node remove NAME` | Removes a node from the controller, as **Remove node** does (NAME: its host name, address or id). Nothing is uninstalled from it. On a terminal it asks first; `--yes` asks nothing. |
+| `virticle status` | The controller's version, web address, service, administrator and every node with its state. For each problem it prints the command that fixes it. Exit code 1 when something needs attention. |
+| `virticle node prepare\|unprepare` | Prepares a host as a node without adding it (what `node add` runs first), or takes the controller's access away again. See [install-node.md](install-node.md#prepare-options). |
 | `virticle backup [-o FILE\|DIR] [--encrypt] [--passphrase-file FILE] [--keep-last\|--keep-hourly\|--keep-daily\|--keep-weekly\|--keep-monthly N]` | Writes the controller's own data (database, SSH key, certificates) to one file, while the controller runs. With `-o DIR` and `--keep-*` flags it then deletes the older backups in DIR that the [retention rules](#retention) do not keep; without them it deletes nothing. Takes `-data`. |
 | `virticle restore [--key FILE] FILE` | Puts such a file back; the controller must be stopped. `--key` names the recovery key file (`virticle-backup-key.age`) for a scheduled copy encrypted to the backup key; without it the key in the data directory is used. Takes `-data` and `--passphrase-file`. See [controller-backup.md](controller-backup.md). |
 | `virticle web show\|set\|reset` | Reads or changes the stored web access settings. `show` and `reset` take only `-data`. See [web-tls.md](web-tls.md). |
 | `virticle user reset-2fa\|reset-password USER` | Recovery on the controller's machine: turn two-step sign-in off for a user, or set a new password for a local account. Takes `-data` and, for `reset-password`, `--password-stdin`. See [sign-in.md](sign-in.md#two-step-sign-in-authenticator-app). |
+
+`setup`, `node`, `status`, `backup`, `restore`, `web` and `user` work on the controller's data directory, so they need
+root (sudo) or the controller's account. Every one takes `--data DIR` (default `/var/lib/virticle` on an installed
+machine).
+
+### setup options
+
+| Option | Meaning |
+| --- | --- |
+| `--admin NAME` | The first administrator's name. Without it, a terminal asks (Enter takes `admin`). Ignored when a user exists. |
+| `--admin-password-file FILE` | The administrator's password: the first line of FILE. `VIRTICLE_ADMIN_PASSWORD` works too. A password without `--admin` makes the user `admin`. Without either, a terminal asks twice. |
+| `--node`, `--no-node` | Add this machine as a node, or not. Without them a terminal asks "Use this machine as a node too? [Y/n]"; without a terminal the machine is not added. `--node` on a machine without KVM is an error. |
+| `--address ADDR` | An IP address of this machine, or `all` (default). Only while no administrator exists. |
+| `--port N` | The HTTPS port, 1 to 65535 (default 8463). Only while no administrator exists. |
+| `--no-firewall` | Leaves the firewall alone and prints the command to run. Without a terminal setup opens the port unless this is given. |
+| `--yes` | Asks nothing: takes the defaults, opens the firewall and adds this machine as a node when it can run VMs. |
+| `--check` | Changes nothing and asks nothing. |
+| `--undo` | Removes the firewall rule that setup added, and nothing else. |
+
+Running setup again changes nothing that is done and says so ("Already set up", "This machine is a node already").
+
+### node add options
+
+| Option | Meaning |
+| --- | --- |
+| `--root` | The controller signs in as root; no service account is made. |
+| `--user NAME` | Name of the service account (default `virticle-node`). |
+| `--jump user@host` | Reach the host through a jump host. |
+| `--take-over` | The host is managed by another Virticle controller: take it over. A terminal asks instead. |
+| `--identity FILE` | The administrator's private key. |
+| `--password-file FILE` | The administrator's password: the first line of FILE. `VIRTICLE_NODE_PASSWORD` works too. |
+| `--password-stdin` | The administrator's password: one line on standard input. |
+
+The administrator is root, or a user that may use sudo (`ann@host`). Without a key file or password, your SSH agent is
+used, and a terminal asks for the password. A host that this controller's key already gets into needs no credential.
+A password is never taken from the command line.
+
+### How the commands reach the controller
+
+While the controller runs, `node add`, `node list`, `node remove`, `status` and `setup` send their requests to it over a
+Unix socket, `control.sock` in the data directory. The socket file has mode 0600, the directory 0700, and the
+controller accepts only root and its own account on it. The requests run the same code as the web interface, so a node
+added on the command line appears in open browsers at once, and the audit log records it as `command line`. Nothing new
+listens on the network.
+
+While the controller is stopped, the commands take the data directory's lock (a controller cannot start meanwhile),
+work on the database themselves and connect to the nodes from the command. The controller reads the result at its
+next start.
 
 ## Flags
 
@@ -40,6 +92,8 @@ whose defaults stay.
 | --- | --- |
 | `VIRTICLE_LISTEN` | Default for `-listen`. |
 | `VIRTICLE_JUMP_PASSWORD` | Password for node jump hosts. |
+| `VIRTICLE_ADMIN_PASSWORD` | For scripts: the first administrator's password for `virticle setup` (instead of `--admin-password-file`). |
+| `VIRTICLE_NODE_PASSWORD` | For scripts: the host administrator's password for `virticle node add`, `prepare` and `unprepare` (instead of `--password-file`). |
 | `VIRTICLE_UPGRADE_LISTEN` | Set by the container image to `0.0.0.0:8080`: a data volume from 0.2.0 (users, no stored web settings) keeps answering there, as before. Packages and binaries do not set it. |
 
 The package reads these from `/etc/virticle/virticle.env`. Deprecated like
@@ -74,6 +128,50 @@ People can also sign in through an identity provider or a directory, and local a
 Token requests are written to the audit log. Account settings need a web
 session, not a token.
 
+## Operation traces
+
+Every request that changes something (the ones in the audit log) records what it did on the nodes; a task shares the
+trace of the request that started it.
+
+| Recorded | Content |
+| --- | --- |
+| libvirt calls that change something | Node, libvirt function, the `virsh` command that does the same (when one exists), the XML it carried, result, duration |
+| Programs run on a node over SSH (node command verbs and plain commands) | Node, program, the command line as it ran, exit status, duration |
+
+- Not recorded: reads (names with Get, List, Lookup, Is, Stats, Info, and every call on the connection itself), guest
+  agent and monitor commands that only query, and the periodic collectors. The same for programs on a node: node
+  command verbs that change nothing (`stat`, `read`, `qemu-img-info`, `files-size`, `backup-scan`, `tools-missing` and the
+  like; the list is `ReadOnlyVerbs` in `internal/nodeproto/verbs.go`, and a test fails for a verb in neither list) and
+  plain shell commands made of reading programs (`test`, `stat`, `cat`, `command -v`, `getent`). A command that
+  writes, or that is not clearly a read, is recorded.
+- A `virsh` line is an equivalent: Virticle calls libvirt over its RPC protocol and does not run `virsh`. Run it as
+  root on the node. A file name in it (`domain.xml`) is the XML shown with the line. Flags without a `virsh` option are
+  listed beside it. A call without a `virsh` command (the phases of a migration) shows the function and its arguments.
+- For a node command verb the trace shows the verb with its arguments, not the programs the verb ran inside. The page shows it as `virticle-node VERB args`; the stored record keeps `sudo -n` and the install path.
+- Redaction, before storing: XML attributes and elements named like a password, secret, key or token (VNC and SPICE
+  `passwd`, TPM `secret`, SEV `dhCert` and `session`), OEM strings and fw_cfg entries, QEMU pass-through arguments that
+  look like secrets and all pass-through environment values, values after flags such as `--password` and
+  `--root-password`, secret environment variables, passwords in URLs and secret query parameters, private keys (PEM),
+  guest agent arguments `password`, `input-data` and `buf-b64`. Standard input is never recorded.
+- Bounds: 200 operations per request (one line says when more were left out), 16 KiB per XML document, 4 KiB per
+  command line. Stored in `virticle.db`, kept as long as the audit log (180 days) and at most 64 MiB in all; the oldest
+  go first.
+
+| Endpoint | Answer |
+| --- | --- |
+| `GET /api/audit` | Each entry carries `ops`: the number of operations, absent when none |
+| `GET /api/audit/{id}/ops` | `{"ops": [...]}` |
+| `GET /api/tasks` | Each task carries `ops` |
+| `GET /api/tasks/{id}/ops` | `{"ops": [...]}` |
+
+The two `ops` endpoints need the admin role, like the audit log. One operation:
+
+    {"seq": 1, "time": 1763240000123, "node": "node-a", "kind": "libvirt", "api": "virDomainSnapshotCreateXML",
+     "cmd": "virsh snapshot-create-as web-1 before-upgrade --description 'apt upgrade'", "ok": true, "ms": 518}
+
+`kind` is `libvirt`, `exec` or `limit`; `time` is in milliseconds; `args`, `files` (`name`, `text`) and `error` appear
+when there is something to show.
+
 ## Alert webhook body
 
 A destination of type **Webhook** receives a `POST` with `Content-Type: application/json` and
@@ -85,8 +183,10 @@ A destination of type **Webhook** receives a `POST` with `Content-Type: applicat
 
 - `event`: `raise`, `clear`, or `test` (the **Send test message** button; its alert has `"id":"test"`).
 - `alert.kind`: `node-down`, `pool-usage`, `host-memory`, `failed-job`, `vm-state`, `tls-expiry`,
-  `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`. `severity` is `warning` or `critical`. `node` is
+  `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`, `guest-frozen`, `migration-leftover`. `severity` is `warning` or `critical`. `node` is
   the node id and `link` the page in the web UI (both may be missing); `since` and `time` are Unix seconds.
+  A `failed-job` alert of a task that a person started (not the scheduler) carries `user` and is shown in the web UI
+  only; destinations receive the failed-job alerts of scheduled runs.
 - One alert per request, always; the webhook is never summarised. Any 2xx answer is success. Other answers are
   retried after 5 s, 30 s and 2 min, except 401, 403, 404, 410 and other 4xx (not 408, 429), which are not.
   On 429 the `Retry-After` header is honoured.
@@ -115,8 +215,9 @@ earlier versions no longer exist.
   `https://virticle.invalid/ns/1`.
 - **The data directory** (`-data`):
   - `virticle.db`: users, password hashes, sessions, token hashes, node list,
-    web access settings, alert destinations (addresses and secrets encrypted), task log, audit log, the state of the rolling update,
-    and the work directories of replication runs and backups that are not removed yet (see "Work directories" below).
+    web access settings, alert destinations (addresses and secrets encrypted), task log, audit log and its operation traces, the state of the rolling update,
+    the work directories of replication runs and backups that are not removed yet (see "Work directories" below),
+    and the journal of files migrations made on their targets (see [Failed migrations](#failed-migrations)).
   - `virticle.db.bak-<version>-<time>`: copy made before a schema upgrade
     (newest 3 kept).
   - `metrics.db`: the performance history of VMs and nodes, up to 7 days
@@ -131,6 +232,7 @@ earlier versions no longer exist.
     the database; without it those secrets must be entered again. An older `settings.key` is renamed to it.
   - `migration-ca/`: the certificate authority of encrypted migration.
   - `backups/`: the daily controller backups (when switched on); `last-backup.json`: the time of the last backup; `.virticle.lock`: held while the controller runs.
+  - `control.sock`: the socket the command line uses while the controller runs (see [How the commands reach the controller](#how-the-commands-reach-the-controller)).
   - `virticle backup` writes everything above that cannot be rebuilt into one file; see [controller-backup.md](controller-backup.md).
 - **Memory only**: the newest statistics of every node and VM (the live
   charts show the last 10 minutes of them, and `/metrics` serves the latest),
@@ -156,10 +258,88 @@ earlier versions no longer exist.
 ## Migration network and limit
 
 - Each node has a migration network: the address other nodes send migration data and file copies to. Default: the
-  management address. `GET` and `PUT /api/nodes/{id}/migration-network` read and change it (`address`, and `limit`).
+  management address. `GET` and `PUT /api/nodes/{id}/migration-network` read and change it (`address`, and `limit`). An address on a bridge that libvirt owns (a NAT, routed or
+  isolated network, `virbr*`) is refused with 400 while the node is online.
 - Limit on a shared link, per node: `""` (default, 80% of the link speed when known, else none), `"none"` or
   `"custom:<Mbit/s>"`. It applies only while migration data shares the interface of the management address. The lower
   limit of the two nodes wins. `bandwidthMiB` in a migrate request replaces it.
+
+## Failed migrations
+
+A migration makes files on its target: copies of backing images and snapshot files, the cloud-init seed, the empty
+images the disks are mirrored into, a UEFI variable store. When it fails, these copies are removed, and nothing else.
+
+**Making a file.** The node command makes it only where no file exists (exclusive create, never a replacement) and
+answers with the file's identity. Only then is the file recorded as the run's.
+
+| Identity | When |
+| --- | --- |
+| File handle (`name_to_handle_at`): the inode and its generation on ext4, XFS, btrfs; the server's file handle on NFS | Every file system that has one |
+| Inode number and birth time | A file system without handles |
+| None | Neither: the file is never removed by the controller |
+
+The handle survives writes, renames, relabelling, a reboot and a remount, and changes when the file is deleted and
+made again under the same name. Device numbers are not used: an NFS mount or an LVM volume can get another one after a
+reboot. On NFS both nodes see the same handle for the same file, so the source's own file seen through a share is
+recognised.
+
+**The journal.** Before the first file is made the run is written to the database (`mig_runs`): VM uuid and name,
+source, target, state. Each file it made follows (`mig_files`): path, identity, size, state, the reason it is kept.
+
+| State | Meaning |
+| --- | --- |
+| `prepare` | Files are being made. Nothing was handed over. |
+| `switching` | The hand-over started (recorded before it starts). |
+| `failed` | It failed and the VM was confirmed on the source. |
+| `attention` | The outcome or the VM's whereabouts are not confirmed. Nothing is removed by itself. |
+
+A successful migration drops its entry: the files are the VM's then.
+
+**The rule.** A journalled file is removed only when all of these hold, checked at that moment. What cannot be checked
+counts as "no".
+
+- The file's identity is the one in the journal: it is the same file, not one that took its name.
+- No domain on the target refers to it: disks of the live and the stored definition, their whole backing chains (libvirt's
+  and `qemu-img`'s), UEFI stores, snapshot files. No volume in an active pool is built on it. No other journal entry and
+  no running migration claims it.
+- It is not on storage the source also uses: not an NFS pool that the source mounts at the same place, not outside every
+  pool (the UEFI directory excepted), and not the same file as the source's file of that name.
+- The VM is on the source and only there: defined, its disk files present; not defined or running on the target, not an
+  unfinished incoming copy there. A VM found on the target, or on neither node, or with missing disks puts the run into
+  `attention`.
+- The run is in `prepare` or `failed`. A run found in `switching` by a process that did not see the outcome goes to
+  `attention`, and so does a run whose outcome was not seen (`unsure`). Such a run is only cleaned by **Remove**.
+
+The removal is atomic on the node (`remove-id`): the file is renamed to a private name, its identity is checked on what
+was renamed, and it is removed, or renamed back. A file that a process (QEMU) holds a lock on is renamed back too.
+
+**The end of a live migration.** When the target's answer to the last step is lost (the connection broke), the target
+may run the VM already. The source is then told nothing until the target says where the VM is: the task asks for up to 3
+minutes; after that the VM stays paused on the source and the cleanup asks again when the target is online. Running
+there: the source copy is stopped and the run needs attention. Not there: the source resumes the VM. In both cases
+nothing is removed by itself.
+
+**After a successful migration** the source files are removed only when the VM is defined on the target with every
+file of its definition there, it is no longer defined on the source, nothing on the source refers to the file, and the
+file is not the same file as on the target (identity).
+
+**Retries.** On the failure itself, when either node comes online, and on the alert pass (at most every 5 minutes per
+run). An attempt that removes something or keeps a file for a new reason runs as the task `migration cleanup`; its
+operation trace holds the node calls and its Result lists what was removed and what was kept, with the reason.
+
+**Alert** `migration-leftover`, one per run, id `migleft:<run>`: "Files of a failed migration of NAME are left on NODE"
+(warning, with paths, sizes and reasons), or "The migration of NAME needs attention" (critical, says where the VM is).
+It clears when the entry is gone.
+
+**API.**
+
+| Request | Role | Does |
+| --- | --- | --- |
+| `GET /api/migration-leftovers` | viewer | `{"runs": [...]}`: id, uuid, name, srcName, dstName, state, unsure, note, files (path, ident, size, state, reason) |
+| `POST /api/migration-leftovers/{id}/remove` | admin | Applies the rule now, as a task. Answers `removed` (path, size), `kept` (path, size, reason), `note`, `state` (`""` when the entry is gone) |
+| `POST /api/migration-leftovers/{id}/keep` | admin | Drops the entry. The files stay as ordinary volumes. |
+
+There is no force option.
 
 ## Schedules
 
@@ -365,7 +545,11 @@ it is made without ("not frozen: the guest did not freeze within 2 minutes"). li
 agent command per guest at a time, so the freeze goes on, and when it takes effect later Virticle thaws the guest at once
 (logged). A Windows guest freezes through VSS: the agent prepares the snapshot and then waits up to 60 seconds for VSS,
 which can take more than 45 seconds on a busy host; VSS holds writes for at most 10 seconds, so its first thaw can report
-that error; the retry succeeds. The request field `quiesce` of the backup call is
+that error; the retry succeeds. When every thaw try fails (after backup-begin, or after a late freeze), the guest is
+recorded in the controller's memory and raises the critical alert `guest-frozen`. Each alert pass (once a minute) asks the
+agent for `guest-fsfreeze-status`, thaws a guest it reports frozen (5 second limit), and clears the alert when the agent
+reports `thawed` or the VM is gone or not running; a guest whose backup is running is left alone. A restart of the
+controller forgets the record. The request field `quiesce` of the backup call is
 absent (automatic: freeze when the agent is connected and can freeze; if that fails, back up without), `true` (freeze or fail the
 backup) or `false` (never). Replication copies are automatic; scheduled backups send `false`. The task note says "guest file
 systems frozen" or "not frozen: REASON", and `manifest.frozen` is `true` or `false` for a live backup (absent for older backups
@@ -499,7 +683,10 @@ The same works for `nvram.fd.age`, `tpm2-state.bin.age` and a scheduled controll
 **Cost.** The backup job and qemu-img write qcow2, which needs a seekable file, so encryption is a second pass. It replaces
 the checksum pass: the node takes both checksums while it encrypts, in parallel. Lab (nested Rocky 10, 2 vCPUs, a backup of
 1.9 GB): a shut-off VM took 14.5 to 18.9 s plain and 19.5 to 24.0 s encrypted; the work directory peaked at 4.1 GB instead
-of 2.0 GB (one more copy of the largest disk, for a moment). The free-space check counts it.
+of 2.0 GB (one more copy of the largest disk, for a moment). The free-space check counts it: the largest file (for a
+full backup the largest disk's `actual-size`, for an incremental one libvirt's changed bytes plus 1/8, at most that disk)
+plus 1/64 for age (16 bytes per 64 KiB) and the qcow2 metadata. Encrypting in place (punching holes into the plain file as
+it is read) would remove the extra copy; it needs a node command change and is not done.
 
 **Limits.** Encryption protects backups at rest: a copied pool, a stolen disk, an export file, the controller's scheduled
 copies. It does not protect against someone who controls a node, where the VM's own disks are plain, or the controller
@@ -662,10 +849,12 @@ name, each with a fixed pattern); the caller cannot pass commands. The script is
 
 ## Versions and the node command
 
-- The node command protocol is **22** (0.4.0 had 21, 0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
-  "prepared by an older version" (**Outdated** on the Nodes page) and must be prepared again
+- The node command protocol is **23** (0.5.0 had 22, 0.4.0 had 21, 0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
+  "prepared by an older version" (**Virticle update needed** on the Nodes page) and must be prepared again
   ([install.md](install.md#upgrading)). The old node command would also refuse the new requests, because it rejects fields
   it does not know.
+- Verbs new since 0.5.0: `file-id`, `remove-id`, `img-new` ([Failed migrations](#failed-migrations)); `peer-recv`,
+  `peer-send` and `nvram-new` answer with the identity of the file they made.
 - Verbs new since 0.4.0: `guest-inspect`, `guest-customize` ([Guest setup on clone](#guest-setup-on-clone)).
 - Verbs new since 0.3.x: `age-encrypt`, `age-decrypt` (encrypted backups), `copy-kill` (stopping a clone), and `sha256 PATH
   progress` (verify).
@@ -675,7 +864,8 @@ name, each with a fixed pattern); the caller cannot pass commands. The script is
   `disk-boot`); rolling updates (`update-start`, `update-run`, `update-status`, `node-reboot`, `selfcheck`); replication
   (`repl-overlay`, `repl-rebase`, `repl-commit`, `repl-ls`, `mtime`, `qcow2-bitmap-rm`, `work-ls`, `tpm-save`, `tpm-place`,
   `hook-qemu`, `peer-ask`, `vm-probe`).
-- The database schema is **6**, the same as in 0.3.x (0.3.0 added the table `rolling_runs`). A controller that finds a database of a newer schema
+- The database schema is **8** (0.5.0 had 6; 7 adds the table `ops`, the operations of audit entries and tasks; 8 adds the tables `mig_runs` and `mig_files`, the journal of
+  [failed migrations](#failed-migrations); 0.3.0 added the table `rolling_runs`). A controller that finds a database of a newer schema
   logs a warning and carries on; do not use that, see below.
 - **Two controllers of different versions must never manage the same nodes.** An older controller does not know the
   incremental backup chains (its retention deletes backups that a newer chain needs), the replica and old-copy marks in the
@@ -837,8 +1027,11 @@ Facts
   (QEMU does not answer the monitor while it waits for its disk), and the VM detail leaves out the disk figures.
 - Storage calls to one node are limited to three at a time and the short ones to 6 seconds (the libvirt proxy
   daemon serves the controller's connection with five calls at once; the others stay free for VMs and networks).
-  When three are stuck, further storage calls fail at once with "the storage service of this node is not
-  answering" until one returns.
+  A call that takes longer fails with "libvirt on NODE did not answer within 6 seconds"; when three are stuck,
+  further storage calls fail at once with "libvirt on NODE has not answered earlier calls yet" until one returns.
+  The message adds a cause only when the controller knows one: an NFS mount of the node that does not answer, or
+  node memory used at or above the alert threshold (`-alert-memory`, 90%). The screenshot of the console preview and
+  the task log show these causes.
 - Alert kind `storage-unavailable`, one per node and pool, critical, debounced like the network alerts (raised on
   the second check in a row, about two minutes; cleared on the second check that finds the share answering).
 - Migration: a file is shared when source and target have netfs pools with the same export and mount path and

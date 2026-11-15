@@ -90,21 +90,22 @@ func (s *Server) vmScreenshot(w http.ResponseWriter, r *http.Request) {
 	}
 	h, dom, err := s.domain(r)
 	if err != nil {
-		fail(w, err)
+		fail(w, s.explainBusy(err))
 		return
 	}
 	state, _, _, _, _, err := h.DomainGetInfo(dom)
 	if err != nil {
-		fail(w, err)
+		fail(w, s.explainBusy(err))
 		return
 	}
 	if st := stateName(state); st != "running" && st != "paused" {
 		conflict(w, "the VM is not running, so it has no screen")
 		return
 	}
+	// In the storage gate (hostconn/storgate.go): on a node whose libvirt is slow it fails with a *BusyError.
 	raw, err := h.DomainGetXMLDesc(dom, 0)
 	if err != nil {
-		fail(w, err)
+		fail(w, s.explainBusy(err))
 		return
 	}
 	var x domainXML

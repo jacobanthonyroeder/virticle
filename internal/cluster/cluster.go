@@ -25,6 +25,7 @@ type Event struct {
 	UUID   string `json:"uuid,omitempty"`   // domain uuid
 	Detail string `json:"detail,omitempty"` // lifecycle event name, node state
 	Task   any    `json:"task,omitempty"`
+	Alert  any    `json:"alert,omitempty"` // the alert of an "alert" event with Detail "raised"
 }
 
 var lifecycle = []string{"defined", "undefined", "started", "suspended", "resumed", "stopped", "shutdown", "pmsuspended", "crashed"}
@@ -139,7 +140,7 @@ func (m *Manager) ConfigOfHost(h *hostconn.Host) (store.Node, bool) {
 	defer m.mu.Unlock()
 	for _, n := range m.nodes {
 		n.mu.Lock()
-		same := n.host == h
+		same := n.host == h.Base() // h may be a traced view of the connection
 		cfg := n.cfg
 		n.mu.Unlock()
 		if same {

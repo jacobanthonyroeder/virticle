@@ -314,7 +314,8 @@ func (s *Server) deleteReplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.task(r, "replication stop", dom.Name, h.Name, func(func(float64)) error {
-		return s.stopReplication(h, dom, *cfg, r.URL.Query().Get("deleteReplica") == "1")
+		deleteCopy := r.URL.Query().Get("deleteReplica") == "1"
+		return doneOr(s.stopReplication(h, dom, *cfg, deleteCopy), "%s", replStopNote(deleteCopy))
 	})
 	if err != nil {
 		fail(w, err)
@@ -543,7 +544,8 @@ func (s *Server) runReplicaSchedule(srcID int64, h *hostconn.Host, dom libvirt.D
 	if _, err := s.Nodes.Host(cfg.TargetNode); err != nil {
 		return // the standby is away: the copy ages and the alert says so, no run can help
 	}
-	r := schedRequest()
+	r := s.traced(schedRequest())
+	h = s.traceHost(r, h)
 	run, err := s.planReplica(srcID, h, dom, cfg, false)
 	if err != nil {
 		replStatus.Lock()

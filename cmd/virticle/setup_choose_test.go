@@ -107,8 +107,12 @@ func (l *lab) ranRestart() bool {
 
 func TestSetupFlagsChooseTheListenerOfAFreshMachine(t *testing.T) {
 	l := newLab(false)
-	rows := runSetup(l.e, setupOpts{address: "192.0.2.10", port: "9000"})
+	res := runSetupAll(l.e, setupOpts{address: "192.0.2.10", port: "9000"})
+	rows := res.rows
 	got := rowText(rows)
+	if res.url != "https://192.0.2.10:9000" {
+		t.Errorf("url %q", res.url)
+	}
 	if len(l.saved) != 1 || l.saved[0].HTTPSListen != "192.0.2.10:9000" || l.saved[0].Mode != webaccess.ModeSelfSigned {
 		t.Fatalf("saved %+v", l.saved)
 	}
@@ -117,7 +121,7 @@ func TestSetupFlagsChooseTheListenerOfAFreshMachine(t *testing.T) {
 		"ok | Port | TCP port 9000 on 192.0.2.10 is free to use.",
 		"ok | Firewall | Opened TCP port 9000 in firewalld",
 		"ok | Service | Enabled and started virticle.service.",
-		"info | Next | open https://192.0.2.10:9000 to create the administrator",
+		"info | Administrator | None yet.",
 	} {
 		if !strings.Contains(got, must) {
 			t.Errorf("lacks %q:\n%s", must, got)

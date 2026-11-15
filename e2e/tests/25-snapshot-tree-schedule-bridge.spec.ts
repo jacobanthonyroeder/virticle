@@ -193,7 +193,7 @@ test.describe.serial("snapshot tree, delete dialog, schedule, bridge picker", ()
     // the snapshot disappears behind the dialog's back
     await api.del(`${base()}/snapshots/d`);
     await dlg.getByRole("button", { name: "Delete 1 snapshot" }).click();
-    await expect(dlg.locator(".error")).toContainText("this VM has no snapshot named d");
+    await expect(dlg.locator(".error")).toContainText("This VM has no snapshot named d");
     await expect(dlg).toBeVisible();
     await page.keyboard.press("Escape");
   });

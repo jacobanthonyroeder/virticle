@@ -64,8 +64,7 @@ test.describe.serial("replication", () => {
     await expect(dlg.getByText("Pool")).toHaveCount(0);
     await dlg.screenshot({ path: `${SHOTS}/setup-dialog.png` });
     await dlg.getByRole("button", { name: "Start replication" }).click();
-    await expect(dlg).toContainText("Replication is set up");
-    await dlg.getByRole("button", { name: "Close", exact: true }).first().click();
+    // the dialog closes by itself when there is nothing to read; the first copy runs as a task in the Tasks dock
     await expect(dlg).toBeHidden();
     await expect(card).toContainText(env.node2);
     await expect(card).toContainText("Every15 minutes");

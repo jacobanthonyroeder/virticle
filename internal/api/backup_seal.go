@@ -8,7 +8,7 @@ package api
 // The backup job and qemu-img write qcow2, which needs a seekable file, so encrypting while they write (through a
 // pipe) is not possible: encryption is a second pass over the files. It replaces the checksum pass (the node takes
 // the checksums of both forms while it encrypts), so the extra cost is writing the encrypted copy once, plus the
-// space of the largest disk for a moment.
+// space of the largest file for a moment (sealSpace): for a full backup, a second copy of the largest disk's data.
 
 import (
 	"errors"
@@ -17,14 +17,21 @@ import (
 	"virticle/internal/hostconn"
 )
 
-// sealSpace is the extra space encryption needs in the work directory: the largest plain file and its encrypted
-// copy exist together until the plain one is deleted.
-func sealSpace(disks []bkDisk) uint64 {
+// sealSpace is the extra space encryption needs where the files are made. The work directory holds the plain
+// files of the backup; each is encrypted into a copy next to it and deleted once the copy is checked, so the
+// largest one exists twice for a moment. For a full backup that file holds the data of the largest disk (Actual,
+// what its image chain occupies); for an incremental one only the changed blocks, of which libvirt's estimate for
+// all disks together (changed, with incremental true) is an upper bound. age adds 16 bytes to every 64 KiB; the
+// 1/64 covers that and the qcow2 metadata of the work file.
+func sealSpace(disks []bkDisk, changed uint64, incremental bool) uint64 {
 	var big uint64
 	for _, d := range disks {
 		big = max(big, d.Actual)
 	}
-	return big + big/16
+	if incremental {
+		big = min(big, changed+changed/8)
+	}
+	return big + big/64
 }
 
 // encryptWork encrypts the work file name into name.age on the backup's source node, checks the copy and removes

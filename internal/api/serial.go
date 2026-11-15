@@ -56,7 +56,7 @@ func (s *Server) serialChange(w http.ResponseWriter, r *http.Request, kind strin
 		return
 	}
 	var res hwResult
-	err = s.task(r, kind, c.dom.Name, c.h.Name, func(func(float64)) error {
+	err = s.task(r, kind, c.dom.Name, c.h.Name, noted(func(func(float64)) error {
 		raw, err := c.h.DomainGetXMLDesc(c.dom, libvirt.DomainXMLInactive)
 		if err != nil {
 			return err
@@ -103,7 +103,7 @@ func (s *Server) serialChange(w http.ResponseWriter, r *http.Request, kind strin
 			res.addNote("The serial console change " + restartNote)
 		}
 		return nil
-	})
+	}, func() string { return hwNote("serial console", res) }))
 	if err != nil {
 		fail(w, err)
 		return

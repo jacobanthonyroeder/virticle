@@ -4,6 +4,7 @@
 //
 // Management uses the same call as Settings > Connection > Edit connection (PUT /nodes/{id} with the new address):
 // the controller tests the connection first and refuses an address it cannot reach, so it is never left with one.
+// A bridge libvirt owns (NAT, routed, isolated) has no Edit: no other node can reach the node there.
 // Migration uses PUT /nodes/{id}/migration-network ("" is the default: the management address).
 import { FormEvent, useEffect, useState } from "react";
 import { ApiError, get, NodeStatus, put } from "../api";

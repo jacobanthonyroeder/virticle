@@ -73,8 +73,17 @@ func (s *Store) SetMaintenance(id int64, on bool) error {
 
 // TasksBy lists the tasks started by a user since a Unix time, oldest first.
 func (s *Store) TasksBy(user string, since int64) ([]Task, error) {
+	return s.tasksWhere(`username=? AND started>=?`, user, since)
+}
+
+// TasksSince lists the tasks of every user (the scheduler included) started since a Unix time, oldest first.
+func (s *Store) TasksSince(since int64) ([]Task, error) {
+	return s.tasksWhere(`started>=?`, since)
+}
+
+func (s *Store) tasksWhere(cond string, args ...any) ([]Task, error) {
 	rows, err := s.db.Query(`SELECT id, kind, target, node, username, status, error, progress, started, finished
-		FROM tasks WHERE username=? AND started>=? ORDER BY id`, user, since)
+		FROM tasks WHERE `+cond+` ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
 	}

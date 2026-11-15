@@ -152,7 +152,8 @@ func (s *Server) runSchedule(h *hostconn.Host, dom libvirt.Domain, sch snapsched
 	snaps := toSnaps(list)
 	now := time.Now()
 	other = snapsched.Foreign(snaps, sch.Prefix, s.InstanceID, now.Add(-sch.ForeignWindow()))
-	r := schedRequest()
+	r := s.traced(schedRequest())
+	h = s.traceHost(r, h)
 	if sch.Due(now, snapsched.Newest(snaps, sch.Prefix)) && now.Sub(failed[key]) >= schedRetry {
 		// Read the list again right before creating: another controller may
 		// have taken the snapshot since the first look.
@@ -192,7 +193,10 @@ func (s *Server) runSchedule(h *hostconn.Host, dom libvirt.Domain, sch snapsched
 		}
 		err = s.task(r, "snapshot prune", dom.Name+"@"+name, h.Name, func(func(float64)) error {
 			defer refreshPools(h)
-			return h.DomainSnapshotDelete(sn, 0)
+			if err := h.DomainSnapshotDelete(sn, 0); err != nil {
+				return err
+			}
+			return taskDone("keeping the newest %d", sch.Keep)
 		})
 		if err != nil {
 			log.Printf("pruning snapshot %s of %s on %s failed: %v", name, dom.Name, h.Name, err)
@@ -351,7 +355,10 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request, h *hostc
 		if snapsched.Empty(updated) {
 			updated = ""
 		}
-		return setDomainMeta(h, dom, updated)
+		if err := setDomainMeta(h, dom, updated); err != nil {
+			return err
+		}
+		return taskDone("%s", scheduleNote(sch))
 	})
 	if err != nil {
 		fail(w, err)

@@ -457,7 +457,10 @@ func (s *Server) vmAction(w http.ResponseWriter, r *http.Request) {
 		var res shutdownOutcome
 		err := s.task(r, "shutdown", dom.Name, h.Name, func(progress func(float64)) (err error) {
 			res, err = shutdownWithTimeout(h, dom, time.Duration(req.TimeoutSec)*time.Second, req.Force, progress)
-			return err
+			if err != nil {
+				return err
+			}
+			return taskDone("%s", shutdownNote(res))
 		})
 		if err != nil {
 			fail(w, err)
@@ -500,7 +503,12 @@ func (s *Server) vmAction(w http.ResponseWriter, r *http.Request) {
 		fail(w, badRequest("unknown action "+req.Action))
 		return
 	}
-	if err := s.task(r, req.Action, dom.Name, h.Name, func(func(float64)) error { return fn() }); err != nil {
+	if err := s.task(r, req.Action, dom.Name, h.Name, func(func(float64)) error {
+		if err := fn(); err != nil {
+			return err
+		}
+		return taskDone("%s", powerNote(req.Action))
+	}); err != nil {
 		fail(w, err)
 		return
 	}
@@ -541,8 +549,10 @@ func (s *Server) vmSetXML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.task(r, "edit definition", dom.Name, h.Name, func(func(float64)) error {
-		_, err := h.DomainDefineXMLFlags(req.XML, libvirt.DomainDefineValidate)
-		return err
+		if _, err := h.DomainDefineXMLFlags(req.XML, libvirt.DomainDefineValidate); err != nil {
+			return err
+		}
+		return taskDone("definition saved")
 	})
 	if err != nil {
 		fail(w, err)
@@ -646,6 +656,7 @@ func (s *Server) vmDelete(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("replica") == "1" {
 		replMeta, _ = domainMeta(h, dom)
 	}
+	gone := 0 // disk files deleted with the VM
 	err = s.task(r, "delete", dom.Name, h.Name, func(func(float64)) error {
 		flags := libvirt.DomainUndefineManagedSave | libvirt.DomainUndefineSnapshotsMetadata |
 			libvirt.DomainUndefineNvram | libvirt.DomainUndefineCheckpointsMetadata | libvirt.DomainUndefineTpm
@@ -673,8 +684,9 @@ func (s *Server) vmDelete(w http.ResponseWriter, r *http.Request) {
 			if err := h.StorageVolDelete(vol, 0); err != nil {
 				return err
 			}
+			gone++
 		}
-		return nil
+		return taskDone("%s", deleteNote(dom.Name, gone))
 	})
 	if err != nil {
 		fail(w, err)
@@ -713,10 +725,16 @@ func (s *Server) vmAddAgentChannel(w http.ResponseWriter, r *http.Request) {
 		if stateName(state) == "running" {
 			if h.DomainAttachDeviceFlags(dom, agentChannelXML, uint32(libvirt.DomainAffectLive|libvirt.DomainAffectConfig)) == nil {
 				live = true
-				return nil
+				return taskDone("added")
 			}
 		}
-		return h.DomainAttachDeviceFlags(dom, agentChannelXML, uint32(libvirt.DomainAffectConfig))
+		if err := h.DomainAttachDeviceFlags(dom, agentChannelXML, uint32(libvirt.DomainAffectConfig)); err != nil {
+			return err
+		}
+		if stateName(state) != "shutoff" {
+			return taskDone("added, after restart")
+		}
+		return taskDone("added")
 	})
 	if err != nil {
 		fail(w, err)

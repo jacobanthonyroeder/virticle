@@ -31,6 +31,7 @@ import (
 // downMounts lists the mount points of the node that did not answer the last probe. It reads the prober's last
 // answer and does no I/O.
 func (pp *poolProber) downMounts(h *hostconn.Host) []string {
+	h = h.Base() // a key: views of one host share its entries
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	e := pp.cache[h]
@@ -111,6 +112,7 @@ const domXMLTTL = 2 * time.Minute
 // stalledOn splits the running VMs of a node into those with a disk file below one of the dead mounts and the
 // others. With no dead mount it returns (nil, nil) at once and asks libvirt nothing.
 func stalledOn(h *hostconn.Host) (others, stalled []libvirt.Domain) {
+	h = h.Base() // a key: views of one host share its entries
 	down := nfsProber.freshDown(h)
 	if len(down) == 0 {
 		return nil, nil
@@ -167,6 +169,7 @@ func stalledOn(h *hostconn.Host) (others, stalled []libvirt.Domain) {
 // them when a share goes down. It is called by the statistics round, at most once per domXMLTTL per node,
 // and only for a node that has an NFS pool.
 func warmDomainXML(h *hostconn.Host) {
+	h = h.Base() // a key: views of one host share its entries
 	if !nfsProber.hasMounts(h) || len(nfsProber.downMounts(h)) > 0 {
 		return
 	}
@@ -213,6 +216,7 @@ func warmDomainXML(h *hostconn.Host) {
 // not safe to act on (an "up" older than probeFresh, or anything older than probeStale), the mounts are probed
 // again first, waiting at most probeLimit. A "down" answer is acted on at once: nothing will be asked.
 func (pp *poolProber) freshDown(h *hostconn.Host) []string {
+	h = h.Base() // a key: views of one host share its entries
 	if pp.hasMounts(h) {
 		pp.mu.Lock()
 		e := pp.cache[h]
@@ -236,6 +240,7 @@ func (pp *poolProber) freshDown(h *hostconn.Host) []string {
 
 // hasMounts reports whether anybody asked about NFS mounts of the node lately.
 func (pp *poolProber) hasMounts(h *hostconn.Host) bool {
+	h = h.Base() // a key: views of one host share its entries
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	return len(pp.asked[h]) > 0

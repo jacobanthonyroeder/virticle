@@ -2,7 +2,7 @@
 // after libvirt asks for force, and the Restore dialog's Replace option with its reasons.
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, field, pick } from "../lib/ui";
+import { dialog, dockRow, field, pick } from "../lib/ui";
 
 const NAME = `${P}sd1`;
 
@@ -54,7 +54,7 @@ test.describe.serial("simplified dialogs", () => {
     await expect(dlg.getByRole("button", { name: "Revert anyway" })).toHaveCount(0);
     await expect(dlg.locator("label.check")).toHaveCount(0);
     await dlg.getByRole("button", { name: "Revert", exact: true }).click();
-    await expect(dlg.locator(".error")).toContainText("revert requires force");
+    await expect(dlg.locator(".error")).toContainText("Revert requires force");
     const anyway = dlg.getByRole("button", { name: "Revert anyway" });
     await expect(anyway).toBeVisible();
     await expect(dlg.getByRole("button", { name: "Revert", exact: true })).toHaveCount(0);
@@ -68,7 +68,7 @@ test.describe.serial("simplified dialogs", () => {
     await page.route(/\/snapshots\/before\/revert$/, (route) => route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "the VM is busy" }) }));
     await page.getByRole("treeitem", { name: /^before(,|$)/ }).getByRole("button", { name: "Revert to before" }).click();
     await dlg.getByRole("button", { name: "Revert", exact: true }).click();
-    await expect(dlg.locator(".error")).toContainText("the VM is busy");
+    await expect(dlg.locator(".error")).toContainText("The VM is busy");
     await expect(dlg.getByRole("button", { name: "Revert anyway" })).toHaveCount(0);
     await page.keyboard.press("Escape");
   });
@@ -101,12 +101,12 @@ test.describe.serial("simplified dialogs", () => {
     const ask = dialog(page, `Replace ${NAME}`);
     await expect(ask).toContainText("deleted together with its disks");
     await ask.getByRole("button", { name: "Replace VM" }).click();
-    await expect(dlg).toContainText(/ok/i, { timeout: 200_000 });
+    await expect(dlg).toBeHidden(); // closes once the server accepted the restore; the Tasks dock follows it
+    await expect(dockRow(page, "restore", NAME).first()).toContainText("Ok", { timeout: 200_000 });
     const all = (await api.vms()).filter((v: any) => v.name === NAME);
     expect(all).toHaveLength(1);
     expect(all[0].uuid).toBe(vm.uuid); // the same identity comes back
     // gone: the entry is disabled and says so
-    await dlg.getByRole("button", { name: "Close dialog" }).click();
     await cleanVMs(api, NAME);
     await page.goto("/backups");
     await page.locator("tbody tr").filter({ hasText: NAME }).first().getByRole("button", { name: "Restore" }).click();

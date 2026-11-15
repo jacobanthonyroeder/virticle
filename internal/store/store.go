@@ -5,6 +5,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -69,6 +70,11 @@ type Task struct {
 	// Cancel is the role needed to stop the task while it runs; empty when it cannot be stopped.
 	// The controller fills it in for running tasks, it is not stored.
 	Cancel string `json:"cancel,omitempty"`
+	// Ops is how many operations the task's trace has (ops.go).
+	Ops int `json:"ops,omitempty"`
+	// Background is set on the events of a task that runs after its request was answered (the requester is not
+	// waiting for it, so a failure needs its own message). It is not stored.
+	Background bool `json:"background,omitempty"`
 }
 
 func Open(path string) (*Store, error) {
@@ -103,6 +109,9 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(workSchema); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(migSchema); err != nil {
 		return nil, err
 	}
 	if err := setSchemaVersion(db); err != nil {
@@ -190,7 +199,7 @@ func (t *Task) noteOfOK() {
 }
 
 func (s *Store) Tasks(limit int) ([]Task, error) {
-	rows, err := s.db.Query(`SELECT id, kind, target, node, username, status, error, progress, started, finished FROM tasks ORDER BY id DESC LIMIT ?`, limit)
+	rows, err := s.db.Query(`SELECT id, kind, target, node, username, status, error, progress, started, finished, `+fmt.Sprintf(opCount, "tasks", "tasks")+` FROM tasks ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +207,7 @@ func (s *Store) Tasks(limit int) ([]Task, error) {
 	out := []Task{}
 	for rows.Next() {
 		var t Task
-		if err := rows.Scan(&t.ID, &t.Kind, &t.Target, &t.Node, &t.User, &t.Status, &t.Error, &t.Progress, &t.Started, &t.Finished); err != nil {
+		if err := rows.Scan(&t.ID, &t.Kind, &t.Target, &t.Node, &t.User, &t.Status, &t.Error, &t.Progress, &t.Started, &t.Finished, &t.Ops); err != nil {
 			return nil, err
 		}
 		t.noteOfOK()

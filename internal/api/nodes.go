@@ -77,6 +77,7 @@ func (s *Server) addNode(w http.ResponseWriter, r *http.Request) {
 		s.markTakeOver(n.ID)
 	}
 	s.Nodes.Add(n)
+	s.Nodes.Publish(cluster.Event{Type: "node", Node: n.ID, Detail: "added"}) // other pages, and a node added from the command line
 	writeJSON(w, n)
 }
 

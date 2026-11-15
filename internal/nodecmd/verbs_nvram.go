@@ -1,6 +1,7 @@
 package nodecmd
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -58,7 +59,8 @@ func verbNvramNew(c *Ctx) error {
 		return err
 	}
 	defer dst.Close()
-	return c.CreateNew(dst, 0o600, func(f *os.File) error {
+	// The answer is the identity of the new file (verbs_fileid.go).
+	id, err := c.CreateNewID(dst, 0o600, func(f *os.File) error {
 		cmd, err := c.Command("qemu-img", "convert", "-f", "raw", "-O", "qcow2", "--", full, "/proc/self/fd/3")
 		if err != nil {
 			return err
@@ -83,4 +85,9 @@ func verbNvramNew(c *Ctx) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(c.Stdout, idOrDash(id))
+	return nil
 }

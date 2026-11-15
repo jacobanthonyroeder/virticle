@@ -192,12 +192,12 @@ func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libv
 		return
 	}
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
-	_, _, _, err = syncGuestClock(h, dom)
+	before, known, cnote, err := syncGuestClock(h, dom)
 	if err != nil {
 		err = fmt.Errorf("after %s: %w", why, err)
 		log.Printf("sync guest clock %s: %v", dom.Name, err)
 	}
-	s.Store.FinishTask(&t, err)
+	s.Store.FinishTaskNote(&t, err, clockSyncNote(before, known, cnote != "", why))
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 }
 
@@ -287,14 +287,14 @@ func (s *Server) hwClock(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if req.Offset == "" {
-			return nil
+			return taskDone("%s", clockChangeNote("", req.Sync, res))
 		}
 		raw, err := c.h.DomainGetXMLDesc(c.dom, libvirt.DomainXMLInactive)
 		if err != nil {
 			return err
 		}
 		if domxml.ClockOffset(raw) == req.Offset {
-			return nil
+			return taskDone("%s", clockChangeNote(req.Offset, req.Sync, res))
 		}
 		edited, err := domxml.SetClockOffset(raw, req.Offset)
 		if err != nil {
@@ -308,7 +308,7 @@ func (s *Server) hwClock(w http.ResponseWriter, r *http.Request) {
 			res.endNote()
 			res.addNote("The clock offset " + restartNote)
 		}
-		return nil
+		return taskDone("%s", clockChangeNote(req.Offset, req.Sync, res))
 	})
 	if err != nil {
 		fail(w, err)
@@ -332,7 +332,10 @@ func (s *Server) vmClockSync(w http.ResponseWriter, r *http.Request) {
 	var note string
 	err = s.task(r, "sync guest clock", dom.Name, h.Name, func(func(float64)) (err error) {
 		before, known, note, err = syncGuestClock(h, dom)
-		return err
+		if err != nil {
+			return err
+		}
+		return taskDone("%s", clockSyncNote(before, known, note != "", ""))
 	})
 	if err != nil {
 		fail(w, err)

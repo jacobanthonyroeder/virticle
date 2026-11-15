@@ -43,7 +43,7 @@ test.describe.serial("node connection", () => {
     await expect(dlg.locator(".keybox code")).toContainText("ssh-ed25519"); // the controller's public key
     await field(dlg, "Address").fill("192.168.150.99");
     await dlg.getByRole("button", { name: "Save" }).click();
-    await expect(dlg.locator(".error")).toContainText("connection test failed", { timeout: 30_000 });
+    await expect(dlg.locator(".error")).toContainText("Connection test failed", { timeout: 30_000 });
     await expect(dlg.locator(".error")).toContainText("192.168.150.99");
     await expect(dlg.getByRole("button", { name: "Save anyway" })).toBeVisible(); // only after a failed save
     await page.keyboard.press("Escape");

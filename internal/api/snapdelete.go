@@ -286,7 +286,7 @@ func (s *Server) deleteSnapshotsHandler(w http.ResponseWriter, r *http.Request) 
 			removeLeftFiles(h, dom, files[name])
 			progress(float64(i+1) / float64(len(plan.Order)))
 		}
-		return nil
+		return taskDone("%s", snapshotsDeletedNote(plan.Order))
 	})
 	if err != nil {
 		fail(w, err)

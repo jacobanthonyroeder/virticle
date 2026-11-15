@@ -257,12 +257,21 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 
 	var uuid, nvramNote string
 	st := newStopper(context.Background())
-	defer st.done()
+	// A clone accepted as a background task (?async=1) owns the stopper: the task releases it when it ends.
+	background := false
+	defer func() {
+		if !background {
+			st.done()
+		}
+	}()
 	stop := taskStop{}
 	if !q.Linked { // a linked clone takes no time, a full one copies the disks
 		stop = taskStop{operator, st.stop}
 	}
-	err = s.taskStop(r, "clone", q.Name+" (from "+src.Name+")", h.Name, stop, func(progress func(float64)) error {
+	// With ?async=1 the handler returns at once, so fn must not use r nor the variables the handler reads after
+	// the call (uuid, nvramNote) unless the call was synchronous.
+	err = s.taskStopAsync(r, "clone", q.Name+" (from "+src.Name+")", h.Name, stop, func(progress func(float64)) error {
+		defer st.done()
 		var created []libvirt.StorageVol
 		var defined *libvirt.Domain
 		rollback := func(cause error) error {
@@ -400,8 +409,14 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 				return fmt.Errorf("the clone was created but did not start: %w", err)
 			}
 		}
-		return nil
+		return taskDone("%s", cloneNote(q.Name, q.Linked, q.Start))
 	})
+	var acc accepted
+	if errors.As(err, &acc) {
+		background = true
+		fail(w, err) // 202 with the task; the clone goes on in the background
+		return
+	}
 	if err != nil && uuid == "" {
 		fail(w, err)
 		return
