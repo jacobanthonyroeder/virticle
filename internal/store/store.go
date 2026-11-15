@@ -69,6 +69,9 @@ type Task struct {
 	// Cancel is the role needed to stop the task while it runs; empty when it cannot be stopped.
 	// The controller fills it in for running tasks, it is not stored.
 	Cancel string `json:"cancel,omitempty"`
+	// Background is set on the events of a task that runs after its request was answered (the requester is not
+	// waiting for it, so a failure needs its own message). It is not stored.
+	Background bool `json:"background,omitempty"`
 }
 
 func Open(path string) (*Store, error) {

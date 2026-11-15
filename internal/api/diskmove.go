@@ -582,7 +582,7 @@ func (s *Server) diskMove(w http.ResponseWriter, r *http.Request) {
 			moveRuns.Unlock()
 		}()
 		m.progress = progress
-		return m.run()
+		return doneOr(m.run(), "%s", moveNote(req.Pool, f.Running))
 	})
 	if err != nil {
 		moveRuns.Lock()

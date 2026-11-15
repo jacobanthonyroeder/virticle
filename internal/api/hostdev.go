@@ -216,7 +216,7 @@ func (s *Server) vmHostdevAttach(w http.ResponseWriter, r *http.Request) {
 		res = c.result(applied)
 		res.addNote(note)
 		res.addNote(passthroughWarning)
-		return nil
+		return taskDone("%s", hwNote(joinFacts(d.ID, d.Product), res))
 	})
 	if err != nil {
 		fail(w, err)
@@ -348,7 +348,7 @@ func (s *Server) vmHostdevDetach(w http.ResponseWriter, r *http.Request) {
 			res.Applied, res.NeedsRestart = "config", true
 			res.addNote("the guest has not released the device yet; it is released once the guest lets go of it, or at the next restart")
 		}
-		return nil
+		return taskDone("%s", hwNote(key, res))
 	})
 	if err != nil {
 		fail(w, err)

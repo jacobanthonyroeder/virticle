@@ -241,7 +241,10 @@ func (s *Server) downloadImage(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return errors.New("cancelled by the user; the partial file was deleted")
 			}
-			return h.StoragePoolRefresh(pool, 0)
+			if err := h.StoragePoolRefresh(pool, 0); err != nil {
+				return err
+			}
+			return taskDone("%s", fileNote(h, name, dest))
 		})
 		if err != nil {
 			log.Printf("image %s into %s/%s on %s: %v", img.ID, pool.Name, name, h.Name, err)

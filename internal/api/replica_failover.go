@@ -229,9 +229,9 @@ func (s *Server) replicaFailover(w http.ResponseWriter, r *http.Request) {
 	}
 	err = s.taskAsync(r, "failover", dom.Name, h.Name, func(progress func(float64)) error {
 		if dec.Kind == foPlanned {
-			return s.plannedFailover(r, h, dom, nodeID, rm, dec, progress)
+			return doneOr(s.plannedFailover(r, h, dom, nodeID, rm, dec, progress), "%s", joinFacts("on "+h.Name, "planned"))
 		}
-		return s.activateReplica(h, dom, nodeID, rm, failedOverMeta{FromNode: rm.SourceNode, FromName: rm.SourceName, At: time.Now().Unix(), Gen: rm.SrcGen + 1}, progress)
+		return doneOr(s.activateReplica(h, dom, nodeID, rm, failedOverMeta{FromNode: rm.SourceNode, FromName: rm.SourceName, At: time.Now().Unix(), Gen: rm.SrcGen + 1}, progress), "%s", joinFacts("on "+h.Name, "unplanned"))
 	})
 	if err != nil {
 		fail(w, err)
@@ -606,7 +606,7 @@ func (s *Server) deleteReplicaHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		return deleteReplicaDomain(h, dom)
+		return doneOr(deleteReplicaDomain(h, dom), "replica removed")
 	})
 	if err != nil {
 		fail(w, err)

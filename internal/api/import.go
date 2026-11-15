@@ -681,7 +681,13 @@ func (s *Server) importDisk(w http.ResponseWriter, r *http.Request) {
 
 	target := req.Pool + "/" + req.Name
 	st := newStopper(context.Background())
-	defer st.done()
+	// A disk import accepted as a background task (?async=1) owns the stopper: it releases it when it ends.
+	background := false
+	defer func() {
+		if !background {
+			st.done()
+		}
+	}()
 	var result map[string]any
 	if ovfName == "" {
 		name := req.Name
@@ -696,7 +702,10 @@ func (s *Server) importDisk(w http.ResponseWriter, r *http.Request) {
 			fail(w, badRequest("a volume named "+name+" already exists in "+req.Pool))
 			return
 		}
-		err = s.taskStop(r, "import", target, h.Name, taskStop{operator, st.stop}, func(progress func(float64)) (rerr error) {
+		// An OVA stays synchronous: the web UI needs its proposal to go on. A disk can end in the background.
+		// fn must not use r: it may run after this handler has returned.
+		err = s.taskStopAsync(r, "import", target, h.Name, taskStop{operator, st.stop}, func(progress func(float64)) (rerr error) {
+			defer st.done()
 			defer func() { rerr = st.cancelled("import", rerr) }()
 			if st.Stopped() {
 				return stoppedErr("import")
@@ -713,8 +722,13 @@ func (s *Server) importDisk(w http.ResponseWriter, r *http.Request) {
 			if err := wd.convert(file, info.Format, pd.Dir+"/"+name, progress); err != nil {
 				return err
 			}
-			return h.StoragePoolRefresh(pool, 0)
+			if err := h.StoragePoolRefresh(pool, 0); err != nil {
+				return err
+			}
+			return taskDone("%s", joinFacts(fileNote(h, name, pd.Dir+"/"+name), "from "+info.Format))
 		})
+		var acc accepted
+		background = errors.As(err, &acc)
 		result = map[string]any{"kind": "disk", "pool": req.Pool, "volume": name, "sourceFormat": info.Format}
 	} else {
 		result, err = s.importOVA(r, st, h, pool, pd, file, ovfName, entries, req)
@@ -833,7 +847,7 @@ func (s *Server) importOVA(r *http.Request, st *stopper, h *hostconn.Host, pool 
 			"kind": "ova", "pool": req.Pool, "volumes": vols, "ovf": ovf, "warnings": warnings,
 			"proposal": ovf.proposal(req.Name, req.Pool, vols[0]),
 		}
-		return nil
+		return taskDone("%s", importOVANote(vols))
 	})
 	return result, err
 }

@@ -1052,7 +1052,7 @@ func (s *Server) launchReplica(req *http.Request, r *replRun) (int64, <-chan err
 			err = res
 		}
 		setReplError(r.uuid, err)
-		return res
+		return replicateResult(r, res)
 	})
 	if err != nil {
 		releaseRepl(r)

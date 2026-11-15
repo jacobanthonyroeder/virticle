@@ -77,7 +77,8 @@ func (s *Server) downloadVolume(w http.ResponseWriter, r *http.Request) {
 
 	// A stop has the node end the download and delete the .part file, as for an image from the catalogue.
 	run := &imageRun{h: h, dest: dest}
-	err = s.taskStop(r, "download", pool.Name+"/"+req.Name, h.Name, taskStop{operator, run.cancel}, func(progress func(float64)) error {
+	// With ?async=1 (the web UI) the answer is 202 and the task log carries the outcome: fn must not use r.
+	err = s.taskStopAsync(r, "download", pool.Name+"/"+req.Name, h.Name, taskStop{operator, run.cancel}, func(progress func(float64)) error {
 		defer watchPartSize(h, part, probeSize(h, req.URL), progress)()
 		if run.isCancelled() {
 			return errDownloadCancelled
@@ -88,7 +89,10 @@ func (s *Server) downloadVolume(w http.ResponseWriter, r *http.Request) {
 			}
 			return err
 		}
-		return h.StoragePoolRefresh(pool, 0)
+		if err := h.StoragePoolRefresh(pool, 0); err != nil {
+			return err
+		}
+		return taskDone("%s", fileNote(h, req.Name, dest))
 	})
 	if err != nil {
 		fail(w, err)

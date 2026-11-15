@@ -207,7 +207,7 @@ func (s *Server) vmTemplate(w http.ResponseWriter, r *http.Request) {
 		kind = "convert to template"
 	}
 	err = s.task(r, kind, dom.Name, h.Name, func(func(float64)) error {
-		return setMark(h, dom, templateMark{Template: req.Template, Sealed: old.Sealed})
+		return doneOr(setMark(h, dom, templateMark{Template: req.Template, Sealed: old.Sealed}), "%s", templateNote(req.Template, old.Sealed))
 	})
 	if err != nil {
 		fail(w, err)
@@ -289,7 +289,7 @@ func (s *Server) vmSeal(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(2 * time.Second)
 		}
 		progress(0.9)
-		return setMark(h, dom, templateMark{Template: true, Sealed: family})
+		return doneOr(setMark(h, dom, templateMark{Template: true, Sealed: family}), "%s", templateNote(true, family))
 	})
 	if err != nil {
 		fail(w, err)

@@ -338,7 +338,7 @@ func (s *Server) runEvacuation(user string, srcID int64, src *hostconn.Host, dom
 		run.Cancelled = true
 	}
 	if failed == 0 && blocked == 0 && skipped == 0 {
-		return nil
+		return taskDone("%s", evacuateNote(moved))
 	}
 	msg := fmt.Sprintf("%d moved, %d failed, %d blocked, %d not started", moved, failed, blocked, skipped)
 	if skipped > 0 {

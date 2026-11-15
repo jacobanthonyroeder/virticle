@@ -86,7 +86,8 @@ func fmtBytes(n uint64) string {
 	if i == 0 {
 		return fmt.Sprintf("%d B", n)
 	}
-	return fmt.Sprintf("%.1f %s", f, units[i])
+	// One decimal, dropped when it is zero: "4 GiB", "3.2 GiB".
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", f), ".0") + " " + units[i]
 }
 
 type planDisk struct {
@@ -966,7 +967,7 @@ func (s *Server) launchMigration(r *http.Request, srcID int64, h *hostconn.Host,
 				err = withNote(nil2("the VM moved to "+dst.Name), note)
 			}
 		}
-		return err
+		return doneOr(err, "%s", migrateNote(dst.Name, plan.Mode, plan.TLS))
 	})
 	if err != nil {
 		migRuns.Lock()
@@ -997,6 +998,7 @@ func (s *Server) startBackgroundStop(r *http.Request, kind, target, node string,
 		return 0, nil, err
 	}
 	s.stoppable(&t, stop)
+	t.Background = true
 	done := make(chan error, 1)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 	go func() {
@@ -1024,6 +1026,7 @@ func (s *Server) startBackgroundStop(r *http.Request, kind, target, node string,
 		}
 		s.unstoppable(&t)
 		s.Store.FinishTaskNote(&t, err, string(dn))
+		s.pokeAlertsOnFail(err)
 		s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 		done <- err
 	}()

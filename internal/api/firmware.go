@@ -272,8 +272,13 @@ func (s *Server) vmTPM(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		_, err = c.h.DomainDefineXMLFlags(out, libvirt.DomainDefineValidate)
-		return err
+		if _, err := c.h.DomainDefineXMLFlags(out, libvirt.DomainDefineValidate); err != nil {
+			return err
+		}
+		if req.Enabled {
+			return taskDone("TPM added")
+		}
+		return taskDone("TPM removed")
 	})
 	if err != nil {
 		fail(w, err)

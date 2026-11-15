@@ -166,7 +166,7 @@ func (s *Server) prepareStart(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return badRequest("the node was not prepared; see the rows for why")
 		}
-		return nil
+		return taskDone("%s", prepareNote(rows, req.CheckOnly))
 	})
 	if err != nil {
 		fail(w, err)

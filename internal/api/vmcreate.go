@@ -377,9 +377,11 @@ func (s *Server) createVM(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if q.Start {
-			return nfsStartHint(h, h.DomainCreate(dom))
+			if err := nfsStartHint(h, h.DomainCreate(dom)); err != nil {
+				return err
+			}
 		}
-		return nil
+		return taskDone("%s", createVMNote(q.VCPUs, q.MemoryMiB, q.Start))
 	})
 	if err != nil && uuid == "" {
 		fail(w, err)

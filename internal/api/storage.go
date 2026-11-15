@@ -246,7 +246,10 @@ func (s *Server) createPool(w http.ResponseWriter, r *http.Request) {
 			h.StoragePoolUndefine(pool)
 			return err
 		}
-		return h.StoragePoolSetAutostart(pool, 1)
+		if err := h.StoragePoolSetAutostart(pool, 1); err != nil {
+			return err
+		}
+		return taskDone("%s", poolCreateNote(req))
 	})
 	if err != nil {
 		fail(w, err)
@@ -327,7 +330,9 @@ func (s *Server) poolAction(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if err := s.task(r, req.Action+" pool", pool.Name, h.Name, func(func(float64)) error { return fn() }); err != nil {
+	if err := s.task(r, req.Action+" pool", pool.Name, h.Name, func(func(float64)) error {
+		return doneOr(fn(), "%s", poolActionNote(req.Action))
+	}); err != nil {
 		fail(w, err)
 		return
 	}
@@ -413,8 +418,10 @@ func (s *Server) createVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.task(r, "create volume", pool.Name+"/"+req.Name, h.Name, func(func(float64)) error {
-		_, err := h.StorageVolCreateXML(pool, volumeXML(req.Name, req.Format, req.Capacity), 0)
-		return err
+		if _, err := h.StorageVolCreateXML(pool, volumeXML(req.Name, req.Format, req.Capacity), 0); err != nil {
+			return err
+		}
+		return taskDone("%s", volumeCreateNote(req.Capacity, req.Format))
 	})
 	if err != nil {
 		fail(w, err)
@@ -505,7 +512,7 @@ func (s *Server) uploadVolume(w http.ResponseWriter, r *http.Request) {
 			h.StorageVolDelete(vol, 0)
 			return fmt.Errorf("upload was cut short: got %d of %d bytes", body.n, r.ContentLength)
 		}
-		return h.StoragePoolRefresh(pool, 0)
+		return doneOr(h.StoragePoolRefresh(pool, 0), "%s", fileFact(name, uint64(body.n)))
 	})
 	if err != nil {
 		fail(w, err)
@@ -590,7 +597,9 @@ func (s *Server) volumeAction(w http.ResponseWriter, r *http.Request) {
 		fail(w, badRequest("unknown action "+req.Action))
 		return
 	}
-	if err := s.taskStop(r, req.Action+" volume", pool.Name+"/"+vol.Name, h.Name, stop, func(func(float64)) error { return fn() }); err != nil {
+	if err := s.taskStop(r, req.Action+" volume", pool.Name+"/"+vol.Name, h.Name, stop, func(func(float64)) error {
+		return doneOr(fn(), "%s", volumeActionNote(req.Action, req.Name, req.Capacity))
+	}); err != nil {
 		fail(w, err)
 		return
 	}
@@ -604,7 +613,7 @@ func (s *Server) deleteVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.task(r, "delete volume", pool.Name+"/"+vol.Name, h.Name, func(func(float64)) error {
-		return h.StorageVolDelete(vol, 0)
+		return doneOr(h.StorageVolDelete(vol, 0), "%s", vol.Name)
 	})
 	if err != nil {
 		fail(w, err)

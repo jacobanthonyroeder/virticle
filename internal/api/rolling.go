@@ -567,7 +567,7 @@ func (e *rollExec) execute() error {
 	if errors.Is(err, errRollCancelled) {
 		return errors.New("cancelled: " + e.snapshot().Condition)
 	}
-	return nil
+	return taskDone("%s", rollNote(e.snapshot()))
 }
 
 func (e *rollExec) moreWork() bool {

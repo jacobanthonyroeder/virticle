@@ -368,7 +368,7 @@ func (s *Server) addShared(w http.ResponseWriter, r *http.Request) {
 		if !complete {
 			return fmt.Errorf("%s", msg)
 		}
-		return nil
+		return taskDone("%s", nodeCountNote("added", len(results)))
 	})
 	msg, complete := addSummary(req.Name, results)
 	if len(results) == 0 { // the task could not start
@@ -570,7 +570,7 @@ func (s *Server) removeShared(w http.ResponseWriter, r *http.Request) {
 		if len(bad) > 0 {
 			return fmt.Errorf("not removed on: %s", strings.Join(bad, "; "))
 		}
-		return nil
+		return taskDone("%s", nodeCountNote("removed", len(results)))
 	})
 	s.Nodes.Publish(cluster.Event{Type: "pool"})
 	if err != nil {
