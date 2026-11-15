@@ -28,6 +28,10 @@
 /* The switch's own addresses sit in its header, after the name and kind; they wrap onto a second line when needed. */
 .topohdraddr { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 0; min-width: 0; overflow-wrap: anywhere; }
 .topohdraddr .topoaddr { margin-right: 12px; }
+/* In the switch header the buttons stay on the first line; the addresses take their own line below the name. */
+.toposwitch > header .topohdraddr { order: 5; flex: 1 1 100%; }
+.toposwitch > header .vsacts { flex-wrap: nowrap; flex: none; }
+@media (max-width: 520px) { .toposwitch > header .vsacts { flex-wrap: wrap; } }
 .topofixed { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
 .topomgmt { font-size: 12px; font-weight: 600; color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
 .topodown { font-size: 12px; font-weight: 600; color: var(--text); border: 1px solid var(--danger); border-radius: 999px; padding: 0 6px; }
