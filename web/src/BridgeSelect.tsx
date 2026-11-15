@@ -13,8 +13,8 @@ export interface HostNIC {
   addresses: string[];
 }
 
-/** A Linux bridge, or an Open vSwitch bridge (type "other", kind "openvswitch"). */
-export const isBridge = (n: HostNIC) => n.type === "bridge" || n.kind === "openvswitch";
+/** A Linux bridge, or an Open vSwitch bridge (type "other", kind "openvswitch"). "ovs-system" is the Open vSwitch datapath, not a bridge. */
+export const isBridge = (n: HostNIC) => n.type === "bridge" || (n.kind === "openvswitch" && n.name !== "ovs-system");
 
 /** The addresses worth showing: IPv4 and global IPv6, not link-local. */
 export const shownAddresses = (n: HostNIC) => n.addresses.filter((a) => !a.toLowerCase().startsWith("fe80:"));
