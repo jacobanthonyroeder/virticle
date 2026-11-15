@@ -482,6 +482,7 @@ func (s *Server) taskStop(r *http.Request, kind, target, node string, stop taskS
 		}
 	})
 	s.unstoppable(&t)
+	err = s.explainBusy(err)
 	s.Store.FinishTask(&t, err)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 	return err

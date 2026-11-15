@@ -2,6 +2,7 @@ package hostconn
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,8 +23,8 @@ import (
 // reading a pool's state) also have a time limit: a call that has not answered after callLimit is given up on
 // (the caller gets ErrStorageBusy; the call itself goes on in the background and keeps its slot until libvirt
 // answers). When three calls are given up on, every storage call fails at once instead of queueing, until one
-// of them returns. Pages then answer within a few seconds, and then immediately, that the node's storage is
-// not answering.
+// of them returns. Pages then answer within a few seconds, and then immediately, that libvirt on the node does
+// not answer.
 //
 // Long operations (creating, uploading, deleting volumes) are not in the gate: a person starts them for one
 // pool, after the checks in the API.
@@ -36,8 +37,44 @@ var (
 	callLimit = 6 * time.Second
 )
 
-// ErrStorageBusy is returned when the storage calls of a node are stuck.
-var ErrStorageBusy = errors.New("the storage service of this node is not answering: a storage call is stuck, usually on an NFS share whose server is gone. It continues when that call ends")
+// ErrStorageBusy is what every call the gate refuses or gives up on is (errors.Is). The gate knows only that
+// libvirt did not answer in time, not why: an NFS share whose server is gone is one cause, a node that is out of
+// memory or overloaded another. The Host methods return a *BusyError, which names the node.
+var ErrStorageBusy = errors.New("libvirt on this node did not answer in time")
+
+// errCallSlow is a call that was made and given up on after callLimit; ErrStorageBusy itself is a call that was
+// not made because earlier ones have not answered.
+var errCallSlow = fmt.Errorf("%w: a call did not answer within the limit", ErrStorageBusy)
+
+// BusyError is a storage call of a node that the gate refused or gave up on.
+type BusyError struct {
+	Host *Host
+	Slow bool // the call was made and did not answer within callLimit; false: it was not made
+}
+
+func (e *BusyError) Error() string {
+	if e.Slow {
+		return fmt.Sprintf("libvirt on %s did not answer within %s", e.Host.Name, limitText(callLimit))
+	}
+	return fmt.Sprintf("libvirt on %s has not answered earlier calls yet, so this one was not made", e.Host.Name)
+}
+
+func (e *BusyError) Is(target error) bool { return target == ErrStorageBusy }
+
+func limitText(d time.Duration) string {
+	if d < time.Second {
+		return d.String()
+	}
+	return fmt.Sprintf("%d seconds", int(d/time.Second))
+}
+
+// busy turns a refusal of the gate into a *BusyError of h.
+func (h *Host) busy(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &BusyError{Host: h, Slow: errors.Is(err, errCallSlow)}
+}
 
 type storGate struct {
 	once  sync.Once
@@ -90,7 +127,7 @@ func (g *storGate) call(fn func()) error {
 			g.stuck.Add(-1)
 			g.release()
 		}()
-		return ErrStorageBusy
+		return errCallSlow
 	}
 }
 
@@ -112,21 +149,21 @@ func (g *storGate) hold(fn func()) error {
 // the gate a few VM pages used them all and the VM list and the node page timed out too.
 func (h *Host) DomainGetXMLDesc(d libvirt.Domain, flags libvirt.DomainXMLFlags) (xml string, err error) {
 	if gerr := h.gate.call(func() { xml, err = h.Libvirt.DomainGetXMLDesc(d, flags) }); gerr != nil {
-		return "", gerr
+		return "", h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) DomainGetBlockInfo(d libvirt.Domain, path string, flags uint32) (allocation, capacity, physical uint64, err error) {
 	if gerr := h.gate.call(func() { allocation, capacity, physical, err = h.Libvirt.DomainGetBlockInfo(d, path, flags) }); gerr != nil {
-		return 0, 0, 0, gerr
+		return 0, 0, 0, h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) ConnectListAllStoragePools(need int32, flags libvirt.ConnectListAllStoragePoolsFlags) (pools []libvirt.StoragePool, n uint32, err error) {
 	if gerr := h.gate.call(func() { pools, n, err = h.Libvirt.ConnectListAllStoragePools(need, flags) }); gerr != nil {
-		return nil, 0, gerr
+		return nil, 0, h.busy(gerr)
 	}
 	return
 }
@@ -135,56 +172,56 @@ func (h *Host) ConnectListAllStoragePools(need int32, flags libvirt.ConnectListA
 // limit, only a slot.
 func (h *Host) StoragePoolRefresh(p libvirt.StoragePool, flags uint32) (err error) {
 	if gerr := h.gate.hold(func() { err = h.Libvirt.StoragePoolRefresh(p, flags) }); gerr != nil {
-		return gerr
+		return h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StoragePoolGetInfo(p libvirt.StoragePool) (state uint8, capacity, allocation, available uint64, err error) {
 	if gerr := h.gate.call(func() { state, capacity, allocation, available, err = h.Libvirt.StoragePoolGetInfo(p) }); gerr != nil {
-		return 0, 0, 0, 0, gerr
+		return 0, 0, 0, 0, h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StoragePoolGetXMLDesc(p libvirt.StoragePool, flags libvirt.StorageXMLFlags) (xml string, err error) {
 	if gerr := h.gate.call(func() { xml, err = h.Libvirt.StoragePoolGetXMLDesc(p, flags) }); gerr != nil {
-		return "", gerr
+		return "", h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StoragePoolIsActive(p libvirt.StoragePool) (active int32, err error) {
 	if gerr := h.gate.call(func() { active, err = h.Libvirt.StoragePoolIsActive(p) }); gerr != nil {
-		return 0, gerr
+		return 0, h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StoragePoolListAllVolumes(p libvirt.StoragePool, need int32, flags uint32) (vols []libvirt.StorageVol, n uint32, err error) {
 	if gerr := h.gate.call(func() { vols, n, err = h.Libvirt.StoragePoolListAllVolumes(p, need, flags) }); gerr != nil {
-		return nil, 0, gerr
+		return nil, 0, h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StoragePoolLookupByName(name string) (pool libvirt.StoragePool, err error) {
 	if gerr := h.gate.call(func() { pool, err = h.Libvirt.StoragePoolLookupByName(name) }); gerr != nil {
-		return libvirt.StoragePool{}, gerr
+		return libvirt.StoragePool{}, h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StoragePoolGetAutostart(p libvirt.StoragePool) (auto int32, err error) {
 	if gerr := h.gate.call(func() { auto, err = h.Libvirt.StoragePoolGetAutostart(p) }); gerr != nil {
-		return 0, gerr
+		return 0, h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StorageVolLookupByName(p libvirt.StoragePool, name string) (vol libvirt.StorageVol, err error) {
 	if gerr := h.gate.call(func() { vol, err = h.Libvirt.StorageVolLookupByName(p, name) }); gerr != nil {
-		return libvirt.StorageVol{}, gerr
+		return libvirt.StorageVol{}, h.busy(gerr)
 	}
 	return
 }
@@ -192,21 +229,21 @@ func (h *Host) StorageVolLookupByName(p libvirt.StoragePool, name string) (vol l
 // StorageVolLookupByPath, StorageVolGetInfo and StorageVolGetXMLDesc look at the volume's file on disk.
 func (h *Host) StorageVolLookupByPath(file string) (vol libvirt.StorageVol, err error) {
 	if gerr := h.gate.call(func() { vol, err = h.Libvirt.StorageVolLookupByPath(file) }); gerr != nil {
-		return libvirt.StorageVol{}, gerr
+		return libvirt.StorageVol{}, h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StorageVolGetInfo(v libvirt.StorageVol) (typ int8, capacity, allocation uint64, err error) {
 	if gerr := h.gate.call(func() { typ, capacity, allocation, err = h.Libvirt.StorageVolGetInfo(v) }); gerr != nil {
-		return 0, 0, 0, gerr
+		return 0, 0, 0, h.busy(gerr)
 	}
 	return
 }
 
 func (h *Host) StorageVolGetXMLDesc(v libvirt.StorageVol, flags uint32) (xml string, err error) {
 	if gerr := h.gate.call(func() { xml, err = h.Libvirt.StorageVolGetXMLDesc(v, flags) }); gerr != nil {
-		return "", gerr
+		return "", h.busy(gerr)
 	}
 	return
 }
