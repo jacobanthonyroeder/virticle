@@ -182,7 +182,7 @@ Good to know:
 1. **Virtual machines > New VM** (or right-click a node > **Add VM**).
 2. Pick what to install from:
    - **Installer ISO**: boots an ISO from a pool. Upload ISOs under Storage.
-   - **Disk image**: copies a cloud image. Open **Cloud-init** to set the
+   - **Disk image**: copies a cloud image. Open **Guest setup** to set the
      user, password and SSH key. The guest agent is installed too.
    - **Empty disk**.
 3. A Linux VM gets UEFI firmware unless you choose BIOS under **Advanced** (a node without UEFI firmware gets BIOS).
@@ -209,13 +209,25 @@ Good to know:
 | Power | Start, stop and restart, gracefully or forced. |
 | Edit Settings | Name, CPU, memory, and the other Hardware cards. |
 | Snapshots | Take, manage, schedule. |
-| Clone | Clone the VM (shut it down first). A template is cloned linked; **Advanced** offers a full copy. |
+| Clone | Clone the VM (shut it down first). A template is cloned linked; **Advanced** offers a full copy. **Guest setup** sets a user, password, SSH keys and packages (see below). |
 | Convert to template | Optionally resets the identity of a running guest. **Convert back to a VM** undoes it. |
 | Migrate | To another node, or move a disk to another pool. |
 | Replication | Keep a standby copy on another node ([Replication and failover](#replication-and-failover)). |
 | More | **Edit XML**, and **Delete VM** (shut the VM down first; its disks are deleted too unless you untick the box). |
 
 Sync guest clock is under **Power**.
+
+**Guest setup on clone.** When you open **Guest setup** in the clone dialog, Virticle looks into the source's disk
+(a few seconds) and says how the settings reach the clone:
+
+| Line | Meaning |
+| --- | --- |
+| Applied by cloud-init at first start | The template has cloud-init: a seed disc, as for a cloud image. |
+| Written into the disk: this template has no cloud-init | A Linux template without cloud-init (installed from an ISO, say): the user, password, keys and host name are written into the clone's disk before it starts. Packages are installed at its first start. Profiles and raw user-data are not offered. |
+| Applied by Windows setup at first start | A Windows template: an answer file. |
+| Not possible: REASON | For example an unknown system or an encrypted disk. The fields are greyed out and a clone with such settings is refused. |
+
+Details: [reference](reference.md#guest-setup-on-clone).
 
 - **Tags** sit beside the name. Click **+ Add Tag**; filter by tag in the tree
   and the VM list.

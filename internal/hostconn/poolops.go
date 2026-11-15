@@ -165,6 +165,26 @@ func (h *Host) Sysprep(disks ...string) (string, error) {
 	return h.run("sysprep", disks...)
 }
 
+// GuestInspect looks, read only, at the system on the disks of a shut-off VM
+// with the guest disk tools (one guestfish appliance). It returns the node
+// command's JSON (nodecmd.GuestFacts).
+func (h *Host) GuestInspect(disks ...string) (string, error) {
+	out, err := h.run("guest-inspect", disks...)
+	if err != nil {
+		return "", errors.New(nodeCmdMessage(out, err))
+	}
+	return out, nil
+}
+
+// GuestCustomize writes a user, password hash, SSH keys, host name and
+// first-boot packages into the disks of a shut-off VM with virt-customize.
+// request is the JSON the node command reads (nodecmd.GuestRequest); it goes
+// on standard input, so the password hash is never on a command line. The
+// output of a failing run is returned with the error.
+func (h *Host) GuestCustomize(request string, disks ...string) (string, error) {
+	return h.RunNodeInput(request, "guest-customize", disks...)
+}
+
 // HasTool reports whether a program is on the node's PATH (no privilege needed).
 func (h *Host) HasTool(name string) bool {
 	_, err := h.Run("command -v " + Quote(name))

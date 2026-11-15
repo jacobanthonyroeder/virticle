@@ -388,7 +388,7 @@ stop is then seen as soon as the step ends:
 | Task | Not interruptible | Point of no return (a later stop does nothing) |
 | --- | --- | --- |
 | Restore | none | Moving the disks into place and defining the VM (a restore that replaces a VM removes the old one only after this point) |
-| Clone | `virt-sysprep` | Defining the VM |
+| Clone | `virt-sysprep`, `virt-customize` | Defining the VM |
 | Disk or OVA import | none | OVA: registering the finished volumes |
 | Backup import | none | Checking the archive and moving it into place |
 
@@ -615,12 +615,55 @@ again by itself:
 
 After a lost connection the controller tries again after 1 s, then waits twice as long each time, up to about 30 s.
 
+## Guest setup on clone
+
+The clone dialog's **Guest setup** section (user, password, SSH keys, packages) reaches the clone in one of these ways.
+The controller picks it; there is no option.
+
+| Guest of the source | How | Notes |
+| --- | --- | --- |
+| Windows (by the VM's OS entry or a Windows seal) | Answer file on a disc, read by Windows setup | As before: computer name, administrator, password only. |
+| Linux with cloud-init | NoCloud seed disc, read by cloud-init at first start | As before. |
+| Linux without cloud-init (or with `/etc/cloud/cloud-init.disabled`), Debian, Ubuntu, RHEL, CentOS, Fedora, Rocky, Alma, Oracle, openSUSE or SLES family, guest disk tools on the node | Written into the clone's disks while it is shut off, after the new identity step | See below. Profiles and raw user-data are refused: they need cloud-init. |
+| Anything else: another Linux (NixOS, Alpine, CirrOS), no system found, an encrypted disk, Windows on a VM not defined as Windows, `virt-customize` missing | Not possible | The dialog says "Not possible: REASON"; a clone request with these settings is refused with the same reason. |
+| Node without the guest disk tools (`prepare --minimal`) | Seed disc, not checked | The dialog says so: it needs cloud-init in the guest. |
+
+**Detection.** The node command (`guest-inspect`) starts one read-only `guestfish` appliance on the source's disks,
+runs the libguestfs inspection (system type, distribution, version, package manager) and looks for
+`/usr/bin/cloud-init`, `/etc/cloud/cloud-init.disabled`, `useradd`, `sudo`, `qemu-ga` and `/etc/selinux/config`.
+About 10 seconds on a small nested lab node. It runs when the section is first opened in the dialog. The answer is
+kept in the controller's memory: for a template as long as the size and allocation of its disks stay the same, for
+another shut-off VM 10 minutes. A running VM is not looked into.
+
+**Written into the disk** (`guest-customize`, `virt-customize --no-network`):
+
+- Host name: the clone's name (`--hostname`).
+- User: created when missing (`useradd -m`, shell bash, the `sudo` group or else `wheel`, and
+  `/etc/sudoers.d/90-virticle-USER` with `NOPASSWD:ALL`, as the seed disc gives). An existing user keeps its groups and
+  gets only the password and keys.
+- Password: hashed by the controller (SHA-512 crypt, as for the seed disc); the hash goes to the node on standard input
+  and into the guest script only. With a password, `/etc/ssh/sshd_config.d/00-virticle-password.conf` allows password
+  login, as the seed disc does.
+- SSH keys: appended to `~/.ssh/authorized_keys` (directory 700, file 600, owned by the user). On a guest with SELinux
+  the files are relabelled (`--selinux-relabel` for older virt-customize; newer ones relabel by themselves).
+- Packages: installed at the first start (a `--firstboot` script of the node command), by the guest's package manager
+  (`apt-get update` and `apt-get install`, `dnf`, `yum` or `zypper`) over the guest's own network, like cloud-init does.
+  The script tries again every 10 seconds for 5 minutes, because the first-boot service starts before the network has
+  an address. The guest agent is added when the guest has none, and `sudo` when it is missing and a
+  user is given. Not at clone time, because that would need network access from the node's appliance and make the
+  clone slow; a failed install shows only in the guest (`/root/virt-sysprep-firstboot.log`).
+
+The node command builds the guest script itself from a checked request (user name, hash, keys, package names and host
+name, each with a fixed pattern); the caller cannot pass commands. The script is in a private directory under
+`/run/virticle-node` while `virt-customize` runs and is removed afterwards.
+
 ## Versions and the node command
 
-- The node command protocol is **21** (0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
+- The node command protocol is **22** (0.4.0 had 21, 0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
   "prepared by an older version" (**Outdated** on the Nodes page) and must be prepared again
   ([install.md](install.md#upgrading)). The old node command would also refuse the new requests, because it rejects fields
   it does not know.
+- Verbs new since 0.4.0: `guest-inspect`, `guest-customize` ([Guest setup on clone](#guest-setup-on-clone)).
 - Verbs new since 0.3.x: `age-encrypt`, `age-decrypt` (encrypted backups), `copy-kill` (stopping a clone), and `sha256 PATH
   progress` (verify).
 - Verbs new in 0.3.0, by feature (all described in [install-node.md](install-node.md#verbs)): virtual switches

@@ -68,7 +68,7 @@ test.describe.serial("cloud-init profiles", () => {
     if (await dlg.getByRole("combobox", { name: "Storage pool" }).count()) await pickPool(dlg, "Storage pool", "default");
     await pick(dlg, "Base image", new RegExp("^" + env.cirros.replace(/\./g, "\\.")));
     await field(dlg, "Disk size (GiB)").fill("1");
-    await expect(dlg.locator("summary", { hasText: "Cloud-init" })).toContainText(PROF);
+    await expect(dlg.locator("summary", { hasText: "Guest setup" })).toContainText(PROF);
     await expect(field(dlg, "Profile")).toContainText(PROF);
     await expect(field(dlg, "User")).toHaveAttribute("placeholder", "cpuser");
     await expect(field(dlg, "Password")).toHaveAttribute("placeholder", "(from the profile)");

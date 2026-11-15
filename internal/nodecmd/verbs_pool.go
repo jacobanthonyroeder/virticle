@@ -1022,41 +1022,12 @@ func verbSysprep(c *Ctx) error {
 	}
 	var args []string
 	args = append(args, "--run-command", SysprepFixups)
-	for _, a := range c.Args {
-		r, err := c.ResolveMod(a)
-		if err != nil {
-			return err
-		}
-		format, err := func() (string, error) {
-			defer r.Close()
-			st, exists, _ := r.Lstat()
-			if !exists || !isRegMode(st.Mode) {
-				return "", Fail("%s is not a regular file", a)
-			}
-			f, err := r.Open(unix.O_RDONLY, 0)
-			if err != nil {
-				return "", Fail("cannot read %s", a)
-			}
-			defer f.Close()
-			format, err := sniffFormat(f)
-			if err != nil {
-				return "", Fail("cannot read %s", a)
-			}
-			switch format {
-			case "qcow2":
-				if err := c.CheckChain(r.Path); err != nil {
-					return "", err
-				}
-			case "raw":
-			default:
-				return "", Fail("%s is neither qcow2 nor raw", a)
-			}
-			return format, nil
-		}()
-		if err != nil {
-			return err
-		}
-		args = append(args, "--format", format, "-a", r.Path)
+	formats, paths, err := guestDisks(c)
+	if err != nil {
+		return err
+	}
+	for i := range paths {
+		args = append(args, "--format", formats[i], "-a", paths[i])
 	}
 	cmd, err := c.Command("virt-sysprep", args...)
 	if err != nil {

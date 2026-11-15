@@ -43,6 +43,7 @@ last, under [Planned](#planned).
 - [x] Create VM from a cloud image with cloud-init (hostname, user, password, SSH keys, packages, raw user-data); seed ISO built in pure Go
 - [x] Templates: mark a VM as a template; full and linked clones (same node)
 - [x] Inject SSH keys and user/password when cloning a template (cloud-init seed)
+- [x] Same for a Linux template without cloud-init: detected before Clone, written into the clone's disk (virt-customize), packages at first boot; refused with the reason where neither works
 - [x] Sysprep on clone, Linux: `virt-sysprep` where the node has it, else "seal template" through the guest agent
 - [~] Sysprep on clone, Windows: seal via `sysprep /generalize` through the agent and unattend ISO are written but UNTESTED (no Windows guest in the lab)
 

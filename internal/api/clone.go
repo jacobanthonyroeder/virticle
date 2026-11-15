@@ -220,9 +220,20 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var seed []byte
+	diskReq, setup := "", ""
 	if q.Customize != nil {
 		c := *q.Customize
-		if c.Profile != 0 {
+		g := guestSetup{Setup: setupUnattend}
+		if guest != "windows" {
+			g = s.decideSetup(h, src, guest, mark.Template, x)
+		}
+		setup = g.Setup
+		if g.Setup == setupDisk || g.Setup == "" {
+			if diskReq, err = g.diskRequest(q.Name, c); err != nil {
+				fail(w, err)
+				return
+			}
+		} else if c.Profile != 0 {
 			if guest == "windows" {
 				fail(w, badRequest("cloud-init profiles apply to Linux guests only"))
 				return
@@ -236,9 +247,11 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 			c = cloneCustomize{Hostname: cfg.Hostname, User: cfg.User, Password: cfg.Password, SSHKeys: cfg.SSHKeys,
 				Packages: cfg.Packages, RawUserData: cfg.RawUserData, passwordHash: cfg.PasswordHash}
 		}
-		if seed, err = buildSeed(guest, q.Name, c); err != nil {
-			fail(w, err)
-			return
+		if diskReq == "" {
+			if seed, err = buildSeed(guest, q.Name, c); err != nil {
+				fail(w, err)
+				return
+			}
 		}
 	}
 
@@ -361,8 +374,16 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// The definition is the short last step: a stop that comes later changes nothing. virt-sysprep itself
-		// cannot be interrupted; a stop during it is seen here.
+		if diskReq != "" {
+			// After the new identity: virt-sysprep removes the users' .ssh directories.
+			progress(float64(len(plan)) / float64(len(plan)+1))
+			if out, err := h.GuestCustomize(diskReq, newDisks...); err != nil {
+				return rollback(fmt.Errorf("writing the user and settings into the disk failed: %v: %s", err, tail(out, 1500)))
+			}
+		}
+
+		// The definition is the short last step: a stop that comes later changes nothing. virt-sysprep and
+		// virt-customize cannot be interrupted; a stop during them is seen here.
 		if !st.commit() {
 			return rollback(stoppedErr("clone"))
 		}
@@ -385,7 +406,7 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	resp := map[string]any{"uuid": uuid, "sysprep": mechanism, "guest": guest}
+	resp := map[string]any{"uuid": uuid, "sysprep": mechanism, "guest": guest, "setup": setup}
 	if nvramNote != "" {
 		resp["warning"] = nvramNote
 	}
