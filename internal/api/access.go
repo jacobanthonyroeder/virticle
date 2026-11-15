@@ -230,6 +230,7 @@ var routeLevels = map[string]string{
 	"GET /api/backups":                                          viewer,
 	"POST /api/nodes/{node}/backups/import":                     operator,
 	"POST /api/nodes/{node}/backups/{pool}/{name}/restore":      operator,
+	"POST /api/nodes/{node}/backups/{pool}/{name}/verify":       operator,
 	"GET /api/nodes/{node}/backups/{pool}/{name}/export":        operator, // the export holds the disk contents
 	"POST /api/nodes/{node}/backups/{pool}/{name}/export-key":   operator,
 	"DELETE /api/nodes/{node}/backups/{pool}/{name}":            operator,

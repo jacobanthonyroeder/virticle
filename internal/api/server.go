@@ -287,6 +287,7 @@ func (s *Server) Handler() http.Handler {
 	auth("GET /api/backups", s.listBackupsHandler)
 	auth("POST /api/nodes/{node}/backups/import", s.needs("backups", s.importBackup))
 	auth("POST /api/nodes/{node}/backups/{pool}/{name}/restore", s.needs("backups", s.restoreBackup))
+	auth("POST /api/nodes/{node}/backups/{pool}/{name}/verify", s.needs("backups", s.verifyBackup))
 	auth("GET /api/nodes/{node}/backups/{pool}/{name}/export", s.needs("backups", s.exportBackup))
 	auth("POST /api/nodes/{node}/backups/{pool}/{name}/export-key", s.needs("backups", s.exportBackupKey))
 	auth("DELETE /api/nodes/{node}/backups/{pool}/{name}", s.needs("backups", s.deleteBackup))

@@ -125,3 +125,24 @@ func TestSetConflictsKeepsUnscannedNodes(t *testing.T) {
 		t.Errorf("%+v", got)
 	}
 }
+
+// The next run a backup sees: from the schedule's timing, with this backup as the newest one.
+func TestBackupSchedulePointAt(t *testing.T) {
+	daily := backupSchedule{Enabled: true, Mode: "daily", At: "23:00", Pool: "p", KeepWeekly: 4}
+	sun := time.Date(2026, 11, 8, 23, 0, 30, 0, time.UTC) // the Sunday run, a little late
+	if p := daily.pointAt(sun); p == nil || !p.Next.Equal(time.Date(2026, 11, 9, 23, 0, 0, 0, time.UTC)) || p.Policy.Weekly != 4 {
+		t.Fatalf("daily run: %+v", p)
+	}
+	// A manual backup before the day's slot: the scheduled run still comes that evening.
+	if p := daily.pointAt(time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)); p == nil || !p.Next.Equal(time.Date(2026, 11, 8, 23, 0, 0, 0, time.UTC)) {
+		t.Fatalf("manual run before the slot: %+v", p)
+	}
+	iv := backupSchedule{Enabled: true, Mode: "interval", EveryMinutes: 90, Pool: "p", KeepMonthly: 3}
+	if p := iv.pointAt(sun); p == nil || !p.Next.Equal(sun.Add(90*time.Minute)) {
+		t.Fatalf("interval run: %+v", p)
+	}
+	daily.Enabled = false
+	if p := daily.pointAt(sun); p != nil {
+		t.Fatalf("a paused schedule has no next run: %+v", p)
+	}
+}

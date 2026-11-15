@@ -233,6 +233,46 @@ func plan(times []time.Time, p Policy, loc *time.Location) []ruleSet {
 	return out
 }
 
+// PointSlack is how late a scheduled run may start (the scheduler looks every 20 seconds, at a target at most once a
+// minute).
+const PointSlack = 2 * time.Minute
+
+// PointFull reports whether a scheduled backup made at t should be a full one because the policy keeps it as a
+// weekly or monthly point: a kept incremental backup keeps its whole chain, and a long-term point is kept for weeks
+// or months. Plan keeps the newest backup of each week and month, so the point of a period is its last run: the run
+// whose next run (next, from the schedule) falls into a later period. It is made full only when it would otherwise
+// build on a backup of its own period (prev, the newest backup before it; zero for none), which the point replaces
+// and which no long-term rule keeps. A backup that is alone in its period builds on the point before it, kept
+// anyway. A next run due less than PointSlack (at most half a step) before the period ends counts as one in the
+// next period: the scheduler may start it that much late. The scheduler and Project both decide with this function.
+// loc is the zone of Plan; nil means UTC.
+func PointFull(p Policy, prev, t, next time.Time, loc *time.Location) bool {
+	if prev.IsZero() || !next.After(t) {
+		return false
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	slack := PointSlack
+	if half := next.Sub(t) / 2; half < slack {
+		slack = half
+	}
+	next = next.Add(slack)
+	for _, r := range []struct {
+		rule  string
+		count int
+	}{{Weekly, p.Weekly}, {Monthly, p.Monthly}} {
+		if r.count == 0 {
+			continue
+		}
+		pd := periodOf(r.rule, t.In(loc))
+		if periodOf(r.rule, next.In(loc)) != pd && periodOf(r.rule, prev.In(loc)) == pd {
+			return true
+		}
+	}
+	return false
+}
+
 // Item is one backup for PlanChains: when it was made and the index of the backup it builds on (-1 for a
 // backup that needs no other one).
 type Item struct {

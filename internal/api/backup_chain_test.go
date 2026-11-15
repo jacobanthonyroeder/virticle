@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"virticle/internal/retention"
 )
 
 var t0 = time.Date(2026, 3, 1, 3, 0, 0, 0, time.UTC)
@@ -110,6 +112,18 @@ func TestDecideEveryFallback(t *testing.T) {
 			in.Backups = chainN(chainBackups - 1)
 			in.Checkpoints = cks("virticle-" + string(rune('a'+chainBackups-2)))
 		}, kindIncremental, "", true, "vm-" + string(rune('a'+chainBackups-2)) + ".vmbackup"},
+		{"the schedule keeps the run as a weekly point (Sunday 8 March)", func(in *incrInput) {
+			in.Backups, in.Checkpoints = good, cks("virticle-b")
+			in.Sched = &pointSched{Policy: retention.Policy{Daily: 7, Weekly: 4}, Now: t0.AddDate(0, 0, 7), Next: t0.AddDate(0, 0, 8), Loc: time.UTC}
+		}, kindFull, whyPoint, true, ""},
+		{"the schedule keeps the run as a monthly point (31 March)", func(in *incrInput) {
+			in.Backups, in.Checkpoints = good, cks("virticle-b")
+			in.Sched = &pointSched{Policy: retention.Policy{Monthly: 6}, Now: t0.AddDate(0, 0, 30), Next: t0.AddDate(0, 0, 31), Loc: time.UTC}
+		}, kindFull, whyPoint, true, ""},
+		{"a mid-week run of a schedule with weekly points stays incremental", func(in *incrInput) {
+			in.Backups, in.Checkpoints = good, cks("virticle-b")
+			in.Sched = &pointSched{Policy: retention.Policy{Daily: 7, Weekly: 4}, Now: t0.AddDate(0, 0, 2), Next: t0.AddDate(0, 0, 3), Loc: time.UTC}
+		}, kindIncremental, "", true, "vm-b.vmbackup"},
 		{"another VM's backup in the pool is not a base", func(in *incrInput) {
 			b := chainN(1)
 			b[0].M.UUID = "6f1a2b3c-0000-4000-8000-000000000002"

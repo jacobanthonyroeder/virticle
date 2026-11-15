@@ -293,5 +293,5 @@ function sizeBasis(p: Projection): string {
     : s.incremental
       ? `incremental average ${bytes(s.incremental)} (of ${s.measured})`
       : "incremental size unknown: 2 to 20% of a full backup each";
-  return `Estimate from ${full}, ${inc}; a full backup after every 6 incremental ones. In use there now: ${bytes(p.used)}.`;
+  return `Estimate from ${full}, ${inc}; a full backup after every 6 incremental ones and for each weekly and monthly backup. In use there now: ${bytes(p.used)}.`;
 }

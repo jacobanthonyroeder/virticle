@@ -324,7 +324,7 @@ table.vmlist td.vmnode { max-width: 150px; overflow-wrap: anywhere; }
 td.nodeactions { white-space: normal; }
 td.nodeactions > * { margin: 0 0 6px 6px; }
 
-/* The Backups table: the VM name stays on one line and the three actions stay in one row (a phone scrolls the table instead). */
+/* The Backups table: the VM name stays on one line and the actions stay in one row (a phone scrolls the table instead). */
 td.bkname strong { white-space: nowrap; }
 td.bkactions .actions { flex-wrap: nowrap; }
 td.bkactions { width: 1%; }
