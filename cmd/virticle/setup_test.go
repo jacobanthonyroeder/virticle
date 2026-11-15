@@ -98,15 +98,21 @@ func TestSetupNeedsRoot(t *testing.T) {
 
 func TestSetupOpensTheWebPortAndSaysWhereToGo(t *testing.T) {
 	h := &host{fwApply: "@@kind firewalld\n@@changed\n", unit: "unit=yes\nactive=inactive\nenabled=no\n"}
-	rows := runSetup(envFor(h, webaccess.FirstRunDefaults(), "default", false), setupOpts{})
+	res := runSetupAll(envFor(h, webaccess.FirstRunDefaults(), "default", false), setupOpts{})
 	want := `info | Web access | HTTPS on TCP port 8463 (the default for a first start).
+info | Administrator | None yet. Create it in the web interface, or run: sudo virticle setup --admin NAME --admin-password-file FILE
 ok | Firewall | Opened TCP port 8463 in firewalld (service virticle).
 ok | Service | Enabled and started virticle.service.
-info | Next | open https://192.0.2.10:8463 to create the administrator
-info | Virtual machines | To run virtual machines on this machine too, choose 'Set up this machine as a node' on the start page.
+info | Node | This machine is not a node. To run virtual machines on it too: sudo virticle node add
 `
-	if got := rowText(rows); got != want {
+	if got := rowText(res.rows); got != want {
 		t.Errorf("rows:\n%s\nwant:\n%s", got, want)
+	}
+	if res.url != "https://192.0.2.10:8463" || res.hasUser || res.addNode {
+		t.Errorf("%+v", res)
+	}
+	if s := summaryText(true, res, nil, nil); !strings.HasSuffix(s, "Open https://192.0.2.10:8463 to create the administrator.\n") {
+		t.Errorf("summary:\n%s", s)
 	}
 	if !h.applied("8463") {
 		t.Error("the web port was not sent to the firewall script")
@@ -119,12 +125,17 @@ func TestSetupAgainSaysAlreadyAndUsesStoredSettings(t *testing.T) {
 	h := &host{fwApply: "@@kind firewalld\n@@unchanged\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}
 	e := envFor(h, ws, "stored", true)
 	e.hasKVM = false
-	got := rowText(runSetup(e, setupOpts{}))
+	e.admins = func() []string { return []string{"ann"} }
+	res := runSetupAll(e, setupOpts{admin: "ann", adminPassword: "0123456789"})
+	got := rowText(res.rows)
 	want := `info | Web access | HTTPS on TCP port 9443 (stored settings).
+ok | Administrator | Already set up (ann).
 ok | Firewall | TCP port 9443 is already open in firewalld (service virticle).
 ok | Service | virticle.service is already running and enabled.
-info | Next | open https://192.0.2.10:9443 to sign in
 `
+	if res.url != "https://192.0.2.10:9443" || !res.hasUser {
+		t.Errorf("%+v", res)
+	}
 	if got != want {
 		t.Errorf("rows:\n%s\nwant:\n%s", got, want)
 	}
@@ -152,8 +163,9 @@ func TestSetupCheckChangesNothing(t *testing.T) {
 
 func TestSetupLoopbackNeedsNoPortAndClosesAnOldOne(t *testing.T) {
 	h := &host{fwApply: "@@kind firewalld\n@@changed\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}
-	got := rowText(runSetup(envFor(h, webaccess.Defaults(), "stored", true), setupOpts{}))
-	for _, must := range []string{"HTTP on this computer only (127.0.0.1:8080), so no firewall port is needed", "Removed the firewalld service virticle.", "open http://127.0.0.1:8080 to sign in"} {
+	res := runSetupAll(envFor(h, webaccess.Defaults(), "stored", true), setupOpts{})
+	got := rowText(res.rows) + summaryText(true, res, []string{"ann"}, nil)
+	for _, must := range []string{"HTTP on this computer only (127.0.0.1:8080), so no firewall port is needed", "Removed the firewalld service virticle.", "Open http://127.0.0.1:8080 to sign in."} {
 		if !strings.Contains(got, must) {
 			t.Errorf("lacks %q:\n%s", must, got)
 		}
@@ -170,7 +182,7 @@ func TestSetupFirewallFailureIsAWarningAndSetupGoesOn(t *testing.T) {
 	if !strings.Contains(got, "warning | Firewall | The firewall command `ufw allow 8463/tcp comment 'virticle'` failed (boom)") || !strings.Contains(got, "Run as root: ufw allow 8463/tcp comment 'virticle'") {
 		t.Errorf("%s", got)
 	}
-	if !strings.Contains(got, "info | Next |") || exitCode(rows) != 0 {
+	if !strings.Contains(got, "ok | Service |") || exitCode(rows) != 0 {
 		t.Errorf("setup must go on and exit 0:\n%s", got)
 	}
 }
@@ -229,7 +241,7 @@ func TestAnyLocalAddr(t *testing.T) {
 	}
 	e := envFor(&host{fwApply: "@@kind firewalld\n@@unchanged\n", unit: "unit=yes\nactive=active\nenabled=yes\n"}, webaccess.FirstRunDefaults(), "stored", true)
 	e.hasLocalNode = true
-	if strings.Contains(rowText(runSetup(e, setupOpts{})), "Set up this machine as a node") {
-		t.Error("a machine that is already a node must not be told to become one")
+	if got := rowText(runSetup(e, setupOpts{})); !strings.Contains(got, "ok | Node | This machine is a node already.") {
+		t.Errorf("a machine that is already a node must not be told to become one:\n%s", got)
 	}
 }

@@ -35,6 +35,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "setup" {
 		os.Exit(setupCommand(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "status" {
+		os.Exit(statusCommand(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "user" {
 		os.Exit(userCommand(os.Args[2:]))
 	}
@@ -131,6 +134,9 @@ func main() {
 		TrustedProxies: proxies, NoScheduler: *noScheduler, InstanceID: id, DataDir: *data}
 	if *noScheduler {
 		log.Printf("scheduled snapshots and backups are disabled in this controller (-no-scheduler)")
+	}
+	if lock != nil {
+		serveLocalSocket(srv, *data) // ctlsock.go: "virticle node add", "virticle status"
 	}
 	startWeb(srv, st, *data, flagListen{listen: *listen, cert: *tlsCert, key: *tlsKey, insecure: *insecure, trusted: *trusted, proxies: proxies}, len(nodes))
 }
