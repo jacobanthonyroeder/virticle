@@ -338,7 +338,7 @@ backup per day for a week, one per week for a month and one per month for half a
 **Frozen file systems.** For a running VM with the QEMU guest agent connected, Virticle freezes the guest's file systems
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
 the files (databases and journals included). The task says "guest file systems frozen" or "not frozen:" with the reason (no
-guest agent, agent not answering). If the freeze fails the backup is made anyway. Scheduled backups freeze the guest the same way.
+guest agent, agent not answering, no freeze within 2 minutes). If the freeze fails the backup is made anyway. Scheduled backups freeze the guest the same way.
 A shut-off VM has nothing to freeze. If Virticle cannot thaw the guest afterwards, the task fails and says how to thaw it by hand.
 
 The **Backups** page in the top bar lists the backups of every VM on every node. The backup of the controller itself is

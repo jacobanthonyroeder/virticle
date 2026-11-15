@@ -22,11 +22,15 @@ const (
 )
 
 // How long to wait for the freeze and for one thaw attempt. A Windows guest
-// freezes through VSS, which takes 15 to 30 seconds on a slow host, so the
-// freeze gets a generous wait; the guest-info check has already shown that the
-// agent answers.
+// freezes through VSS: the agent first gathers the writers' metadata and
+// prepares the backup, which have no limit of their own, and then waits up to
+// 60 seconds for VSS to report the volumes frozen. On a busy host, or right
+// after heavy disk activity, that took longer than 45 seconds. The guest's
+// disks are not held while the freeze is being prepared, so a long wait costs
+// the backup time and nothing else; the guest-info check has already shown
+// that the agent answers.
 var (
-	freezeWait = 45 * time.Second
+	freezeWait = 2 * time.Minute
 	thawWait   = 40 * time.Second
 )
 
@@ -52,6 +56,15 @@ type freezeOutcome struct {
 	Text    string // the one clause the task shows
 	ThawErr error  // set when the guest may still be frozen
 }
+
+// freezeLate is a freeze that did not finish in time. The call goes on in the
+// background and the guest is thawed if it ever takes effect, so it needs no
+// thaw now (a thaw would only wait behind it: libvirt runs one agent command
+// per guest at a time).
+type freezeLate struct{ err error }
+
+func (e *freezeLate) Error() string { return e.err.Error() }
+func (e *freezeLate) Unwrap() error { return e.err }
 
 // freezeNotTried marks a Freeze error that came before anything was sent to the guest to freeze.
 type freezeNotTried struct{ err error }
@@ -89,8 +102,9 @@ func withFrozenGuest(quiesce *bool, agent bool, g guestFreezer, begin func() err
 		// A freeze that timed out may still have taken effect: thaw to be sure.
 		out := freezeOutcome{Text: frozenNo + freezeReason(ferr)}
 		var nt *freezeNotTried
-		if !errors.As(ferr, &nt) {
-			out.ThawErr = g.Thaw() // one try: an agent that cannot freeze in time rarely thaws in time
+		var late *freezeLate
+		if !errors.As(ferr, &nt) && !errors.As(ferr, &late) {
+			out.ThawErr = g.Thaw() // a failed freeze may have frozen some file systems
 		}
 		if explicit {
 			return out, &freezeFail{fmt.Errorf("could not freeze the guest file systems: %v. Check that qemu-guest-agent runs in the guest, or back up without freezing", ferr)}
@@ -152,10 +166,45 @@ func (a agentFreezer) Freeze() error {
 		return &freezeNotTried{errors.New("the guest agent cannot freeze file systems")}
 	}
 	// The freeze is libvirt's own (it sends guest-fsfreeze-freeze and waits for the agent as long as it takes).
-	return within(freezeWait, "the guest did not freeze in time", func() error {
+	return freezeWithin(freezeWait, func() error {
 		_, err := a.h.DomainFsfreeze(a.dom, nil, 0)
 		return err
+	}, func() {
+		log.Printf("backup: the guest file systems of %s froze after the wait had ended; thawing them", a.dom.Name)
+		if err := thawWithRetries(a); err != nil {
+			log.Printf("backup: %s", thawProblem(a.dom.Name, err))
+		}
 	})
+}
+
+// freezeWithin runs freeze and waits for it up to d. When the wait runs out the
+// call goes on (libvirt cannot cancel it) and a *freezeLate is returned; if the
+// call then succeeds, the guest is frozen with nobody to thaw it, so thaw runs.
+func freezeWithin(d time.Duration, freeze func() error, thaw func()) error {
+	done := make(chan error, 1)
+	go func() { done <- freeze() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(d):
+		go func() {
+			if <-done == nil {
+				thaw()
+			}
+		}()
+		return &freezeLate{fmt.Errorf("the guest did not freeze within %s", waitText(d))}
+	}
+}
+
+// waitText says a wait in words for the task note: "2 minutes", "45 seconds".
+func waitText(d time.Duration) string {
+	if d >= time.Minute && d%time.Minute == 0 {
+		if d == time.Minute {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", d/time.Minute)
+	}
+	return fmt.Sprintf("%d seconds", (d+time.Second/2)/time.Second)
 }
 
 func (a agentFreezer) Thaw() error {

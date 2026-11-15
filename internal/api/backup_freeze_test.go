@@ -54,6 +54,8 @@ func TestWithFrozenGuest(t *testing.T) {
 		{"auto, agent, freeze ok", nil, true, nil, nil, "freeze,begin,thaw", true, "guest file systems frozen", ""},
 		{"auto, agent, freeze fails", nil, true, boom, nil, "freeze,thaw,begin", false, "not frozen: boom", ""},
 		{"auto, agent, freeze never sent", nil, true, &freezeNotTried{boom}, nil, "freeze,begin", false, "not frozen: boom", ""},
+		{"auto, agent, freeze late", nil, true, &freezeLate{boom}, nil, "freeze,begin", false, "not frozen: boom", ""},
+		{"true, agent, freeze late", boolp(true), true, &freezeLate{boom}, nil, "freeze", false, "not frozen: boom", "freeze"},
 		{"auto, no agent", nil, false, nil, nil, "begin", false, "not frozen: no guest agent", ""},
 		{"true, agent, freeze ok", boolp(true), true, nil, nil, "freeze,begin,thaw", true, "guest file systems frozen", ""},
 		{"true, agent, freeze fails", boolp(true), true, boom, nil, "freeze,thaw", false, "not frozen: boom", "freeze"},
@@ -178,5 +180,60 @@ func TestWithin(t *testing.T) {
 	err := within(20*time.Millisecond, "late", func() error { <-release; return nil })
 	if err == nil || err.Error() != "late" || time.Since(start) > time.Second {
 		t.Errorf("hung call: %v after %v", err, time.Since(start))
+	}
+}
+
+func TestFreezeWithin(t *testing.T) {
+	boom := errors.New("boom")
+	thawed := make(chan struct{}, 1)
+	thaw := func() { thawed <- struct{}{} }
+	if err := freezeWithin(time.Second, func() error { return nil }, thaw); err != nil {
+		t.Errorf("fast freeze: %v", err)
+	}
+	if err := freezeWithin(time.Second, func() error { return boom }, thaw); err != boom {
+		t.Errorf("failing freeze: %v", err)
+	}
+	// A freeze that lands after the wait is thawed; the caller is not kept waiting.
+	release := make(chan error)
+	start := time.Now()
+	err := freezeWithin(20*time.Millisecond, func() error { return <-release }, thaw)
+	var late *freezeLate
+	if !errors.As(err, &late) || time.Since(start) > time.Second {
+		t.Fatalf("late freeze: %v after %v", err, time.Since(start))
+	}
+	if !strings.Contains(err.Error(), "did not freeze within") {
+		t.Errorf("message %q", err)
+	}
+	select {
+	case <-thawed:
+		t.Fatal("thawed before the freeze landed")
+	default:
+	}
+	release <- nil
+	select {
+	case <-thawed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a freeze that landed late was not thawed")
+	}
+	// A late freeze that fails froze nothing: no thaw.
+	release2 := make(chan error)
+	_ = freezeWithin(20*time.Millisecond, func() error { return <-release2 }, thaw)
+	release2 <- boom
+	select {
+	case <-thawed:
+		t.Error("thawed after a failed freeze")
+	case <-time.After(100 * time.Millisecond):
+	}
+	// Nothing was thawed from earlier calls either.
+	if len(thawed) != 0 {
+		t.Error("unexpected thaw")
+	}
+}
+
+func TestWaitText(t *testing.T) {
+	for d, want := range map[time.Duration]string{2 * time.Minute: "2 minutes", time.Minute: "1 minute", 45 * time.Second: "45 seconds", 90 * time.Second: "90 seconds"} {
+		if got := waitText(d); got != want {
+			t.Errorf("waitText(%v) = %q, want %q", d, got, want)
+		}
 	}
 }
