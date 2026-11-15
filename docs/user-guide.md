@@ -781,7 +781,7 @@ stopped); select the arrow to open one. The filter finds a switch, a network or 
 
 The card or bridge that holds the address the controller uses to reach the node is marked **Management**; the address
 that carries migrations is marked **Migration**. Administrators change both with **Edit** on a switch or on an unused card
-that has an address: one **Management** and one **Migration** checkbox per address, then **Save**.
+that has an address (a bridge that libvirt owns, for a NAT, routed or isolated network, has no **Edit**: no other node can reach the node there): one **Management** and one **Migration** checkbox per address, then **Save**.
 
 | Checkbox | Effect |
 | --- | --- |

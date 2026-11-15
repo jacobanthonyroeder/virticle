@@ -253,7 +253,8 @@ earlier versions no longer exist.
 ## Migration network and limit
 
 - Each node has a migration network: the address other nodes send migration data and file copies to. Default: the
-  management address. `GET` and `PUT /api/nodes/{id}/migration-network` read and change it (`address`, and `limit`).
+  management address. `GET` and `PUT /api/nodes/{id}/migration-network` read and change it (`address`, and `limit`). An address on a bridge that libvirt owns (a NAT, routed or
+  isolated network, `virbr*`) is refused with 400 while the node is online.
 - Limit on a shared link, per node: `""` (default, 80% of the link speed when known, else none), `"none"` or
   `"custom:<Mbit/s>"`. It applies only while migration data shares the interface of the management address. The lower
   limit of the two nodes wins. `bandwidthMiB` in a migrate request replaces it.

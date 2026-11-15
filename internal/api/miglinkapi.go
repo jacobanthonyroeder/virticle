@@ -127,6 +127,11 @@ func (s *Server) applyMigrationNetwork(id int64, cur store.Node, addr, limit, wh
 	limit = l.String()
 	var res migNetResult
 	addrChanged := addr != cur.MigrationAddr
+	if addrChanged && addr != "" {
+		if iface := s.libvirtOwnedIface(id, addr); iface != "" {
+			return migNetResult{}, badRequest(addr + " is on " + iface + ", a network that libvirt keeps on the node; no other node can reach it")
+		}
+	}
 	if !addrChanged && limit == cur.MigrationLimit {
 		res.migNetInfo = s.migNetInfoOf(id, cur)
 		return res, nil
@@ -154,6 +159,49 @@ func (s *Server) applyMigrationNetwork(id int64, cur store.Node, addr, limit, wh
 	log.Printf("node %d: %s", id, "migration network changed by "+who+": "+describeMigChange(cur, next))
 	res.migNetInfo = s.migNetInfoOf(id, next)
 	return res, nil
+}
+
+// libvirtOwnedIface returns the interface that carries addr when it belongs to a bridge libvirt owns (NAT, routed or
+// isolated network, or a name that is never reachable from outside), else "". A node that is offline cannot be asked.
+func (s *Server) libvirtOwnedIface(id int64, addr string) string {
+	h, err := s.Nodes.Host(id)
+	if err != nil {
+		return ""
+	}
+	nics, err := hostNICList(h)
+	if err != nil {
+		return ""
+	}
+	own := map[string]bool{}
+	if nets, _, err := h.ConnectListAllNetworks(1, 0); err == nil {
+		for _, n := range nets {
+			info, err := describeNetwork(h, n, nil, false)
+			if err == nil && info.Bridge != "" && info.Forward != "bridge" {
+				own[info.Bridge] = true
+			}
+		}
+	}
+	return ownedIface(nics, own, addr)
+}
+
+// ownedIface is the pure part of libvirtOwnedIface: own holds the bridges that libvirt networks create.
+func ownedIface(nics []hostNIC, own map[string]bool, addr string) string {
+	host, _ := splitAddr(addr)
+	want, ok := usableIP(host)
+	if !ok {
+		return ""
+	}
+	for _, n := range nics {
+		if !own[n.Name] && !hiddenNIC(n) {
+			continue
+		}
+		for _, a := range n.Addresses {
+			if ip, ok := usableIP(a); ok && ip == want {
+				return n.Name
+			}
+		}
+	}
+	return ""
 }
 
 func describeMigChange(a, b store.Node) string {
