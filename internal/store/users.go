@@ -121,6 +121,16 @@ func migrate(db *sql.DB) error {
 	if err := addColumn(tx, "audit", "detail", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	// Schema 7: operation traces (ops.go).
+	if err := addColumn(tx, "audit", "trace", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := addColumn(tx, "tasks", "trace", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(opsSchema); err != nil {
+		return err
+	}
 	if err := migrateNodes(tx); err != nil {
 		return err
 	}
@@ -517,11 +527,14 @@ type AuditEntry struct {
 	Status int    `json:"status"`
 	// Detail says what a sign-in or settings request did, where the path and status cannot (never a secret).
 	Detail string `json:"detail,omitempty"`
+	// Trace is the id of the request's operation trace (ops.go); Ops is how many operations it has.
+	Trace int64 `json:"-"`
+	Ops   int   `json:"ops,omitempty"`
 }
 
 func (s *Store) AddAudit(e AuditEntry) error {
-	res, err := s.db.Exec(`INSERT INTO audit(time, username, token, ip, method, path, status, detail) VALUES(?,?,?,?,?,?,?,?)`,
-		e.Time, e.User, e.Token, e.IP, e.Method, e.Path, e.Status, e.Detail)
+	res, err := s.db.Exec(`INSERT INTO audit(time, username, token, ip, method, path, status, detail, trace) VALUES(?,?,?,?,?,?,?,?,?)`,
+		e.Time, e.User, e.Token, e.IP, e.Method, e.Path, e.Status, e.Detail, e.Trace)
 	if err != nil {
 		return err
 	}
@@ -536,8 +549,10 @@ func (s *Store) PruneAudit() error {
 	if _, err := s.db.Exec(`DELETE FROM audit WHERE time<?`, time.Now().Add(-auditMaxAge).Unix()); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`DELETE FROM audit WHERE id <= (SELECT max(id) FROM audit) - ?`, auditMaxRows)
-	return err
+	if _, err := s.db.Exec(`DELETE FROM audit WHERE id <= (SELECT max(id) FROM audit) - ?`, auditMaxRows); err != nil {
+		return err
+	}
+	return s.PruneOps()
 }
 
 type AuditFilter struct {
@@ -550,7 +565,7 @@ type AuditFilter struct {
 
 // Audit returns entries newest first.
 func (s *Store) Audit(f AuditFilter) ([]AuditEntry, error) {
-	q := `SELECT id, time, username, token, ip, method, path, status, detail FROM audit WHERE 1=1`
+	q := `SELECT id, time, username, token, ip, method, path, status, detail, ` + fmt.Sprintf(opCount, "audit", "audit") + ` FROM audit WHERE 1=1`
 	var args []any
 	add := func(cond string, v any) { q += " AND " + cond; args = append(args, v) }
 	if f.User != "" {
@@ -587,7 +602,7 @@ func (s *Store) Audit(f AuditFilter) ([]AuditEntry, error) {
 	out := []AuditEntry{}
 	for rows.Next() {
 		var e AuditEntry
-		if err := rows.Scan(&e.ID, &e.Time, &e.User, &e.Token, &e.IP, &e.Method, &e.Path, &e.Status, &e.Detail); err != nil {
+		if err := rows.Scan(&e.ID, &e.Time, &e.User, &e.Token, &e.IP, &e.Method, &e.Path, &e.Status, &e.Detail, &e.Ops); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

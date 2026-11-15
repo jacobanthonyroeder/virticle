@@ -63,7 +63,7 @@ func NodeCmd(p Privilege, verb string, args ...string) (cmd string, ok bool) {
 
 // nodeCmd is NodeCmd for this connection's privilege.
 func (h *Host) nodeCmd(verb string, args ...string) (string, error) {
-	cmd, ok := NodeCmd(h.priv, verb, args...)
+	cmd, ok := NodeCmd(h.Base().priv, verb, args...)
 	if !ok {
 		return "", ErrNoPrivilege
 	}

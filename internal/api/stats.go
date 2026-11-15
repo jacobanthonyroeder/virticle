@@ -274,6 +274,7 @@ type stalledCount struct {
 
 // swap stores n for the node and returns the number stored before.
 func (c *stalledCount) swap(h *hostconn.Host, n int) int {
+	h = h.Base() // a key: views of one host share its entries
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	old := c.m[h]

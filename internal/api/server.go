@@ -22,6 +22,7 @@ import (
 	"virticle/internal/catalog"
 	"virticle/internal/cluster"
 	"virticle/internal/hostconn"
+	"virticle/internal/optrace"
 	"virticle/internal/secretbox"
 	"virticle/internal/store"
 	"virticle/internal/webaccess"
@@ -136,6 +137,8 @@ func (s *Server) Handler() http.Handler {
 	auth("GET /api/me/prefs", s.getPrefs)
 	auth("PUT /api/me/prefs", s.putPrefs)
 	auth("GET /api/audit", s.auditLog)
+	auth("GET /api/audit/{id}/ops", s.auditOps)
+	auth("GET /api/tasks/{id}/ops", s.taskOps)
 	auth("GET /api/controller-backup", s.ctlBackupStatus)
 	auth("PUT /api/controller-backup", s.putCtlBackup)
 	auth("POST /api/controller-backup/preview", s.previewCtlBackup)
@@ -409,6 +412,11 @@ func (s *Server) host(r *http.Request) (int64, *hostconn.Host, error) {
 		return 0, nil, store.ErrNotFound
 	}
 	h, err := s.Nodes.Host(id)
+	if err == nil {
+		if tr := optrace.From(r.Context()); tr != nil {
+			h = h.Traced(tr, s.nodeLabel(id, h.Name))
+		}
+	}
 	return id, h, err
 }
 
@@ -470,6 +478,7 @@ func (s *Server) taskStop(r *http.Request, kind, target, node string, stop taskS
 	if err != nil {
 		return err
 	}
+	s.linkTask(r, &t)
 	s.stoppable(&t, stop)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
 	last := 0.0

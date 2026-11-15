@@ -152,7 +152,8 @@ func (s *Server) runSchedule(h *hostconn.Host, dom libvirt.Domain, sch snapsched
 	snaps := toSnaps(list)
 	now := time.Now()
 	other = snapsched.Foreign(snaps, sch.Prefix, s.InstanceID, now.Add(-sch.ForeignWindow()))
-	r := schedRequest()
+	r := s.traced(schedRequest())
+	h = s.traceHost(r, h)
 	if sch.Due(now, snapsched.Newest(snaps, sch.Prefix)) && now.Sub(failed[key]) >= schedRetry {
 		// Read the list again right before creating: another controller may
 		// have taken the snapshot since the first look.

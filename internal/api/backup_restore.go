@@ -440,6 +440,7 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		infoOf(r).detail = "restore of an encrypted backup"
 	}
 	p.st = newStopper(context.Background())
+	p.dst, p.src.h = s.traceHost(r, p.dst), s.traceHost(r, p.src.h)
 	rel := release
 	user := userOf(r)
 	id, _, err := s.startBackgroundStop(r, "restore", p.name+" ← "+src.name, p.dst.Name, taskStop{operator, p.st.stop}, func(progress func(float64)) error {

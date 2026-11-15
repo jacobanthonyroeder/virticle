@@ -919,6 +919,7 @@ func (s *Server) launchMigration(r *http.Request, srcID int64, h *hostconn.Host,
 	if err != nil {
 		return nil, pre, err
 	}
+	h, dst = s.traceHost(r, h), s.traceHost(r, dst)
 	dstNode, _ := s.nodeStatus(req.Target)
 	ep, err := endpointFor(dstNode.Node)
 	if err != nil {
@@ -996,6 +997,7 @@ func (s *Server) startBackgroundStop(r *http.Request, kind, target, node string,
 	if err != nil {
 		return 0, nil, err
 	}
+	s.linkTask(r, &t)
 	s.stoppable(&t, stop)
 	done := make(chan error, 1)
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
