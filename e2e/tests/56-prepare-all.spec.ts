@@ -51,9 +51,9 @@ test.describe.serial("prepare all", () => {
     await expect(page.locator(".prepbanner")).toBeVisible();
     const online = await page.locator("tbody tr").count();
     expect(online).toBeGreaterThanOrEqual(2);
-    await expect(page.locator(".prepbanner")).toContainText(`${online} nodes need preparing.`);
+    await expect(page.locator(".prepbanner")).toContainText(`${online} nodes need preparing`);
     await expect(page.locator("tbody .badge.s-needs-prepare")).toHaveCount(online);
-    await expect(page.locator("tbody .badge.s-needs-prepare").first()).toHaveText("Prepared by older version");
+    await expect(page.locator("tbody .badge.s-needs-prepare").first()).toHaveText("Outdated");
     await expect(page.locator(".prepbanner").getByRole("button", { name: "Prepare all" })).toBeVisible();
     await noSideways(page);
   });

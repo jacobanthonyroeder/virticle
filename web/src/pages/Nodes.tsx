@@ -28,8 +28,8 @@ export default function Nodes() {
         <PageTitle>Nodes</PageTitle>
         {admin && (
           <div className="actions">
-            <button onClick={() => setUpdating(true)} disabled={(nodes.data?.nodes.length ?? 0) === 0} title="Update every node, one at a time, without stopping the virtual machines">
-              Update all nodes
+            <button onClick={() => setUpdating(true)} disabled={(nodes.data?.nodes.length ?? 0) === 0} title="System package updates on every node, one at a time; the virtual machines keep running">
+              Update packages
             </button>
             <button className="primary" onClick={() => setAdding(true)}>
               Add node
@@ -47,8 +47,8 @@ export default function Nodes() {
       )}
       {needPrep > 0 && (
         <div className="prepbanner">
-          <StatusLine status="warning">{needPrep === 1 ? "1 node needs preparing." : `${needPrep} nodes need preparing.`}</StatusLine>
-          {admin && <button onClick={() => setPrepAll(true)}>Prepare all</button>}
+          <StatusLine status="warning">{needPrep === 1 ? "1 node needs preparing" : `${needPrep} nodes need preparing`}</StatusLine>
+          {admin && <button onClick={() => setPrepAll(true)} title="Installs this version's Virticle node command on them">Prepare all</button>}
         </div>
       )}
       <ErrorBox error={nodes.error} />
@@ -78,7 +78,7 @@ export default function Nodes() {
           </tbody>
         </table></div>
       )}
-      {updating && <RollingUpdate title="Update all nodes" onClose={() => setUpdating(false)} />}
+      {updating && <RollingUpdate title="Update packages" onClose={() => setUpdating(false)} />}
       {prepAll && <PrepareAll nodes={nodes.data?.nodes ?? []} onClose={() => setPrepAll(false)} />}
       {adding &&<PrepareNode addr="" jump="" onClose={() => setAdding(false)} onRegistered={() => setAdding(false)} />}
     </>
@@ -111,7 +111,7 @@ function NodeRow({ n, canRemove, alerts, nodes }: { n: NodeStatus; canRemove: bo
         <StateBadge state={n.state} />
         {prepareState(n) && (
           <div>
-            <span className="badge s-needs-prepare">{prepareState(n) === "older" ? "Prepared by older version" : "Not prepared"}</span>
+            <span className="badge s-needs-prepare">{prepareState(n) === "older" ? "Outdated" : "Not prepared"}</span>
           </div>
         )}
         {n.error && <StatusLine status="error">{n.error}</StatusLine>}

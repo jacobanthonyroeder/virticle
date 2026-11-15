@@ -9,10 +9,10 @@ test.describe.serial("rolling update", () => {
     for (const n of [n1, n2]) await api.put(`/nodes/${n}/maintenance`, { on: false }).catch(() => {});
   });
 
-  test("Update all nodes shows the plan of both nodes and starts nothing", async ({ page }) => {
+  test("Update packages shows the plan of both nodes and starts nothing", async ({ page }) => {
     await page.goto("/datacenter/nodes");
-    await page.getByRole("button", { name: "Update all nodes" }).click();
-    const dlg = dialog(page, "Update all nodes");
+    await page.getByRole("button", { name: "Update packages" }).click();
+    const dlg = dialog(page, "Update packages");
     await expect(dlg.getByText("The nodes are updated one at a time")).toBeVisible();
     const table = dlg.locator("table.rollplan");
     await expect(table).toBeVisible({ timeout: 120_000 });
@@ -29,8 +29,8 @@ test.describe.serial("rolling update", () => {
   test("a node in maintenance refuses the update with the reason and the way out", async ({ page, api, n2 }) => {
     await api.put(`/nodes/${n2}/maintenance`, { on: true });
     await page.goto("/datacenter/nodes");
-    await page.getByRole("button", { name: "Update all nodes" }).click();
-    const dlg = dialog(page, "Update all nodes");
+    await page.getByRole("button", { name: "Update packages" }).click();
+    const dlg = dialog(page, "Update packages");
     await expect(dlg.getByText("This cannot start yet")).toBeVisible({ timeout: 120_000 });
     await expect(dlg.getByText(new RegExp(`${env.node2} is in maintenance. End maintenance on it first`))).toBeVisible();
     await expect(dlg.getByRole("button", { name: "Start update" })).toBeDisabled();

@@ -4,7 +4,7 @@ How to do the everyday things in the web UI. To install, see
 [install.md](install.md). To add hosts, see [install-node.md](install-node.md).
 
 - [The screen](#the-screen)
-- [Nodes](#nodes): [rolling update](#update-all-nodes-rolling-update)
+- [Nodes](#nodes): [rolling update](#update-packages-rolling-update)
 - [Virtual machines](#virtual-machines)
 - [Console](#console)
 - [Hardware](#hardware)
@@ -93,7 +93,7 @@ To add another host:
 When the node's **Settings** say it was prepared by an older version, choose
 **Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
 
-After an upgrade the **Nodes** page marks each such node ("Prepared by older version" or "Not prepared") and
+After an upgrade the **Nodes** page marks each such node ("Outdated" or "Not prepared") and
 shows one notice with the count and **Prepare all**. Enter the administrator login once (used for this run only, not stored).
 The nodes are prepared one after another; a node that fails shows why and the others go on. Offline nodes are not
 listed: they cannot say, so prepare them when they are back.
@@ -111,9 +111,9 @@ What you can do with a node:
 | Find out why a node is Offline | **Settings > Test connection**. It runs each connection step and shows which one fails. **Settings** warns when the node is not prepared. |
 | Keep new migrations away from a node, or empty it | **Maintenance**. The node is never chosen as a migration target. When the node has VMs, tick **Move its virtual machines to other nodes** to live-migrate them away. **Evacuate** appears while a node is in maintenance. |
 
-### Update all nodes (rolling update)
+### Update packages (rolling update)
 
-**Nodes > Update all nodes** installs the system updates on every node, one node at a time, and moves the virtual machines
+**Nodes > Update packages** installs the system updates on every node, one node at a time, and moves the virtual machines
 out of the way first. **Update this node** on a node's **Updates** tab does the same for that node alone. Administrators
 only. The **Updates** tab lists every package update available for the node (package, installed version, available
 version, source); **Check again** reads the list anew.
@@ -958,7 +958,7 @@ API tokens are described in [reference.md](reference.md#api-tokens). To read the
 | Lost the phone with the authenticator | An administrator chooses **Reset two-step sign-in** for you. If you are the only administrator: `virticle user reset-2fa USER` on the controller. See [sign-in.md](sign-in.md#two-step-sign-in-authenticator-app). |
 | "No ISO images on this node" | Upload one under **Storage**. |
 | A task failed | **Tasks** shows the error in the Result column. |
-| A rolling update stopped | The page says what state the nodes are in. Choose **Continue**, **Put things back** or **Dismiss** ([Update all nodes](#update-all-nodes-rolling-update)). |
+| A rolling update stopped | The page says what state the nodes are in. Choose **Continue**, **Put things back** or **Dismiss** ([Update packages](#update-packages-rolling-update)). |
 | A VM shows **Replica** or **Old copy** and cannot be started | That is on purpose. A replica starts with **Planned failover** or **Start here from the copy of HH:MM**; an old copy has **Replicate back** or **Delete VM** ([Replication](#replication-and-failover)). |
 | A shared storage shows **Unavailable** | The NFS server does not answer. VMs on it wait and carry on when it is back ([Shared storage](#shared-storage-nfs)). |
 | A backup says **Cannot be restored** | An earlier backup it builds on is missing. Restore another entry, or delete this one ([Full and incremental](#full-and-incremental)). |

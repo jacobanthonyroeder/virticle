@@ -348,7 +348,7 @@ What you get without doing anything else:
 | Notifications | An alert webhook address from 0.2.0 becomes the destination **Webhook** under **Settings > Alerts**. |
 | Incremental backups | Nothing. After the first full backup of a VM to a pool, the next ones copy only what changed. Old backups stay as they are and count as full. |
 | Daily controller backup | Off until you switch it on under **Settings > Controller backup**. |
-| Shared storage, rolling updates, replication | Used when you choose them: **Storage > Add shared storage**, **Nodes > Update all nodes**, and **Set up replication** on a VM. |
+| Shared storage, rolling updates, replication | Used when you choose them: **Storage > Add shared storage**, **Nodes > Update packages**, and **Set up replication** on a VM. |
 
 Existing VMs keep their firmware, and a VM keeps the kind of snapshot it already has (see
 [Known limits](reference.md#known-limits)).
