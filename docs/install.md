@@ -309,7 +309,7 @@ made when the schema version does not change.
 The same steps for 0.3.0, 0.3.1 and 0.3.2.
 
 1. **Check the node versions first.** A node needs libvirt 11.0 and QEMU 10.0 or newer (see
-   [Supported platforms](#supported-platforms)). 0.3.x only warned about older systems. A node below the minimum, for
+   [Supported platforms](#supported-platforms)). 0.3.x managed older systems with some features off. A node below the minimum, for
    example Debian 12 or Ubuntu 24.04, shows as Offline after the upgrade, with the reason, and is not managed. Its VMs
    keep running. Upgrade the node's system, or move its VMs away before you upgrade the controller.
 2. **Upgrade the controller** as above. Stop the old controller first; two controllers of different versions must never
