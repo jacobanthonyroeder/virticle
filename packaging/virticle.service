@@ -28,6 +28,8 @@ ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 ReadWritePaths=/var/lib/virticle
+# Folders an administrator may choose for the scheduled controller backups (Settings > Controller backup).
+ReadWritePaths=-/mnt -/media -/srv
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

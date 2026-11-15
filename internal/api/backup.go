@@ -570,7 +570,7 @@ func (m *bkRun) run() (err error) {
 
 	man := &backupManifest{
 		Format: backupFormat, VM: m.name, UUID: m.uuid, Created: stamp.Format(time.RFC3339), SourceNode: m.src.Name,
-		AppVersion: backupAppVersion, Live: m.live, TPM: m.md.TPM,
+		AppVersion: backupAppVersion(), Live: m.live, TPM: m.md.TPM,
 		Kind: m.plan.Kind, Checkpoint: m.ckName, FullReason: m.plan.Reason,
 	}
 	if m.live && m.fz.Text != "" {
