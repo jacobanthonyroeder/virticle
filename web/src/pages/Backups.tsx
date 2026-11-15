@@ -147,7 +147,7 @@ function BackupNow(props: { d: VMDetail; onClose: () => void; onDone: () => void
   const [keep, setKeep] = useState(7);
   const [task, setTask] = useState(0);
   // A backup into the schedule's target is pruned by the schedule's rules (the server decides; this only shows it).
-  const sched = useLive(() => get<{ schedule: BackupSched | null }>(`/nodes/${d.node}/vms/${d.uuid}/backup-schedule`), `/nodes/${d.node}/vms/${d.uuid}/backup-schedule`);
+  const sched = useLive(() => get<{ schedule: BackupSched | null }>(`/nodes/${d.node}/vms/${d.uuid}/backup-schedule`), `/nodes/${d.node}/vms/${d.uuid}/backup-schedule`, () => false);
   const sch = sched.data?.schedule;
   const bySchedule = !!sch && (sch.targetNode || d.node) === node && sch.pool === pool;
   const [kind, setKind] = useState("");
