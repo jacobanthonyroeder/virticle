@@ -151,6 +151,11 @@ export default function ControllerBackup() {
           <p className="muted">
             Restore, with the controller stopped: <code>{st?.restoreCommand ?? "sudo systemctl stop virticle && sudo virticle restore FILE"}</code>
           </p>
+          {enc.data?.on && (
+            <p className="muted">
+              Encrypted copies on another machine: <code>sudo virticle restore --key KEYFILE FILE</code>
+            </p>
+          )}
         </form>
 
         <div className="card" role="group" aria-label="Backups on this server">
