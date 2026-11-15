@@ -369,6 +369,8 @@ the files (databases and journals included). The task says "guest file systems f
 guest agent, agent not answering, no freeze within 2 minutes). If the freeze fails the backup is made anyway; a freeze that
 takes effect after the 2 minutes is thawed at once. Scheduled backups freeze the guest the same way.
 A shut-off VM has nothing to freeze. If Virticle cannot thaw the guest afterwards, the task fails and says how to thaw it by hand.
+A guest that may still be frozen, also after a late freeze, raises the critical alert **NAME may be frozen**. Virticle tries
+the thaw again every minute; the alert clears when the guest agent reports the file systems thawed or the VM stops.
 
 The **Backups** page in the top bar lists the backups of every VM on every node. The backup of the controller itself is
 under **Settings > Controller backup** ([controller-backup.md](controller-backup.md)). **Export** downloads a backup as one
@@ -401,7 +403,8 @@ Good to know:
   missing says it cannot be restored.
 - **Keep the newest** and the **Keep** rules count backups. An incremental backup is never kept without the backups it
   needs, so a few more than that number can stay for a while.
-- **Delete** on a backup that later incremental backups need deletes them too. The dialog names how many.
+- **Delete** on a backup that later incremental backups need deletes them too. The dialog names how many. The pool is
+  rescanned afterwards (on every node that mounts it, for NFS), so the Storage page and `virsh vol-list` no longer show it.
 - **Verify** reads every file of the backup and of the earlier backups it needs, and compares size and SHA-256 with the
   manifest. It runs as a task on the node that holds the backup and changes nothing. The result is **Intact**, or
   **Damaged** with the first missing or damaged file. An encrypted backup is checked as stored, without the passphrase.
@@ -447,6 +450,9 @@ Good to know:
 - A node prepared by an older version cannot encrypt. While encryption is on, a backup on such a node fails with a message
   to prepare the node again; it is never stored unencrypted.
 - Replication copies are not encrypted: the standby must be able to start.
+- Each file is encrypted next to its plain copy, which is deleted once the encrypted one is checked. So for a moment the
+  largest file exists twice: a full backup needs free space for one more copy of the largest disk's data, an
+  incremental one only for its changed blocks. The free-space message says how much of the total that is.
 
 **If the passphrase or the recovery key file is lost, the encrypted backups are lost. Nobody can recover them.**
 

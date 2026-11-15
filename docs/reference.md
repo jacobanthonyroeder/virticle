@@ -85,7 +85,7 @@ A destination of type **Webhook** receives a `POST` with `Content-Type: applicat
 
 - `event`: `raise`, `clear`, or `test` (the **Send test message** button; its alert has `"id":"test"`).
 - `alert.kind`: `node-down`, `pool-usage`, `host-memory`, `failed-job`, `vm-state`, `tls-expiry`,
-  `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`. `severity` is `warning` or `critical`. `node` is
+  `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`, `guest-frozen`. `severity` is `warning` or `critical`. `node` is
   the node id and `link` the page in the web UI (both may be missing); `since` and `time` are Unix seconds.
 - One alert per request, always; the webhook is never summarised. Any 2xx answer is success. Other answers are
   retried after 5 s, 30 s and 2 min, except 401, 403, 404, 410 and other 4xx (not 408, 429), which are not.
@@ -365,7 +365,11 @@ it is made without ("not frozen: the guest did not freeze within 2 minutes"). li
 agent command per guest at a time, so the freeze goes on, and when it takes effect later Virticle thaws the guest at once
 (logged). A Windows guest freezes through VSS: the agent prepares the snapshot and then waits up to 60 seconds for VSS,
 which can take more than 45 seconds on a busy host; VSS holds writes for at most 10 seconds, so its first thaw can report
-that error; the retry succeeds. The request field `quiesce` of the backup call is
+that error; the retry succeeds. When every thaw try fails (after backup-begin, or after a late freeze), the guest is
+recorded in the controller's memory and raises the critical alert `guest-frozen`. Each alert pass (once a minute) asks the
+agent for `guest-fsfreeze-status`, thaws a guest it reports frozen (5 second limit), and clears the alert when the agent
+reports `thawed` or the VM is gone or not running; a guest whose backup is running is left alone. A restart of the
+controller forgets the record. The request field `quiesce` of the backup call is
 absent (automatic: freeze when the agent is connected and can freeze; if that fails, back up without), `true` (freeze or fail the
 backup) or `false` (never). Replication copies are automatic; scheduled backups send `false`. The task note says "guest file
 systems frozen" or "not frozen: REASON", and `manifest.frozen` is `true` or `false` for a live backup (absent for older backups
@@ -499,7 +503,10 @@ The same works for `nvram.fd.age`, `tpm2-state.bin.age` and a scheduled controll
 **Cost.** The backup job and qemu-img write qcow2, which needs a seekable file, so encryption is a second pass. It replaces
 the checksum pass: the node takes both checksums while it encrypts, in parallel. Lab (nested Rocky 10, 2 vCPUs, a backup of
 1.9 GB): a shut-off VM took 14.5 to 18.9 s plain and 19.5 to 24.0 s encrypted; the work directory peaked at 4.1 GB instead
-of 2.0 GB (one more copy of the largest disk, for a moment). The free-space check counts it.
+of 2.0 GB (one more copy of the largest disk, for a moment). The free-space check counts it: the largest file (for a
+full backup the largest disk's `actual-size`, for an incremental one libvirt's changed bytes plus 1/8, at most that disk)
+plus 1/64 for age (16 bytes per 64 KiB) and the qcow2 metadata. Encrypting in place (punching holes into the plain file as
+it is read) would remove the extra copy; it needs a node command change and is not done.
 
 **Limits.** Encryption protects backups at rest: a copied pool, a stolen disk, an export file, the controller's scheduled
 copies. It does not protect against someone who controls a node, where the VM's own disks are plain, or the controller
@@ -837,8 +844,11 @@ Facts
   (QEMU does not answer the monitor while it waits for its disk), and the VM detail leaves out the disk figures.
 - Storage calls to one node are limited to three at a time and the short ones to 6 seconds (the libvirt proxy
   daemon serves the controller's connection with five calls at once; the others stay free for VMs and networks).
-  When three are stuck, further storage calls fail at once with "the storage service of this node is not
-  answering" until one returns.
+  A call that takes longer fails with "libvirt on NODE did not answer within 6 seconds"; when three are stuck,
+  further storage calls fail at once with "libvirt on NODE has not answered earlier calls yet" until one returns.
+  The message adds a cause only when the controller knows one: an NFS mount of the node that does not answer, or
+  node memory used at or above the alert threshold (`-alert-memory`, 90%). The screenshot of the console preview and
+  the task log show these causes.
 - Alert kind `storage-unavailable`, one per node and pool, critical, debounced like the network alerts (raised on
   the second check in a row, about two minutes; cleared on the second check that finds the share answering).
 - Migration: a file is shared when source and target have netfs pools with the same export and mount path and
