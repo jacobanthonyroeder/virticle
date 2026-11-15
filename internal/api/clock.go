@@ -18,7 +18,8 @@ import (
 )
 
 // Guest clock. The definition's <clock> is edited surgically (offset only);
-// the "sync after resume, revert and migration" switch lives in the app
+// the "sync after resume, revert and migration" switch (and after a start,
+// for a guest with a local-time hardware clock) lives in the app
 // metadata as <clock sync='off'/> (absent means on). Time is set through the
 // guest agent (libvirt's DomainSetTime) from the node's own clock.
 
@@ -130,37 +131,78 @@ func setClockSync(h *hostconn.Host, dom libvirt.Domain, on bool) error {
 // off, and never reports to the caller: a failure is logged and shows up as
 // a failed task of its own.
 func (s *Server) autoSyncClock(user, why string, h *hostconn.Host, dom libvirt.Domain) {
-	go func() {
-		defer func() {
-			if p := recover(); p != nil {
-				log.Printf("clock sync after %s: %v", why, p)
-			}
-		}()
-		if !clockSyncOn(h, dom) {
-			return
-		}
-		deadline := time.Now().Add(30 * time.Second)
-		for !agentConnected(h, dom) {
-			if time.Now().After(deadline) {
-				return // no agent (or not running): nothing to do
-			}
-			time.Sleep(time.Second)
-		}
-		t, err := s.Store.StartTask("sync guest clock", dom.Name, h.Name, user)
-		if err != nil {
-			log.Printf("clock sync after %s: %v", why, err)
-			return
-		}
-		s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
-		_, _, _, err = syncGuestClock(h, dom)
-		if err != nil {
-			err = fmt.Errorf("after %s: %w", why, err)
-			log.Printf("sync guest clock %s: %v", dom.Name, err)
-		}
-		s.Store.FinishTask(&t, err)
-		s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
-	}()
+	go s.syncClockWhenAgent(user, why, h, dom, 30*time.Second, time.Second, 0)
 }
+
+// How long a start waits for the agent of a guest with a local-time hardware
+// clock, and how often it looks. A Windows guest's agent answers 40 to 100
+// seconds after the start.
+var (
+	startAgentWait = 5 * time.Minute
+	startAgentPoll = 5 * time.Second
+)
+
+// syncClockAfterStart is autoSyncClock for a VM that was just started, for
+// guests whose hardware clock runs in local time (offset 'localtime', what
+// Windows expects). QEMU fills that clock with the node's local time, UTC on
+// most nodes, and what the guest wrote into it lives only as long as the QEMU
+// process: after every cold start (start, restore, clone) a Windows guest in
+// a zone other than the node's is off by the difference until Windows
+// corrects itself, which can take days. The clock is synced only when it is
+// off by more than guestClockSkew.
+func (s *Server) syncClockAfterStart(user string, h *hostconn.Host, dom libvirt.Domain) {
+	raw, err := h.DomainGetXMLDesc(dom, 0)
+	if err != nil || !localTimeClock(raw) {
+		return
+	}
+	go s.syncClockWhenAgent(user, "start", h, dom, startAgentWait, startAgentPoll, guestClockSkew)
+}
+
+// localTimeClock reports whether a definition keeps the guest's hardware clock in local time.
+func localTimeClock(domXML string) bool { return domxml.ClockOffset(domXML) == "localtime" }
+
+// syncClockWhenAgent waits up to wait for the agent and syncs the guest's
+// clock when it is off by more than minSkew (0: always).
+func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libvirt.Domain, wait, poll, minSkew time.Duration) {
+	defer func() {
+		if p := recover(); p != nil {
+			log.Printf("clock sync after %s: %v", why, p)
+		}
+	}()
+	if !clockSyncOn(h, dom) {
+		return
+	}
+	deadline := time.Now().Add(wait)
+	for !agentConnected(h, dom) {
+		if time.Now().After(deadline) {
+			return // no agent (or not running): nothing to do
+		}
+		time.Sleep(poll)
+	}
+	if minSkew > 0 {
+		now := nodeClock(h)
+		g, err := guestTime(h, dom)
+		if err != nil || !clockOff(g.Sub(now()), minSkew) {
+			return
+		}
+	}
+	t, err := s.Store.StartTask("sync guest clock", dom.Name, h.Name, user)
+	if err != nil {
+		log.Printf("clock sync after %s: %v", why, err)
+		return
+	}
+	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
+	_, _, _, err = syncGuestClock(h, dom)
+	if err != nil {
+		err = fmt.Errorf("after %s: %w", why, err)
+		log.Printf("sync guest clock %s: %v", dom.Name, err)
+	}
+	s.Store.FinishTask(&t, err)
+	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
+}
+
+// clockOff reports whether a guest clock off by d (either way) is worth a sync.
+func clockOff(d, minSkew time.Duration) bool { return d > minSkew || d < -minSkew }
 
 type clockInfo struct {
 	// Offset is the running definition's, Saved the persistent one.

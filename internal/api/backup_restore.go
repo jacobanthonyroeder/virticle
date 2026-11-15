@@ -441,10 +441,16 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	p.st = newStopper(context.Background())
 	rel := release
+	user := userOf(r)
 	id, _, err := s.startBackgroundStop(r, "restore", p.name+" ← "+src.name, p.dst.Name, taskStop{operator, p.st.stop}, func(progress func(float64)) error {
 		defer rel()
 		defer wipe(p.id)
 		_, err := p.run(progress)
+		if err == nil && p.req.Start {
+			if dom, lerr := p.dst.DomainLookupByName(p.name); lerr == nil {
+				s.syncClockAfterStart(user, p.dst, dom)
+			}
+		}
 		return err
 	})
 	if err == nil {

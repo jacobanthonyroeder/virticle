@@ -144,6 +144,12 @@ earlier versions no longer exist.
 - **Clock** (Linux): `rtc` catch-up, `pit` delay, `hpet` off, `kvmclock` on.
   The guest clock is synced after resume, snapshot revert and live migration
   when the guest agent runs.
+- **Clock** (Windows): `localtime` (the hardware clock in local time, as Windows expects), `hypervclock` instead of
+  `kvmclock`. QEMU fills that clock with the node's local time, UTC on most nodes, and what the guest writes into it
+  lasts only until the VM is powered off. So after a start from Virticle (start, restore with start) the guest clock is
+  synced as soon as the agent answers (up to 5 minutes), when it is more than 2 seconds off: a Windows guest in another
+  time zone would otherwise run hours off until Windows corrects itself. A VM started by the node at boot (autostart) is
+  not synced.
 - **Serial console**: added to every new VM; the Console card on the Overview adds one to a VM that has none.
 - **Firmware** (Linux): UEFI, with the UEFI variables in a qcow2 file so the VM can take internal snapshots. A node without UEFI firmware gets BIOS. Windows always gets UEFI.
 
@@ -354,9 +360,12 @@ was made from `manifest.kind` (and `manifest.fullReason`) of the entry in `GET /
 rejected by libvirt 11.3 and means "preserve the domain if the guest shuts down" in 11.10). For a running VM Virticle freezes
 the guest's file systems with libvirt's `DomainFsfreeze` (the guest agent's `guest-fsfreeze-freeze`) immediately before
 `DomainBackupBegin` and thaws them (`DomainFsthaw`, up to 4 tries) when it returns, whether it worked or not. An agent that does
-not answer `guest-info` within 5 seconds is not asked to freeze; a freeze that takes longer than 45 seconds is given up (and
-thawed). A Windows guest freezes through VSS, which takes 15 to 30 seconds on a slow host and holds writes for at most 10
-seconds, so its first thaw can report that error; the retry succeeds. The request field `quiesce` of the backup call is
+not answer `guest-info` within 5 seconds is not asked to freeze. The backup waits up to 2 minutes for the freeze; after that
+it is made without ("not frozen: the guest did not freeze within 2 minutes"). libvirt cannot cancel a freeze and runs one
+agent command per guest at a time, so the freeze goes on, and when it takes effect later Virticle thaws the guest at once
+(logged). A Windows guest freezes through VSS: the agent prepares the snapshot and then waits up to 60 seconds for VSS,
+which can take more than 45 seconds on a busy host; VSS holds writes for at most 10 seconds, so its first thaw can report
+that error; the retry succeeds. The request field `quiesce` of the backup call is
 absent (automatic: freeze when the agent is connected and can freeze; if that fails, back up without), `true` (freeze or fail the
 backup) or `false` (never). Replication copies are automatic; scheduled backups send `false`. The task note says "guest file
 systems frozen" or "not frozen: REASON", and `manifest.frozen` is `true` or `false` for a live backup (absent for older backups
