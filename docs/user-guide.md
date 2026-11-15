@@ -586,8 +586,9 @@ transfer:
 1. Open the node, **Settings** (the **Connection** sub page), and choose **Change** next to **Migration
    network**. The row appears only when the node has more than one address.
    (The same list is under **Advanced** in **Edit connection**. In the
-   **Network** tab, **Use for migration** next to an address does the same,
-   and a **Migration** mark shows the address in use.)
+   **Network** tab, **Edit** on a switch or card does the same with a
+   **Migration** checkbox per address, and a **Migration** mark shows the
+   address in use.)
 2. Pick the card, for example `enp2s0 (10.0.1.5), 10 Gb/s`. **Same as
    management** is the default.
 
@@ -713,14 +714,20 @@ stopped); select the arrow to open one. The filter finds a switch, a network or 
 
 | Part | What it is |
 | --- | --- |
-| Switch | A bridge on the node: a Linux or Open vSwitch bridge, or the bridge libvirt made for one of its networks. |
+| Switch | A bridge on the node: a Linux or Open vSwitch bridge, or the bridge libvirt made for one of its networks. The header has its name, kind and the node's own address on it (with its VLAN when it is on one). |
 | Networks (left) | The networks on the bridge (mode, VLAN, DHCP range, **Stopped**) and **Direct to bridge** for VM interfaces that use the bridge itself. Each lists its virtual machines with MAC and IP address. Select the name for the details; **Actions** changes the network. |
 | Uplinks (right) | The network cards or bonds attached to the bridge, with link state, speed and addresses. A NAT, routed or isolated libvirt network has none and says so instead. |
-| This node's address | The node's own address on the switch. |
 | Unused network cards | Cards that belong to no bridge. |
 | Host interfaces | Every interface of the node with type, state, MAC address, addresses, MTU and speed (folded; select it to read the node). |
 
-The card or bridge that holds the address the controller uses to reach the node is marked **Management**.
+The card or bridge that holds the address the controller uses to reach the node is marked **Management**; the address
+that carries migrations is marked **Migration**. Administrators change both with **Edit** on a switch or on an unused card
+that has an address: one **Management** and one **Migration** checkbox per address, then **Save**.
+
+| Checkbox | Effect |
+| --- | --- |
+| Management | The controller reaches the node at this address. It tests the connection first and refuses an address it cannot reach. Moved by ticking another address; not offered for a node reached by host name (change that under **Settings**, **Connection**) or for an IPv6 address. A jump host stays as it is. |
+| Migration | Migration data from the other nodes goes to this address. Unticked: back to the management address, the default. |
 Addresses of virtual machines come from DHCP leases, so a guest with a fixed address shows none. Uplinks of Open
 vSwitch bridges are not listed. A network that is stopped, or whose bridge is gone, is still drawn, with
 **Stopped**, so you can start or delete it.
@@ -839,7 +846,7 @@ migration or storage. The switch must filter VLANs. The new address does not bec
 2. Enter the **VLAN id** (a new id is added to the allowed ids of the switch) and choose **From DHCP** or **Enter an address**
    (with prefix, for example `10.30.0.5/24`).
 3. Only if this VLAN should carry the node's default route: **Advanced**, **Use this VLAN for the default route of this node**, and the gateway.
-4. Select **Review**, then **Apply**. The address appears under **This node's address** with its VLAN. With DHCP the change does not wait for a lease.
+4. Select **Review**, then **Apply**. The address appears in the header of the switch with its VLAN. With DHCP the change does not wait for a lease.
 
 **Actions** also has **Remove address on VLAN N** (not possible for the address the controller uses to reach the node). Moving
 the node's main address onto a VLAN is not offered.
@@ -853,8 +860,14 @@ switch has VLANs, a VLAN number (empty means no tag). On an Open vSwitch bridge 
 nodes have a virtual switch with the same name, **Create the same network on ...** is selected: a virtual machine can
 only migrate to a node that has a network of the same name. **Actions** on the switch has **Edit VLANs** (refused while a
 network or an address of the node uses an id you remove) and **Remove** (not possible while networks or virtual machines use the switch; the
-node's address returns to the card). A bridge that somebody made by hand shows **Not managed by Virticle** and cannot be
-changed here.
+node's address returns to the card).
+
+**Bridges set up on the node by hand.** A Linux bridge made with NetworkManager or netplan is a virtual switch like the
+others when Virticle can express every setting of it: same box, same **Actions**. The first change takes its definition
+over: the review lists the profiles or files that change, and a rollback brings them back as they were. A bridge with a
+setting Virticle does not have (STP on, a bond option, a VLAN interface on it, files of ifupdown, made with `ip link` and not
+saved) says why in a few words, with details under **?**. It has no **Actions**, but networks and VM interfaces can still use
+it. The rules are in the [reference](reference.md#host-bridges-virtual-switches).
 
 **If the node becomes unreachable.** Moving the address of the card the controller uses is the risky case. The node
 saves its previous settings first and restores them by itself if the controller does not confirm within the confirm time.

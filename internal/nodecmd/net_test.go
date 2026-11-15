@@ -370,7 +370,7 @@ func TestNetRefusals(t *testing.T) {
 		n := newNetNode(t, dhcpNetwork, true)
 		n.f.links = append(n.f.links, fLink{name: "brx", kind: "bridge", mtu: 1500})
 		for _, a := range []string{nodeproto.NetDelete, nodeproto.NetSetVLAN} {
-			n.refusedPlan("by hand "+a, nodeproto.NetRequest{Action: a, Bridge: "brx", VLANAware: true, LibvirtVersion: libvirt113}, "not created by this feature")
+			n.refusedPlan("by hand "+a, nodeproto.NetRequest{Action: a, Bridge: "brx", VLANAware: true, LibvirtVersion: libvirt113}, "cannot be changed here: No networkd file defines brx")
 		}
 		var info nodeproto.NetInfo
 		jsonInto(t, n.ok("", "net-info"), &info)

@@ -39,6 +39,9 @@ type planInput struct {
 	VLANAddr *vlanAddrSpec
 	// Mgmt is the interface that holds the address the controller uses ("" when unknown).
 	Mgmt string
+	// Foreign: Old is a bridge set up outside this feature, recognised from its saved definition; the change
+	// takes the definition over (net_foreign.go).
+	Foreign *foreignDef
 }
 
 // planCard is a card as it is now.
@@ -167,7 +170,7 @@ func (c *Ctx) publicPlan(in *planInput, pl *netPlanned, st stackInfo) nodeproto.
 			p.ManagementAffected = true
 		case in.Req.Action == nodeproto.NetDelete && in.Req.Bridge == p.ManagementInterface:
 			p.ManagementAffected = true
-		case in.Old != nil && (in.Req.Action == nodeproto.NetSetUplinks || in.Req.Action == nodeproto.NetSetMTU) &&
+		case in.Old != nil && (in.Req.Action == nodeproto.NetSetUplinks || in.Req.Action == nodeproto.NetSetMTU || in.Foreign != nil) &&
 			(in.Old.Bridge == p.ManagementInterface || in.Old.card(p.ManagementInterface) != nil):
 			p.ManagementAffected = true
 		}

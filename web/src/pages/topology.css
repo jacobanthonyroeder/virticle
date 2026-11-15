@@ -14,7 +14,7 @@
 .topocolhead { font-size: 12px; font-weight: 600; color: var(--muted); }
 .topotrunk { position: relative; }
 .topotrunk::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 2px solid var(--line); }
-.topopg, .topouplink, .topohost { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; min-width: 0; overflow-wrap: anywhere; position: relative; }
+.topopg, .topouplink { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; min-width: 0; overflow-wrap: anywhere; position: relative; }
 .topopg { border-left: 4px solid var(--line); }
 .topopg::after, .topouplink::before { content: ""; position: absolute; top: 50%; width: 14px; border-top: 2px solid var(--line); }
 .topopg::after { left: 100%; }
@@ -25,6 +25,10 @@
 .topoifs { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
 .topoif { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; }
 .topoaddr { display: inline-block; margin-right: 8px; }
+/* The switch's own addresses sit in its header, after the name and kind; they wrap onto a second line when needed. */
+.topohdraddr { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 0; min-width: 0; overflow-wrap: anywhere; }
+.topohdraddr .topoaddr { margin-right: 12px; }
+.topofixed { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
 .topomgmt { font-size: 12px; font-weight: 600; color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
 .topodown { font-size: 12px; font-weight: 600; color: var(--text); border: 1px solid var(--danger); border-radius: 999px; padding: 0 6px; }
 .topounusedlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; padding: 12px; }
@@ -35,7 +39,6 @@
   .topotrunk { display: none; }
   .topopg::after, .topouplink::before { display: none; }
 }
-.topouse { margin-left: 8px; font-size: 13px; font-family: var(--sans); }
 .topotitle button.link { font-weight: 600; font-family: var(--sans); text-align: left; }
 .topopg .vsacts { margin-left: auto; }
 /* The lease and reservation tables of a network fit a narrow dialog: addresses wrap instead of running off. */
@@ -43,3 +46,7 @@
   .modal table.compact td, .modal table.compact th { padding-right: 6px; overflow-wrap: anywhere; }
   .modal table.compact td.mono { word-break: break-all; }
 }
+.addredit th, .addredit td { vertical-align: middle; }
+.addredit td:not(:first-child), .addredit th:not(:first-child) { text-align: center; white-space: nowrap; }
+.addredit td.mono { overflow-wrap: normal; word-break: keep-all; }
+.addredit label.check { justify-content: center; margin: 0; }

@@ -50,6 +50,9 @@ export interface HostBridge {
   networks: string[];
   vms: string[];
   readOnly?: string;
+  /** Why a bridge that is not managed cannot be changed: a few words, and a sentence for the "?" popover. */
+  notEditable?: string;
+  notEditableDetail?: string;
 }
 export interface HostnetState {
   stack: string;

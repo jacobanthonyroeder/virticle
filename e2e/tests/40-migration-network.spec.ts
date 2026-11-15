@@ -3,7 +3,20 @@
 // Read-only checks run on every lab. The change test needs a node with two addresses and skips otherwise;
 // it always puts the setting back, also when it fails.
 import { expect, test } from "../lib/fixtures";
+import { Page } from "@playwright/test";
 import { dialog, field, pick } from "../lib/ui";
+
+/** Opens Edit on the switch or card that shows the address (the node's Network tab must be open). */
+async function openEdit(page: Page, ip: string) {
+  const head = page.locator("section.toposwitch > header").filter({ hasText: `${ip}/` });
+  const card = page.locator(".topouplink").filter({ hasText: `${ip}/` });
+  await expect(head.or(card).first()).toBeVisible({ timeout: 30_000 });
+  const btn = (await head.count()) > 0 ? head.locator("[data-topo-edit]") : card.locator("[data-topo-edit]");
+  await btn.first().click();
+  const dlg = page.getByRole("dialog");
+  await expect(dlg.getByRole("checkbox", { name: `Migration on ${ip}` })).toBeVisible({ timeout: 30_000 });
+  return dlg;
+}
 
 interface Option {
   interface: string;
@@ -79,16 +92,25 @@ test.describe.serial("migration network", () => {
     if (lim) expect(lim.message).toMatch(/^(Shared with management( on \S+)?: limited to \d+ Mbit\/s \(.+\)\.|Link speed unknown, so the transfer is not limited\.|Shared with management, but the limit is turned off.*)$/);
   });
 
-  test("the topology marks the migration address and offers 'Use for migration'", async ({ page, api, n1 }) => {
+  test("Edit on the topology shows management and migration as checkboxes", async ({ page, api, n1 }) => {
     const info: Info = await api.get(`/nodes/${n1}/migration-network`);
-    test.skip(info.options.length === 0, "needs a node with two addresses");
     test.skip(info.address !== "", "the node already has a migration network set");
     await page.goto(`/node/${n1}/network`);
-    const use = page.locator(`[data-topo-use="${info.options[0].address}"]`);
-    await expect(use).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".topomgmt", { hasText: /^\s*Migration\s*$/ })).toHaveCount(0); // no mark while it is the default
-    // nothing is offered on the management address while the default is in place
-    await expect(page.locator(`[data-topo-use="${info.management.address}"]`)).toHaveCount(0);
+    const ip = info.management.address;
+    const dlg = await openEdit(page, ip);
+    // management: ticked and fixed here; migration follows it by default
+    await expect(dlg.getByRole("checkbox", { name: `Management on ${ip}` })).toBeChecked();
+    await expect(dlg.getByRole("checkbox", { name: `Management on ${ip}` })).toBeDisabled();
+    await expect(dlg.getByRole("checkbox", { name: `Migration on ${ip}` })).toBeChecked();
+    await expect(dlg.getByRole("button", { name: "Save" })).toBeDisabled(); // nothing changed yet
+    await dlg.getByRole("button", { name: "Cancel" }).click();
+    if (info.options.length > 0) {
+      const other = await openEdit(page, info.options[0].address);
+      await expect(other.getByRole("checkbox", { name: `Migration on ${info.options[0].address}` })).not.toBeChecked();
+      await other.getByRole("button", { name: "Cancel" }).click();
+    }
+    await expect(page.getByText("Use for migration")).toHaveCount(0);
   });
 
   test("setting the migration network and resetting it", async ({ page, api, n1 }) => {
@@ -107,15 +129,30 @@ test.describe.serial("migration network", () => {
       expect(after.address).toBe(target.address);
       expect(after.current).toBe(target.label);
       await expect(page.locator(".card", { has: page.getByRole("heading", { name: "Connection", exact: true }) })).toContainText(target.label);
-      // the topology now marks it, and offers going back on the management address
+      // the topology now marks it
       await page.goto(`/node/${n1}/network`);
       await expect(page.locator(".topomgmt", { hasText: /^\s*Migration\s*$/ }).first()).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator(`[data-topo-use="${before.management.address}"]`)).toBeVisible();
       // the encryption certificate covers the new address when encrypted migration is set up
       const tls = await api.get(`/nodes/${n1}/migration-tls`);
       if (tls.state !== "not-set-up") expect(["ok", "valid"]).toContain(tls.state);
-      // reset through the topology action
-      await page.locator(`[data-topo-use="${before.management.address}"]`).click();
+      // reset where it was set: untick Migration in Edit
+      let ed = await openEdit(page, target.address);
+      await expect(ed.getByRole("checkbox", { name: `Migration on ${target.address}` })).toBeChecked();
+      await ed.getByRole("checkbox", { name: `Migration on ${target.address}` }).uncheck();
+      await ed.getByRole("button", { name: "Save" }).click();
+      await expect(page.locator(".migresult")).toContainText("Migration network saved.", { timeout: 90_000 });
+      expect((await api.get(`/nodes/${n1}/migration-network`)).address).toBe("");
+      // and set it again by ticking it, then back by ticking Migration on the management address
+      await page.reload();
+      ed = await openEdit(page, target.address);
+      await ed.getByRole("checkbox", { name: `Migration on ${target.address}` }).check();
+      await ed.getByRole("button", { name: "Save" }).click();
+      await expect(page.locator(".migresult")).toContainText("Migration network saved.", { timeout: 90_000 });
+      expect((await api.get(`/nodes/${n1}/migration-network`)).address).toBe(target.address);
+      await page.reload();
+      ed = await openEdit(page, before.management.address);
+      await ed.getByRole("checkbox", { name: `Migration on ${before.management.address}` }).check();
+      await ed.getByRole("button", { name: "Save" }).click();
       await expect(page.locator(".migresult")).toContainText("Migration network saved.", { timeout: 90_000 });
       expect((await api.get(`/nodes/${n1}/migration-network`)).address).toBe("");
     } finally {
