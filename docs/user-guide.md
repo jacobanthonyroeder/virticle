@@ -93,6 +93,11 @@ To add another host:
 When the node's **Settings** say it was prepared by an older version, choose
 **Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
 
+After an upgrade the **Nodes** page marks each such node ("Prepared by older version" or "Not prepared") and
+shows one notice with the count and **Prepare all**. Enter the administrator login once (used for this run only, not stored).
+The nodes are prepared one after another; a node that fails shows why and the others go on. Offline nodes are not
+listed: they cannot say, so prepare them when they are back.
+
 A node has the tabs **Summary**, **Performance**, **Virtual machines**, **Storage**, **Network**,
 **Updates** and **Settings**.
 
