@@ -359,6 +359,12 @@ func SetBootOrder(src string, order []string) (string, error) {
 // a libvirt network or a host bridge and, when linkState is not empty, with
 // <link state=.../> set. Other children are kept.
 func (d *Doc) SetNICSource(n *Node, network, bridge, linkState string) (string, error) {
+	return d.SetNICSourceOVS(n, network, bridge, linkState, false)
+}
+
+// SetNICSourceOVS is SetNICSource; ovs says the host bridge is an Open vSwitch bridge, which needs
+// <virtualport type='openvswitch'/> on the interface.
+func (d *Doc) SetNICSourceOVS(n *Node, network, bridge, linkState string, ovs bool) (string, error) {
 	var edits []Splice
 	if network != "" || bridge != "" {
 		typ, src := "network", "<source network='"+Esc(network)+"'/>"
@@ -381,6 +387,9 @@ func (d *Doc) SetNICSource(n *Node, network, bridge, linkState string) (string, 
 		// A virtualport belongs to the old attachment and libvirt would reject it.
 		for _, c := range n.ChildrenNamed("virtualport") {
 			edits = append(edits, d.Remove(c))
+		}
+		if ovs && bridge != "" {
+			edits = append(edits, d.AppendChild(n, "<virtualport type='openvswitch'/>"))
 		}
 	}
 	if linkState != "" {
