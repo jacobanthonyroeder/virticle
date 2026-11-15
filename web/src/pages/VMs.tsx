@@ -5,6 +5,7 @@ import { bytes, get, Network, NodeStatus, Pool, post, VM, Volume } from "../api"
 import { useLive } from "../live";
 import CloudInitFields, { CloudInitValues, cloudInitPayload, cloudInitUsed, emptyCloudInit } from "./CloudInit";
 import PoolSelect from "../PoolSelect";
+import { attachBody, useAttachOptions } from "../BridgeSelect";
 import Select from "../Select";
 import { ErrorBox, Field, Modal, NodePicker, PageTitle, StateBadge, useAction, useConfirm } from "../ui";
 import { powerConfirm, powerLabel } from "../power";
@@ -227,6 +228,7 @@ function CreateVM({ nodes, preset, onClose }: { nodes: NodeStatus[]; preset?: { 
   const [ci, setCi] = useState<CloudInitValues>(emptyCloudInit);
   const [pools, setPools] = useState<Pool[]>([]);
   const [networks, setNetworks] = useState<Network[]>([]);
+  const attachOptions = useAttachOptions(node, networks);
   const [volumes, setVolumes] = useState<(Volume & { pool: string })[]>([]);
 
   // A default the node cannot honour (UEFI, say) is dropped as soon as the node's abilities are known.
@@ -301,7 +303,7 @@ function CreateVM({ nodes, preset, onClose }: { nodes: NodeStatus[]; preset?: { 
         cpu,
         pool,
         diskGiB,
-        network,
+        ...attachBody(network),
         start,
         iso: source === "iso" ? media : "",
         baseVolume: source === "image" ? media : "",
@@ -378,7 +380,7 @@ function CreateVM({ nodes, preset, onClose }: { nodes: NodeStatus[]; preset?: { 
           </Field>
         )}
         {source === "image" && (
-          <Field label="Base image" hint="The new disk starts as a copy of this image, in the same pool.">
+          <Field label="Base image" help="The new disk starts as a copy of this image, in the same pool.">
             <Select label="Base image" value={media} onChange={setMedia} placeholder="Choose an image" options={images.map((v) => ({ value: v.name, label: `${v.name} (${bytes(v.capacity)})` }))} />
           </Field>
         )}
@@ -408,7 +410,7 @@ function CreateVM({ nodes, preset, onClose }: { nodes: NodeStatus[]; preset?: { 
             </Field>
           )}
           <Field label="Network">
-            <Select label="Network" value={network} onChange={setNetwork} options={[{ value: "", label: "None" }, ...networks.map((n) => ({ value: n.name, label: `${n.name} (${n.forward})` }))]} />
+            <Select label="Network" value={network} onChange={setNetwork} options={attachOptions} />
           </Field>
         </div>
         {source === "image" && <CloudInitFields value={ci} onChange={setCi} preselect />}
@@ -429,7 +431,7 @@ function CreateVM({ nodes, preset, onClose }: { nodes: NodeStatus[]; preset?: { 
             />
           </Field>
           <FirmwareFields value={fw} caps={caps} disk={disk} onChange={setFw} />
-          <Field label="Existing volume" hint="Use a volume of the chosen pool as the disk as it is, not copied.">
+          <Field label="Existing volume" help="Use a volume of the chosen pool as the disk as it is, not copied.">
             <Select
               label="Existing volume"
               value={source === "existing" ? media : ""}

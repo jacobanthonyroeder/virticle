@@ -1,4 +1,4 @@
-// Serial console (always added at creation, no Hardware card: the Console tab offers to add one when a VM has none)
+// Serial console (always added at creation, no Hardware card: the Console card offers to add one when a VM has none)
 // and the guest clock (time sync through the guest agent from the Actions menu, automatic sync after resume).
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
@@ -69,7 +69,7 @@ test.describe.serial("serial console", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("Console tab with no console at all offers Add serial console", async ({ page, api }) => {
+  test("Console card with no console at all offers Add serial console", async ({ page, api }) => {
     // take the serial console and the VNC display away through the API, so that nothing is left to show
     await api.del(`/nodes/${vm.node}/vms/${vm.uuid}/serial-console`);
     const d = await detail(api);
@@ -77,10 +77,10 @@ test.describe.serial("serial console", () => {
     expect(xml).not.toContain("<graphics");
     await api.put(`/nodes/${vm.node}/vms/${vm.uuid}/xml`, { xml });
     expect((await detail(api)).serials).toEqual([]);
-    await openVM(page, vm, "console");
-    await expect(page.locator(".empty")).toContainText("No VNC display or serial console");
+    await openVM(page, vm);
+    await expect(page.locator(".cc-note")).toHaveText("No console");
     await page.getByRole("button", { name: "Add serial console" }).click();
-    await expect(page.locator(".empty")).toHaveText("Shutoff");
+    await expect(page.locator(".cc-note")).toHaveText("Shutoff");
     expect((await detail(api)).serials).toEqual([{ type: "pty", port: "0" }]);
   });
 
@@ -94,9 +94,9 @@ test.describe.serial("serial console", () => {
     expect(d.serials).toEqual([]);
     expect(d.serialPending).toBe("add");
     expect(d.hasSerial).toBe(false);
-    await openVM(page, vm, "console");
-    await expect(page.locator(".empty")).toContainText("A serial console is saved. It applies after the VM is powered off and started.");
-    // power cycle: now it is there and the Console tab reaches it
+    await openVM(page, vm);
+    await expect(page.locator(".cc-note")).toHaveText("Serial console added; applies after power off and start");
+    // power cycle: now it is there and the console reaches it
     await api.post(`/nodes/${vm.node}/vms/${vm.uuid}/action`, { action: "poweroff" });
     await api.waitFor("vm off", async () => (await detail(api)).state === "shutoff", 30_000, 1000);
     await api.post(`/nodes/${vm.node}/vms/${vm.uuid}/action`, { action: "start" });

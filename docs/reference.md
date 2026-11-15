@@ -144,7 +144,7 @@ earlier versions no longer exist.
 - **Clock** (Linux): `rtc` catch-up, `pit` delay, `hpet` off, `kvmclock` on.
   The guest clock is synced after resume, snapshot revert and live migration
   when the guest agent runs.
-- **Serial console**: added to every new VM; the Console tab adds one to a VM that has none.
+- **Serial console**: added to every new VM; the Console card on the Overview adds one to a VM that has none.
 - **Firmware** (Linux): UEFI, with the UEFI variables in a qcow2 file so the VM can take internal snapshots. A node without UEFI firmware gets BIOS. Windows always gets UEFI.
 
 ## Migration network and limit

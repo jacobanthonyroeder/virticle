@@ -1,8 +1,8 @@
 // The "Actions" menu of the VM page: power, hardware, snapshots, clone, template, migrate, XML, delete.
 // Entries that do not apply to the VM's state are disabled with a reason, never hidden, so the
 // menu keeps its shape. Destructive power actions ask for confirmation first.
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { del, post, put, VMDetail } from "../api";
 import { atLeast, useRole } from "../auth";
 import { DropdownMenu, MenuEntry } from "../Menu";
@@ -50,6 +50,18 @@ export default function VMActions(props: {
 
   const off = d.state === "shutoff";
   const running = d.state === "running";
+  // "?do=clone" and "?do=migrate" (Clone and Migrate in the tree's menu) open the dialog on arrival.
+  const [params, setParams] = useSearchParams();
+  const todo = params.get("do");
+  useEffect(() => {
+    if (!todo) return;
+    if (op && todo === "clone" && off) setCloning(true);
+    if (op && todo === "migrate") setMigrating(true);
+    const next = new URLSearchParams(params);
+    next.delete("do");
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todo]);
   const paused = d.state === "paused";
   const need = op ? undefined : "Needs the operator role";
   const act = async (a: string, body: { action: string } = { action: a }) => {
