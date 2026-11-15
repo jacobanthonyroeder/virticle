@@ -702,8 +702,47 @@ networks on a host bridge cannot carry it; a guest needs the MTU in its own sett
 **What it refuses.** Ports of a bond (or of a bridge) as uplinks, and cards that are already in another bond; an uplink that is already a port; wireless, virtual and
 libvirt-managed (`virbr*`, `vnet*`) interfaces; changing an interface that carries the controller's connection without
 moving its addresses; a second change while one is pending; deleting a bridge that VMs or libvirt networks use; changing
-or deleting bridges that virticle did not create (they are only listed).
-Only bridges this feature created are changed: it keeps a record of them (`/var/lib/virticle-node/net/managed/`).
+or deleting a bridge set up outside virticle whose saved definition has a setting virticle does not have (below).
+virticle keeps a record of the bridges it manages (`/var/lib/virticle-node/net/managed/`).
+
+**Bridges set up outside virticle.** A Linux bridge without a record is read from its saved definition. When every setting of
+that definition is one virticle has (or that setting's default), the bridge is a virtual switch like one virticle created: the
+same actions, no label. The first change to it takes the definition over, under the same rollback timer, and after the
+confirmation the bridge has a record like any other. Otherwise the bridge is listed, can carry networks and VM interfaces, and
+`notEditable` (a few words) and `notEditableDetail` (a sentence) in `GET .../hostnet` say why it cannot be changed. The check is an
+allow-list per configuration system: a key it does not list makes the bridge not editable.
+
+| Setting | Accepted (NetworkManager keyfile / netplan YAML) |
+| --- | --- |
+| Where it is saved | NetworkManager: keyfiles in `/etc/NetworkManager/system-connections`, one profile each for the bridge, its port (one card or one bond) and each bond member, all active now and started by themselves, bound by interface name. netplan: one entry each for the bridge, its port and the bond's cards, each in one file in `/etc/netplan` (not `/lib` or `/run`), renderer networkd, and netplan's generated files in use |
+| STP | off (`bridge.stp=false`; netplan `parameters: {stp: false}`). Both default to on |
+| Other bridge options (forward delay, priority, multicast, ageing, hairpin, path cost) | not set |
+| Ports | at most one: a physical card, or a bond of physical cards; VM interfaces (`vnet*`, `tap*`) besides |
+| Bond | `mode=active-backup,miimon=100`, or `mode=802.3ad,miimon=100,lacp_rate=fast,xmit_hash_policy=layer2+3` (netplan: the same as `parameters`, `mii-monitor-interval: 100`), nothing else |
+| Addresses | NetworkManager: the `ipv4`/`ipv6` keys virticle copies from a card (method, addresses, gateway, DNS, routes, metrics, DHCP options); netplan: `addresses` (plain strings), `dhcp4`, `dhcp6`, `routes`, `nameservers`, `gateway4/6`, `link-local`, `accept-ra`, `optional`, `critical`, `dhcp4/6-overrides`, `ipv6-privacy`, `dhcp-identifier` |
+| MAC address | only on a bridge with addresses, and the one it has now |
+| MTU | none, or the same value on the bridge, the bond and every card |
+| VLANs | NetworkManager: `vlan-filtering`, `vlan-default-pvid=1`, port `vlans` with `1 pvid untagged` and plain tagged ids. netplan has no VLAN filtering: a bridge that filters VLANs is refused. VLAN interfaces on the bridge, the bond or a card are refused |
+| Ports' own settings | NetworkManager: `ethernet.mtu`, `mac-address` of the card, empty `bond-port`. netplan: `match` (MAC address or name of the card), `set-name`, `dhcp4: false`, `dhcp6: false`, `link-local: []`, `accept-ra: false`, `optional`, `mtu` |
+| cloud-init | a bridge in `50-cloud-init.yaml` is refused while cloud-init is installed and its network configuration is not disabled (it writes the file again at boot) |
+| Not editable at all | `virbr*` and bridges of libvirt NAT, routed, isolated and open networks; container bridges (`docker*`, `br-` and 12 hex digits, `podman*`, `cni*`, `lxcbr*`, `lxdbr*`, `incusbr*`); Open vSwitch; a bridge made with `ip link` (no saved definition); plain systemd-networkd files of the administrator and ifupdown (not edited yet) |
+
+How the definition is taken over:
+
+- NetworkManager: virticle's profiles (`virticle-BRIDGE`, `virticle-bond-BOND`, `virticle-port-CARD`) are added with the same
+  settings and activated on the existing devices, which NetworkManager does without removing the bridge; then the original
+  profiles are deleted. Their keyfiles are saved with the change; a rollback writes them back, reloads, activates them and
+  deletes virticle's profiles, so the profiles, their UUIDs and the files are as before. When the bridge has addresses, the first
+  card gets a profile of its own (named like the card, or `virticle-card-CARD` when that name is taken) with the bridge's address
+  settings and autoconnect off: the card gets it back when the switch is deleted.
+- netplan: the bridge's entry (and the bond's) is removed from the YAML; when the bridge has addresses, its address settings
+  move to the first card's entry, which is what the card gets back when the switch is deleted. Only those lines change; comments and
+  other entries stay. virticle's networkd files take the bridge's place and `netplan generate` runs (not `netplan apply`, which would
+  remove the bridge). A later `netplan apply` or the `netplan generate` at boot find one definition of the bridge: virticle's. The YAML
+  files are saved with the change; a rollback writes them back byte for byte and generates again.
+- Deleting a recognised bridge without a change before: NetworkManager deletes the profiles and gives the first card a profile with
+  the bridge's address settings; netplan removes the entry and moves the address settings to the card's entry. The review lists the
+  profiles and files by name.
 
 **VLANs.** A VLAN-aware bridge has VLAN filtering on; its uplink allows the chosen VLAN ids (2-4094 by default, tagged),
 and the bridge's own address stays untagged (VLAN 1). A libvirt network with `forward mode='bridge'` on such a bridge can
@@ -714,8 +753,8 @@ The node's own addresses on a VLAN are described below.
 
 | System | Written | State |
 |---|---|---|
-| NetworkManager | connections `virticle-BRIDGE` (bridge), `virticle-port-UPLINK` (and `virticle-bond-BOND`, `virticle-vlan-IF`); the uplink's own connection is kept and only set not to start by itself | tried on a real node (Rocky Linux 10, NetworkManager 1.56): create, move the management address, VLANs, rollback by timer and by hand, delete, reboots |
-| netplan with systemd-networkd, or plain systemd-networkd | `05-virticle-*.netdev` and `.network` files in `/etc/systemd/network`; the files of netplan and the administrator are not edited. They sort before netplan's `10-netplan-*.network`, survive a reboot, `netplan apply` and cloud-init | netplan with networkd tried on a real node (Debian 13): the same tests as above; plain networkd without netplan runs the same code but was not tried. To tell which file configures a card, the node evaluates the `[Match]` keys `Name`, `OriginalName`, `MACAddress`, `PermanentMACAddress`, `Kind`, `Type`, `Virtualization` and, for non-wireless cards, `WLANInterfaceType`, which covers the files in `/usr/lib/systemd/network` on Debian 13 and Ubuntu 24.04. A file with another key (for example `Driver` or `Path`) that sorts before the card's own file stops the review with a message that says to give the card a file of its own |
+| NetworkManager | connections `virticle-BRIDGE` (bridge), `virticle-port-UPLINK` (and `virticle-bond-BOND`, `virticle-vlan-IF`); the uplink's own connection is kept and only set not to start by itself; the profiles of a bridge set up outside virticle are replaced when it is taken over (above) | tried on a real node (Rocky Linux 10, NetworkManager 1.56): create, move the management address, VLANs, rollback by timer and by hand, delete, reboots |
+| netplan with systemd-networkd, or plain systemd-networkd | `05-virticle-*.netdev` and `.network` files in `/etc/systemd/network`; the files of netplan and the administrator are not edited, except the netplan YAML of a bridge set up outside virticle that is taken over (above). They sort before netplan's `10-netplan-*.network`, survive a reboot, `netplan apply` and cloud-init | netplan with networkd tried on a real node (Debian 13): the same tests as above; plain networkd without netplan runs the same code but was not tried. To tell which file configures a card, the node evaluates the `[Match]` keys `Name`, `OriginalName`, `MACAddress`, `PermanentMACAddress`, `Kind`, `Type`, `Virtualization` and, for non-wireless cards, `WLANInterfaceType`, which covers the files in `/usr/lib/systemd/network` on Debian 13 and Ubuntu 24.04. A file with another key (for example `Driver` or `Path`) that sorts before the card's own file stops the review with a message that says to give the card a file of its own |
 | ifupdown (`/etc/network/interfaces`) | nothing: bridges are refused with a plain message | not supported |
 
 ## Shared storage (NFS)

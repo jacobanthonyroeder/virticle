@@ -304,6 +304,12 @@ file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
 
+### From 0.4.0 to the next release
+
+**Prepare each node again.** The node command has protocol 22 (0.4.0 had 21): it now reads Linux bridges that were set up
+on the node by hand, so that those that fit can be changed as virtual switches. Until you prepare a node it is marked
+**Outdated**, as described in step 3 below.
+
 ### From 0.3.x to 0.4.0
 
 The same steps for 0.3.0, 0.3.1 and 0.3.2.
