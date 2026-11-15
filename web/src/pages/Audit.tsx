@@ -1,5 +1,7 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, Fragment, useCallback, useEffect, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { AuditEntry, get } from "../api";
+import OperationList from "../OperationList";
 import Select from "../Select";
 import { ErrorBox } from "../ui";
 
@@ -12,6 +14,13 @@ export default function Audit() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [next, setNext] = useState(0);
   const [error, setError] = useState<string | undefined>();
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const toggle = (id: number) =>
+    setOpen((o) => {
+      const n = new Set(o);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
 
   const load = useCallback(
     async (before: number) => {
@@ -64,21 +73,38 @@ export default function Audit() {
         </thead>
         <tbody>
           {entries.map((e) => (
-            <tr key={e.id}>
-              <td>{when(e.time)}</td>
-              <td>
-                {e.user || "-"}
-                {e.token && <span className="muted"> (token {e.token})</span>}
-              </td>
-              <td className="mono">{e.ip}</td>
-              <td className="mono">
-                {e.method} {e.path}
-                {e.detail && <div className="muted">{e.detail}</div>}
-              </td>
-              <td>
-                <span className={"badge " + (e.status >= 400 ? "s-crashed" : "s-running")}>{e.status}</span>
-              </td>
-            </tr>
+            <Fragment key={e.id}>
+              <tr>
+                <td>{when(e.time)}</td>
+                <td>
+                  {e.user || "-"}
+                  {e.token && <span className="muted"> (token {e.token})</span>}
+                </td>
+                <td className="mono">{e.ip}</td>
+                <td className="mono wrap">
+                  {e.method} {e.path}
+                  {e.detail && <div className="muted">{e.detail}</div>}
+                  {!!e.ops && (
+                    <div>
+                      <button type="button" className="row-open" aria-expanded={open.has(e.id)} onClick={() => toggle(e.id)}>
+                        {open.has(e.id) ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+                        {e.ops === 1 ? "1 operation" : `${e.ops} operations`}
+                      </button>
+                    </div>
+                  )}
+                </td>
+                <td>
+                  <span className={"badge " + (e.status >= 400 ? "s-crashed" : "s-running")}>{e.status}</span>
+                </td>
+              </tr>
+              {open.has(e.id) && (
+                <tr className="ops-row">
+                  <td colSpan={5}>
+                    <OperationList audit={e.id} />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>

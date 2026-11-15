@@ -246,6 +246,7 @@ export interface Task {
   started: number;
   finished?: number;
   cancel?: Role; // set while the task runs and can be stopped: the role that may stop it
+  ops?: number; // operations recorded for the task (OperationList)
 }
 export interface ServerEvent {
   type: "node" | "domain" | "network" | "pool" | "task" | "alert" | "tags" | "cpubaseline" | "rolling" | "backupkey";
@@ -297,6 +298,7 @@ export interface AuditEntry {
   path: string;
   status: number;
   detail?: string;
+  ops?: number; // operations recorded for the request (OperationList)
 }
 export interface GuestInfo {
   available: boolean;

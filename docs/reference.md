@@ -74,6 +74,46 @@ People can also sign in through an identity provider or a directory, and local a
 Token requests are written to the audit log. Account settings need a web
 session, not a token.
 
+## Operation traces
+
+Every request that changes something (the ones in the audit log) records what it did on the nodes; a task shares the
+trace of the request that started it.
+
+| Recorded | Content |
+| --- | --- |
+| libvirt calls that change something | Node, libvirt function, the `virsh` command that does the same (when one exists), the XML it carried, result, duration |
+| Programs run on a node over SSH (node command verbs and plain commands) | Node, program, the command line as it ran, exit status, duration |
+
+- Not recorded: reads (names with Get, List, Lookup, Is, Stats, Info, and every call on the connection itself), guest
+  agent and monitor commands that only query, and the periodic collectors.
+- A `virsh` line is an equivalent: Virticle calls libvirt over its RPC protocol and does not run `virsh`. Run it as
+  root on the node. A file name in it (`domain.xml`) is the XML shown with the line. Flags without a `virsh` option are
+  listed beside it. A call without a `virsh` command (the phases of a migration) shows the function and its arguments.
+- For a node command verb the trace shows the verb with its arguments, not the programs the verb ran inside.
+- Redaction, before storing: XML attributes and elements named like a password, secret, key or token (VNC and SPICE
+  `passwd`, TPM `secret`, SEV `dhCert` and `session`), OEM strings and fw_cfg entries, QEMU pass-through arguments that
+  look like secrets and all pass-through environment values, values after flags such as `--password` and
+  `--root-password`, secret environment variables, passwords in URLs and secret query parameters, private keys (PEM),
+  guest agent arguments `password`, `input-data` and `buf-b64`. Standard input is never recorded.
+- Bounds: 200 operations per request (one line says when more were left out), 16 KiB per XML document, 4 KiB per
+  command line. Stored in `virticle.db`, kept as long as the audit log (180 days) and at most 64 MiB in all; the oldest
+  go first.
+
+| Endpoint | Answer |
+| --- | --- |
+| `GET /api/audit` | Each entry carries `ops`: the number of operations, absent when none |
+| `GET /api/audit/{id}/ops` | `{"ops": [...]}` |
+| `GET /api/tasks` | Each task carries `ops` |
+| `GET /api/tasks/{id}/ops` | `{"ops": [...]}` |
+
+The two `ops` endpoints need the admin role, like the audit log. One operation:
+
+    {"seq": 2, "time": 1763240000123, "node": "node-a", "kind": "libvirt", "api": "virDomainSnapshotCreateXML",
+     "cmd": "virsh snapshot-create-as web-1 before-upgrade --disk-only --atomic", "ok": true, "ms": 210}
+
+`kind` is `libvirt`, `exec` or `limit`; `time` is in milliseconds; `args`, `files` (`name`, `text`) and `error` appear
+when there is something to show.
+
 ## Alert webhook body
 
 A destination of type **Webhook** receives a `POST` with `Content-Type: application/json` and
@@ -115,7 +155,7 @@ earlier versions no longer exist.
   `https://virticle.invalid/ns/1`.
 - **The data directory** (`-data`):
   - `virticle.db`: users, password hashes, sessions, token hashes, node list,
-    web access settings, alert destinations (addresses and secrets encrypted), task log, audit log, the state of the rolling update,
+    web access settings, alert destinations (addresses and secrets encrypted), task log, audit log and its operation traces, the state of the rolling update,
     and the work directories of replication runs and backups that are not removed yet (see "Work directories" below).
   - `virticle.db.bak-<version>-<time>`: copy made before a schema upgrade
     (newest 3 kept).
