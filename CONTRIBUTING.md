@@ -5,7 +5,7 @@
 3. Keep changes small and say in the pull request what you tested and on which
    distribution.
 
-UI rules:
+UI rules (the full set is in [DESIGN.md](DESIGN.md)):
 
 - No animation, low resource use.
 - Text is never truncated with an ellipsis; layouts must fit.
