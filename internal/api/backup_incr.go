@@ -15,7 +15,7 @@ import (
 	"virticle/internal/hostconn"
 )
 
-const whyNoList = "libvirt could not tell what it has tracked of this VM so far, so the disks were copied whole."
+const whyNoList = "libvirt could not list its tracked changes"
 
 // planIncremental decides between a full and an incremental backup of the
 // running or shut-off VM m.

@@ -57,16 +57,16 @@ const (
 
 // Why a backup is full, in words for the backup list.
 const (
-	whyShutOff      = "The VM was shut off, so its disks were copied whole."
-	whyFormat       = "A disk is not in qcow2 format and cannot track changes, so the disks were copied whole."
-	whyFirst        = "The first backup of this VM to this pool."
-	whyNoBase       = "No earlier backup could be built on (the VM was moved, restored, had a snapshot reverted or stopped unexpectedly)."
-	whyLayout       = "The disks changed since the last backup (added, removed, resized or moved)."
-	whyDamaged      = "An earlier backup this one would build on is missing or damaged."
-	whyRotation     = "A new full copy is made after every 7 backups, which keeps restores short."
-	whyPoint        = "The schedule keeps this backup as a weekly or monthly one, so it is full and keeps no older backups with it."
-	whyNoCheckpoint = "libvirt could not start tracking changes, so the disks were copied whole."
-	whyRefused      = "libvirt could not build on the earlier backup (the VM may have stopped unexpectedly), so the disks were copied whole."
+	whyShutOff      = "VM shut off"
+	whyFormat       = "A disk is not qcow2"
+	whyFirst        = "First backup to this pool"
+	whyNoBase       = "No earlier backup to build on (VM moved, restored, reverted or stopped unexpectedly)"
+	whyLayout       = "Disks changed since the last backup"
+	whyDamaged      = "Earlier backup missing or damaged"
+	whyRotation     = "New full after 7 backups"
+	whyPoint        = "Weekly or monthly point"
+	whyNoCheckpoint = "libvirt could not start tracking changes"
+	whyRefused      = "libvirt could not build on the earlier backup"
 )
 
 // diskLayout is what must be unchanged for an incremental backup to make sense.
