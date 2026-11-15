@@ -34,8 +34,9 @@ anything that needs it. Its exit code is 1 then.
     virticle node add --identity /root/.ssh/id_ed25519 root@192.0.2.12
     virticle status
 
-Setup can run again: it changes nothing that is done and says so. `node add` of a host that is already a node stops
-with an error (exit code 1) and changes nothing. The browser is only needed to use Virticle.
+Setup can run again: it changes nothing that is done and says so. `node add` of a host that is already a node says "HOST is a node
+already" (exit code 0) and changes nothing, so the script above can run again under `set -e`.
+The browser is only needed to use Virticle.
 
 ## Overview
 

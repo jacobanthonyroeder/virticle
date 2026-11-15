@@ -136,8 +136,10 @@ func addNode(q addReq, in credIO) int {
 	if err != nil {
 		return errorLine(1, "the controller's node list: %v", err)
 	}
-	if n, ok := alreadyListed(ns, addr, local); ok {
-		return errorLine(1, "%s is already a node of this controller (%s, %s)", where, nodeName(n), n.State)
+	if _, ok := alreadyListed(ns, addr, local); ok {
+		// Not a fault: a script can run this again.
+		fmt.Fprintln(out, alreadyNodeLine(where))
+		return 0
 	}
 
 	knownHosts := filepath.Join(q.data, "known_hosts")
@@ -311,6 +313,11 @@ func alreadyListed(ns []cluster.NodeStatus, addr string, local bool) (cluster.No
 		}
 	}
 	return cluster.NodeStatus{}, false
+}
+
+// alreadyNodeLine is what node add says, with exit code 0, for a host that is a node already.
+func alreadyNodeLine(where string) string {
+	return where + " is a node already"
 }
 
 func hostOf(a string) string {
