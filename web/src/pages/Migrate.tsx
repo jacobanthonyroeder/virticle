@@ -32,8 +32,7 @@ export default function MigrateDialog(props: { d: VMDetail; onClose: () => void 
   const [nodes, setNodes] = useState<NodeStatus[]>([]);
   const [target, setTarget] = useState(0);
   const [keep, setKeep] = useState(false);
-  const [preview, setPreview] = useState<Preview | undefined>();
-  const [checking, setChecking] = useState(false);
+  const [answer, setAnswer] = useState<{ target: number; p: Preview } | undefined>();
   const [taskId, setTaskId] = useState(0);
   const [task, setTask] = useState<Task | undefined>();
   const act = useAction();
@@ -55,12 +54,11 @@ export default function MigrateDialog(props: { d: VMDetail; onClose: () => void 
   useEffect(() => {
     if (!target || taskId) return;
     let stale = false;
-    setChecking(true);
-    setPreview(undefined);
+    setAnswer(undefined);
     post<Preview>(`${base}/migrate/check`, { target }).then(
-      (p) => !stale && setPreview(p),
-      (e) => !stale && setPreview({ ok: false, checks: [{ check: "Pre-flight", ok: false, severity: "error", message: String(e.message ?? e) }], copyBytes: 0, mirrorBytes: 0 }),
-    ).finally(() => !stale && setChecking(false));
+      (p) => !stale && setAnswer({ target, p }),
+      (e) => !stale && setAnswer({ target, p: { ok: false, checks: [{ check: "Pre-flight", ok: false, severity: "error", message: String(e.message ?? e) }], copyBytes: 0, mirrorBytes: 0 } }),
+    );
     return () => {
       stale = true;
     };
@@ -98,6 +96,9 @@ export default function MigrateDialog(props: { d: VMDetail; onClose: () => void 
     });
 
   const busy = taskId !== 0 && task?.status !== "failed" && task?.status !== "ok";
+  // The answer counts only for the target it was asked for, so the button is off from the moment the target changes.
+  const preview = answer?.target === target ? answer.p : undefined;
+  const checking = !!target && !preview;
   const blocked = !preview || !preview.ok;
   const targetName = nodes.find((n) => n.id === target)?.hostname ?? "";
 
