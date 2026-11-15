@@ -802,7 +802,7 @@ func chooseNode(e setupEnv, o setupOpts) (bool, *prepare.Row) {
 		if why == "" {
 			why = "it has no /dev/kvm"
 		}
-		return fail("--node: this machine cannot run virtual machines (" + lowerFirst(why) + "). Nothing was changed.")
+		return fail("--node: this machine cannot run virtual machines: " + lowerFirst(why) + ". Nothing was changed.")
 	case !e.hasKVM || e.hasLocalNode || o.noNode:
 		return false, nil
 	case o.node || o.yes:
@@ -1033,7 +1033,11 @@ func setupCommand(args []string) int {
 	}
 	if res.addNode {
 		fmt.Println()
-		if c := addNode(addReq{data: *data, out: os.Stdout}, realCredIO()); c != 0 {
+		q := addReq{data: *data, out: os.Stdout}
+		if e.canAsk(o) {
+			q.ask = e.ask // "Take over the node from the other controller?"
+		}
+		if c := addNode(q, realCredIO()); c != 0 {
 			code = c
 		}
 	}

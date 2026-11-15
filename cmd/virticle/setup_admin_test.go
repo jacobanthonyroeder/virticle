@@ -161,9 +161,9 @@ func TestSetupNodeChoice(t *testing.T) {
 
 func TestSetupRefusesANodeItCannotBe(t *testing.T) {
 	l := newAdminLab(false)
-	l.e.hasKVM, l.e.vmProblem = false, "This machine has no /dev/kvm (KVM is off in the firmware, or the kvm module is not loaded)"
+	l.e.hasKVM, l.e.vmProblem = false, "/dev/kvm is missing (KVM is off in the firmware, or the kvm module is not loaded)"
 	rows := runSetup(l.e, setupOpts{node: true, admin: "ann", adminPassword: "correct horse"})
-	if len(rows) != 1 || rows[0].Detail != "--node: this machine cannot run virtual machines (this machine has no /dev/kvm (KVM is off in the firmware, or the kvm module is not loaded)). Nothing was changed." {
+	if len(rows) != 1 || rows[0].Detail != "--node: this machine cannot run virtual machines: /dev/kvm is missing (KVM is off in the firmware, or the kvm module is not loaded). Nothing was changed." {
 		t.Errorf("%s", rowText(rows))
 	}
 	if len(l.created) > 0 || len(l.saved) > 0 || l.ranFirewall() {

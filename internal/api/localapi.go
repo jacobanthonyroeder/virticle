@@ -66,7 +66,7 @@ func (p localProbe) problem() string {
 		r := strings.TrimSuffix(i.Reason, "; add another machine as a node.")
 		return strings.TrimSuffix(r, ".")
 	case !i.KVMDevice:
-		return "This machine has no /dev/kvm (KVM is off in the firmware, or the kvm module is not loaded)"
+		return "/dev/kvm is missing (KVM is off in the firmware, or the kvm module is not loaded)"
 	}
 	return ""
 }
