@@ -91,11 +91,11 @@ colours in components.
 | Button | Neutral by default. One `primary` per form or dialog. `danger` (red border, normal text) for destructive actions. |
 | Destructive action | Always a confirm dialog that names the object. |
 | Select, combo box, menu | The themed `Select`, `ComboInput` and `Menu` components, not native ones. |
-| Field | Label above the input. A hint under it only when the value has a rule (a length, a format). |
+| Field | Label above the input. A hint under it only for a rule (a length, a format) or a state of the value ("Applies after a restart"). An explanation goes behind a "?" by the label (`help`). |
 | Icons | Lucide, 14 to 16 px, next to a label. An icon alone only for a well-known action, with an `aria-label`. |
 | Errors | An `.error` box next to what failed, with the server's message. |
 | Empty state | A dashed box with one short line. |
-| Help | A "?" popover. This is the only place for explanations. |
+| Help | The `Help` component: a small grey "?" in a circle after the text it explains. The explanation shows in a box while the pointer is on it or it has the focus. No clickable words ("Why", "Details") for explanations. This is the only place for explanations. |
 | Tasks | Long work runs as a task: progress in the Tasks dock, a stop "x" when it can be stopped. |
 | Charts | `--chart-1` and `--chart-2`; values in a hover box at the cursor, with a legend. |
 | Focus | 2 px `--accent` outline on every focusable element. |

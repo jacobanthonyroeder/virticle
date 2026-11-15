@@ -137,7 +137,7 @@ function Target(props: { node: number; pool: string; setNode: (n: number) => voi
       <Field label="Target node">
         <NodePicker label="Target node" nodes={nodes} value={props.node} onChange={props.setNode} />
       </Field>
-      <Field label="Target pool" hint="Only running directory-backed pools can hold backups.">
+      <Field label="Target pool" help="Only running directory-backed pools can hold backups.">
         <PoolSelect label="Target pool" pools={pools} value={props.pool} onChange={props.setPool} />
       </Field>
     </>
@@ -208,7 +208,7 @@ function BackupNow(props: { d: VMDetail; onClose: () => void; onDone: () => void
               Retention: schedule ({describeKeep(sch)}).
             </p>
           ) : (
-            <Field label="Keep the newest" hint="Older backups of this VM in this pool are deleted, except those a kept incremental backup builds on. 0 keeps all.">
+            <Field label="Keep the newest" help="Older backups of this VM in this pool are deleted, except those a kept incremental backup builds on. 0 keeps all.">
               <input type="number" min={0} max={1000} value={keep} onChange={(e) => setKeep(Number(e.target.value))} />
             </Field>
           )}

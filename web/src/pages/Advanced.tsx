@@ -99,7 +99,6 @@ export default function AdvancedCard({ d, base, onChanged, bare, flat }: { d: VM
         tone="note"
         text={`Applies at the next start.${t.pendingRestart ? " Not active in the running VM yet." : ""}`}
         details={t.warning}
-        summary="Why this matters"
       />
       {t.warnings.length > 0 && <CheckList summary={false} label="Tuning warnings" items={t.warnings.map((w) => ({ status: "warning", detail: w }))} />}
       <ErrorBox error={act.error} />
