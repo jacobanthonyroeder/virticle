@@ -54,11 +54,12 @@ test.describe.serial("XML editor, tasks, alerts", () => {
     await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
     // the second create fails: the toast shows up wherever the user is, and the table keeps the error
     await api.call("POST", `/nodes/${n1}/pools/default/volumes`, body, [400, 409, 422, 500]);
-    const failed = row(page.locator("main"), `default/${P}dupvol.qcow2`).filter({ hasText: "Error" });
+    const rows = page.locator("main .taskpage .dk-row", { hasText: `default/${P}dupvol.qcow2` });
+    const failed = rows.filter({ hasText: "Error" });
     await expect(failed.first()).toBeVisible();
-    await expect(failed.first().locator(".statusline")).not.toBeEmpty();
+    await expect(failed.first().locator(".dk-err")).not.toBeEmpty();
     await expect(page.locator(".toast", { hasText: "failed" }).first()).toBeVisible();
-    const ok = row(page.locator("main"), `default/${P}dupvol.qcow2`).filter({ hasText: "ok" });
+    const ok = rows.filter({ hasText: "Ok" });
     await expect(ok.first()).toBeVisible();
   });
 

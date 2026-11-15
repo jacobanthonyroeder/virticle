@@ -2,7 +2,7 @@
 import { Page } from "@playwright/test";
 import { expect, stopTask, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, expectBadge, field, row, confirm, pick } from "../lib/ui";
+import { dialog, dockRow, expectBadge, field, row, confirm, pick } from "../lib/ui";
 
 const POOL = `${P}pool`;
 const PATH = `/var/lib/libvirt/${P}pool`;
@@ -97,9 +97,9 @@ test.describe.serial("storage", () => {
     await expect(dlg).toContainText("Detected format raw");
     await expect(field(dlg, "New volume name")).toHaveValue(`${P}raw-imported`);
     await dlg.getByRole("button", { name: "Import", exact: true }).click();
-    const fin = dialog(page, "Import finished");
-    await expect(fin).toContainText(`${P}raw-imported.qcow2`);
-    await fin.getByRole("button", { name: "Close", exact: true }).click();
+    // a disk image becomes a task: the dialog closes once the server accepted it and the Tasks dock follows it
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "import", `${P}raw-imported`).first()).toContainText("Ok", { timeout: 60_000 });
     await expect(row(page, `${P}raw-imported.qcow2`)).toBeVisible();
     expect(await vol(api, n1, `${P}raw-imported.qcow2`)).toMatchObject({ format: "qcow2" });
   });
@@ -115,7 +115,9 @@ test.describe.serial("storage", () => {
     await expect(field(dlg, "Volume name")).toHaveValue("cirros-0.6.3-x86_64-disk.img");
     await field(dlg, "Volume name").fill(`${P}cirros-dl.img`);
     await dlg.getByRole("button", { name: "Download" }).click();
-    await expect(dlg).toBeHidden({ timeout: 200_000 });
+    // the dialog closes once the server accepted the download; the Tasks dock follows it
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "download", `${P}cirros-dl.img`).first()).toContainText("Ok", { timeout: 200_000 });
     const r = row(page, `${P}cirros-dl.img`);
     await expect(r).toBeVisible();
     const v = await vol(api, n1, `${P}cirros-dl.img`);

@@ -87,6 +87,8 @@ A destination of type **Webhook** receives a `POST` with `Content-Type: applicat
 - `alert.kind`: `node-down`, `pool-usage`, `host-memory`, `failed-job`, `vm-state`, `tls-expiry`,
   `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`. `severity` is `warning` or `critical`. `node` is
   the node id and `link` the page in the web UI (both may be missing); `since` and `time` are Unix seconds.
+  A `failed-job` alert of a task that a person started (not the scheduler) carries `user` and is shown in the web UI
+  only; destinations receive the failed-job alerts of scheduled runs.
 - One alert per request, always; the webhook is never summarised. Any 2xx answer is success. Other answers are
   retried after 5 s, 30 s and 2 min, except 401, 403, 404, 410 and other 4xx (not 408, 429), which are not.
   On 429 the `Retry-After` header is honoured.

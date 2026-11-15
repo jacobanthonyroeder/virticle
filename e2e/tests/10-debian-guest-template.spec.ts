@@ -1,7 +1,7 @@
 // A real distro image: cloud-init create, guest agent, guest card, charts, seal into a template, linked clone that boots.
 import { cleanVMs, expect, openVM, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, expectBadge, field, vmAction, pick } from "../lib/ui";
+import { dialog, dockRow, expectBadge, field, vmAction, pick } from "../lib/ui";
 
 const NAME = `${P}deb1`;
 const CLONE = `${P}deb1-clone`;
@@ -123,7 +123,10 @@ test.describe.serial("debian cloud image, guest agent, template and linked clone
     await field(dlg, "Password").fill(PASS);
     await dlg.getByLabel(/Start the clone when it is ready/).check();
     await dlg.getByRole("button", { name: "Clone", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 1, name: CLONE })).toBeVisible({ timeout: 90_000 });
+    // the dialog closes once the server accepted the clone; the Tasks dock follows it
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "clone", CLONE).first()).toContainText("Ok", { timeout: 90_000 });
+    await expect(dockRow(page, "clone", CLONE).first().locator(".c-res")).toContainText("linked");
     const got = await api.vmByName(CLONE);
     clone = { node: got.node, uuid: got.uuid, name: CLONE };
     const d = await api.vmDetail(clone.node, clone.uuid);

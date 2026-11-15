@@ -111,12 +111,12 @@ test.describe.serial("tasks dock", () => {
     const err = big.first().locator(".dk-err");
     await expect(err).toContainText("cancelled");
     await expect(err).toHaveAttribute("title", /cancelled/);
-    // one line, truncated by CSS; a click expands it
-    const h1 = (await err.boundingBox())!.height;
+    // one line, cut by CSS; a click opens the detail with the whole text
     await err.click();
-    await expect(err).toHaveAttribute("aria-expanded", "true");
-    expect((await err.boundingBox())!.height).toBeGreaterThanOrEqual(h1);
-    // the existing toast still appears, above the dock
+    const detail = page.getByRole("dialog", { name: new RegExp(`image default/${BIG}`) });
+    await expect(detail.locator(".tdetail-result")).toContainText("cancelled");
+    await detail.getByRole("button", { name: "Close", exact: true }).click();
+    // the toast of the failed task still appears, above the dock
     const toast = page.locator(".toast", { hasText: "failed" }).first();
     await expect(toast).toBeVisible();
     const tb = (await toast.boundingBox())!;
@@ -146,14 +146,14 @@ test.describe.serial("tasks dock", () => {
     await api.post(`/nodes/${n1}/pools/default/images`, { id: "debian-13", name: BIG });
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/datacenter/tasks");
-    const row = page.locator("main table tbody tr", { hasText: BIG }).first();
+    const row = page.locator("main .taskpage .dk-row", { hasText: BIG }).first();
     await expect(row).toContainText("Running", { timeout: 30_000 });
     const task = (await api.get("/tasks")).find((t: any) => t.status === "running" && t.target.endsWith(BIG));
     expect(task.cancel).toBe("operator");
 
     const viewer = await signInAs(browser, VIEW, PASS);
     await viewer.page.goto("/datacenter/tasks");
-    await expect(viewer.page.locator("main table tbody tr", { hasText: BIG }).first()).toContainText("Running");
+    await expect(viewer.page.locator("main .taskpage .dk-row", { hasText: BIG }).first()).toContainText("Running");
     await expect(viewer.page.locator(".tstop")).toHaveCount(0);
     expect((await viewer.page.request.post(`/api/tasks/${task.id}/cancel`, { data: {} })).status()).toBe(403);
     await viewer.ctx.close();

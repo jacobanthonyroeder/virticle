@@ -1,7 +1,7 @@
 // Move a disk to another storage pool: live (block copy) and offline (volume copy), through the UI.
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { P } from "../lib/env";
-import { dialog, expectBadge, field, confirm, cancelConfirm, pickPool } from "../lib/ui";
+import { dialog, dockRow, expectBadge, field, confirm, cancelConfirm, pickPool } from "../lib/ui";
 
 const NAME = `${P}mv1`;
 const POOL = `${P}mvpool`;
@@ -37,11 +37,12 @@ test.describe.serial("disk move", () => {
     await dlg.getByRole("button", { name: "Move disk" }).click();
     // The old volume is always deleted afterwards: ask first. Cancel changes nothing, confirm starts the move.
     await cancelConfirm(page, /^Move vda and delete the old volume/);
-    await expect(dlg.getByText("Done.")).toHaveCount(0);
+    await expect(dlg).toBeVisible();
     await dlg.getByRole("button", { name: "Move disk" }).click();
     await confirm(page, /^Move vda and delete the old volume/);
-    await expect(dlg.getByText("Done.")).toBeVisible({ timeout: 120_000 });
-    await dlg.locator("footer").getByRole("button", { name: "Close" }).click();
+    // the dialog closes once the server accepted the move; the Tasks dock follows it
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "move disk", NAME).first()).toContainText("Ok", { timeout: 120_000 });
     const after = (await disk(api)).source as string;
     expect(after).toContain(`/${POOL}/`);
     expect((await api.vmDetail(vm.node, vm.uuid)).state).toBe("running");
@@ -60,8 +61,8 @@ test.describe.serial("disk move", () => {
     await expect(dlg.getByText("Offline: the VM is shut off.")).toBeVisible();
     await dlg.getByRole("button", { name: "Move disk" }).click();
     await confirm(page, /^Move vda and delete the old volume/);
-    await expect(dlg.getByText("Done.")).toBeVisible({ timeout: 120_000 });
-    await dlg.locator("footer").getByRole("button", { name: "Close" }).click();
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "move disk", NAME).first()).toContainText("Ok", { timeout: 120_000 });
     expect((await disk(api)).source).toContain("/images/");
     expect((await volumes(api, POOL)).length).toBe(0);
   });

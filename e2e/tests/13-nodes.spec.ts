@@ -1,7 +1,7 @@
 // Nodes page: maintenance (one action, with the offer to move the VMs), evacuation of one prefixed VM.
 import { cleanVMs, createCirros, expect, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog, row } from "../lib/ui";
+import { dialog, dockRow, row } from "../lib/ui";
 
 const VM = `${P}evac1`;
 
@@ -94,12 +94,10 @@ test.describe.serial("nodes", () => {
     const go = dlg.getByRole("button", { name: /^Evacuate \d+ VM/ });
     await expect(go).toHaveText("Evacuate 1 VM(s)");
     await go.click();
-    // progress table: our VM goes to node 2 and finishes ok
-    const res = dlg.locator("tbody tr", { hasText: VM });
-    await expect(res).toContainText(env.node2, { timeout: 30_000 });
-    await expect(res.locator(".badge.es-ok")).toBeVisible({ timeout: 240_000 });
-    await expect(dlg).toContainText("Finished.", { timeout: 60_000 });
-    await dlg.getByRole("button", { name: "Close", exact: true }).click();
+    // the dialog closes once the server accepted the evacuation; the Tasks dock follows it and the move of our VM
+    await expect(dlg).toBeHidden();
+    await expect(dockRow(page, "migrate", VM).first()).toContainText("Ok", { timeout: 240_000 });
+    await expect(dockRow(page, "evacuate", env.node1).first()).toContainText("Ok", { timeout: 60_000 });
     const got = await api.vmByName(VM);
     expect(got.node).toBe(n2);
     // and nothing else of ours was touched

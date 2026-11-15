@@ -78,3 +78,13 @@ export async function cancelConfirm(page: Page, title?: string | RegExp) {
 export async function expectBadge(scope: Locator | Page, state: string) {
   await expect(scope.locator(".badge", { hasText: new RegExp(`^${state}$`, "i") }).first()).toBeVisible();
 }
+
+/**
+ * The row of a task in the Tasks dock. A dialog of a long action closes once the server accepted the task; the task
+ * is then followed here.
+ */
+export const dockRow = (page: Page, kind: string | RegExp, target: string | RegExp) =>
+  page
+    .locator(".dock .dk-rows .dk-row")
+    .filter({ has: page.locator(".c-kind", { hasText: kind }) })
+    .filter({ has: page.locator(".c-target", { hasText: target }) });

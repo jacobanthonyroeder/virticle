@@ -6,7 +6,7 @@ import { resolve } from "path";
 import { Page } from "@playwright/test";
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { env, P } from "../lib/env";
-import { dialog } from "../lib/ui";
+import { dockRow } from "../lib/ui";
 import { Api } from "../lib/api";
 import { labAvailable } from "../lib/lab";
 
@@ -26,13 +26,15 @@ async function backUp(api: Api, vm: { node: number; uuid: string }) {
   await api.waitFor("the backup", async () => ((await api.get("/tasks")) as any[]).find((t) => t.id === r.task && t.status !== "running"), 200_000, 1000);
 }
 
-/** Opens Verify on the row of backup dir and waits for the result word. */
+/** Starts Verify on the row of backup dir (no dialog: the task runs in the Tasks dock) and returns the Result cell of its row. */
 async function verify(page: Page, dir: string, word: "Intact" | "Damaged") {
+  const tasks = dockRow(page, "verify", dir);
+  const before = await tasks.count();
   const row = page.locator("tbody tr").filter({ has: page.locator(`td[title$="${dir}"]`) });
   await row.getByRole("button", { name: "Verify", exact: true }).click();
-  const dlg = dialog(page, `Verify ${NAME}`);
-  await expect(dlg.locator(".badge")).toHaveText(word, { timeout: 120_000 });
-  return dlg;
+  await expect(tasks).toHaveCount(before + 1);
+  await expect(tasks.first()).toContainText(word === "Intact" ? "Ok" : "Error", { timeout: 120_000 });
+  return tasks.first().locator(".c-res");
 }
 
 test.describe.serial("verify backup", () => {
@@ -60,10 +62,8 @@ test.describe.serial("verify backup", () => {
 
   test("a chain of three is intact", async ({ page }) => {
     await openVM(page, vm, "backups");
-    const dlg = await verify(page, dirs[2], "Intact");
-    await expect(dlg).toContainText(/\d+ files intact in 3 backups/);
-    await expect(dlg.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
-    await dlg.getByRole("button", { name: "Close dialog" }).click();
+    const res = await verify(page, dirs[2], "Intact");
+    await expect(res).toContainText(/\d+ files intact in 3 backups/);
     const t = ((await page.request.get("/api/tasks").then((r) => r.json())) as any[]).find((x) => x.kind === "verify" && x.target === dirs[2]);
     expect(t).toMatchObject({ status: "ok", node: env.node1 });
   });
@@ -78,27 +78,23 @@ test.describe.serial("verify backup", () => {
     nodeSh(flip);
     try {
       await openVM(page, vm, "backups");
-      let dlg = await verify(page, dirs[2], "Damaged");
-      await expect(dlg.locator(".error")).toContainText(`${dirs[1]}/vda.qcow2 is damaged: its SHA-256 differs`);
-      await dlg.getByRole("button", { name: "Close dialog" }).click();
+      const bad = await verify(page, dirs[2], "Damaged");
+      await expect(bad).toContainText(`${dirs[1]}/vda.qcow2 is damaged: its SHA-256 differs`);
       // the full backup underneath is still intact
-      dlg = await verify(page, dirs[0], "Intact");
-      await dlg.getByRole("button", { name: "Close dialog" }).click();
+      await verify(page, dirs[0], "Intact");
     } finally {
       nodeSh(flip);
     }
     nodeSh(`mv ${mid} ${pool}/${P}ver1-hidden`);
     try {
       await openVM(page, vm, "backups");
-      const dlg = await verify(page, dirs[2], "Damaged");
-      await expect(dlg.locator(".error")).toContainText(`The earlier backup ${dirs[1]} that this one builds on is missing`);
-      await dlg.getByRole("button", { name: "Close dialog" }).click();
+      const gone = await verify(page, dirs[2], "Damaged");
+      await expect(gone).toContainText(`The earlier backup ${dirs[1]} that this one builds on is missing`);
     } finally {
       nodeSh(`mv ${pool}/${P}ver1-hidden ${mid}`);
     }
     await page.reload();
-    const dlg = await verify(page, dirs[2], "Intact");
-    await dlg.getByRole("button", { name: "Close dialog" }).click();
+    await verify(page, dirs[2], "Intact");
   });
 
   test("an encrypted backup is verified without the passphrase", async ({ page, api }) => {
@@ -109,10 +105,9 @@ test.describe.serial("verify backup", () => {
     const newest = (await backups(api, vm.uuid)).pop();
     expect(newest.manifest.recipient).toBeTruthy();
     await openVM(page, vm, "backups");
-    const dlg = await verify(page, newest.dir, "Intact");
-    await expect(dlg).toContainText("files intact in 4 backups");
-    await expect(dlg.locator("input[type=password]")).toHaveCount(0);
-    await dlg.getByRole("button", { name: "Close dialog" }).click();
+    const res = await verify(page, newest.dir, "Intact");
+    await expect(res).toContainText("files intact in 4 backups");
+    await expect(page.locator("input[type=password]")).toHaveCount(0); // no passphrase is asked for
   });
 
   test("phone width: the backup rows fit", async ({ page }) => {
