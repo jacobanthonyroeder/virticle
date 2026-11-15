@@ -16,6 +16,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -77,7 +78,7 @@ func (s *Server) cbCheckDir(dir string) error {
 	why := func(err error) error {
 		msg := err.Error()
 		if errors.Is(err, unix.EROFS) || errors.Is(err, os.ErrPermission) {
-			msg += ". The folder must be writable by the account the controller runs as; an installed controller may write below /var/lib/virticle, /mnt, /media and /srv. Make it first: sudo install -d -o virticle -g virticle " + dir
+			msg += ". The folder must be writable by the account the controller runs as; an installed controller may write below /var/lib/virticle, /mnt, /media and /srv. Make it first: sudo install -d -o " + runningUser() + " " + dir
 		}
 		return errors.New(msg)
 	}
@@ -586,4 +587,12 @@ func freeBytesLocal(dir string) (int64, error) {
 		return 0, err
 	}
 	return int64(sf.Bavail) * int64(sf.Bsize), nil
+}
+
+// runningUser is the name of the account this controller runs as ("virticle" for an installed one).
+func runningUser() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username
+	}
+	return "virticle"
 }
