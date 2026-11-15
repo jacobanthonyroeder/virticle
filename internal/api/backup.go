@@ -989,6 +989,11 @@ func (s *Server) pruneBackups(h *hostconn.Host, pool, uuid string, pol retention
 		}
 	}
 	n := 0
+	defer func() {
+		if n > 0 {
+			s.refreshBackupPool(h, pd)
+		}
+	}()
 	// Newest first, and stop at the first failure, so that no backup is ever left without its parent.
 	for _, key := range prunePolicy(all, uuid, pol, just, readingIn(h.Name, pd.Dir), time.Local) {
 		if err := removeBackupDir(h, pd.Dir, key); err != nil {
@@ -1014,6 +1019,57 @@ func removeBackupDir(h *hostconn.Host, poolDir, name string) error {
 		return fmt.Errorf("cannot delete %s on %s: %w", dir, h.Name, err)
 	}
 	return nil
+}
+
+// refreshBackupPool lets libvirt rescan a pool that backups were deleted from. libvirt lists each backup
+// directory as a volume of the pool and only notices that one is gone, and the space it freed, when the pool is
+// refreshed; the alert pass does that for local pools once a minute, never for NFS pools. Best effort: the
+// backups are deleted either way.
+//
+// The pool on h is refreshed at once: its mount has just answered the delete. An NFS share is also a pool on every
+// other node that mounts it; those are refreshed in the background, and only where the mount answers (poolDirs
+// leaves out the others), since a refresh on a share that does not answer waits for its server.
+func (s *Server) refreshBackupPool(h *hostconn.Host, pd poolDir) {
+	if p, err := h.StoragePoolLookupByName(pd.Name); err == nil {
+		h.StoragePoolRefresh(p, 0)
+	}
+	descs, err := poolDescs(h)
+	if err != nil || !descs[pd.Dir].isNFS() || s.Nodes == nil {
+		return
+	}
+	share := shareID(h, descs[pd.Dir])
+	for _, n := range s.Nodes.Status() {
+		if n.State != "online" {
+			continue
+		}
+		o, err := s.Nodes.Host(n.ID)
+		if err != nil || o == h {
+			continue
+		}
+		go func(o *hostconn.Host) {
+			dirs, err := poolDirs(o)
+			if err != nil {
+				return
+			}
+			od, _ := poolDescs(o)
+			for _, name := range poolsOfShare(share, dirs, od, func(p poolDesc) string { return shareID(o, p) }) {
+				if p, err := o.StoragePoolLookupByName(name); err == nil {
+					o.StoragePoolRefresh(p, 0)
+				}
+			}
+		}(o)
+	}
+}
+
+// poolsOfShare names the pools among dirs that are the NFS share share.
+func poolsOfShare(share string, dirs []poolDir, descs map[string]poolDesc, id func(poolDesc) string) []string {
+	var out []string
+	for _, d := range dirs {
+		if p, ok := descs[d.Dir]; ok && p.isNFS() && id(p) == share {
+			out = append(out, d.Name)
+		}
+	}
+	return out
 }
 
 // --- listing ---
@@ -1396,6 +1452,7 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.task(r, "backup delete", b.name, b.h.Name, func(func(float64)) error {
+		defer s.refreshBackupPool(b.h, b.pd)
 		for _, d := range later { // newest first: no backup is ever left without its parent
 			if err := removeBackupDir(b.h, b.pd.Dir, d); err != nil {
 				return err
