@@ -114,7 +114,17 @@ test.describe.serial("migration network", () => {
       // the encryption certificate covers the new address when encrypted migration is set up
       const tls = await api.get(`/nodes/${n1}/migration-tls`);
       if (tls.state !== "not-set-up") expect(["ok", "valid"]).toContain(tls.state);
-      // reset through the topology action
+      // reset where it was set: "Stop using for migration" next to the mark
+      const stop = page.locator(`[data-topo-stop="${target.address}"]`);
+      await expect(stop).toBeVisible();
+      await expect(page.locator(`[data-topo-stop="${before.management.address}"]`)).toHaveCount(0);
+      await stop.click();
+      await expect(page.locator(".migresult")).toContainText("Migration network saved.", { timeout: 90_000 });
+      expect((await api.get(`/nodes/${n1}/migration-network`)).address).toBe("");
+      // and the other way back: set it again, reset through the action on the management address
+      await api.put(`/nodes/${n1}/migration-network`, { address: target.address });
+      await page.reload();
+      await expect(page.locator(`[data-topo-use="${before.management.address}"]`)).toBeVisible({ timeout: 30_000 });
       await page.locator(`[data-topo-use="${before.management.address}"]`).click();
       await expect(page.locator(".migresult")).toContainText("Migration network saved.", { timeout: 90_000 });
       expect((await api.get(`/nodes/${n1}/migration-network`)).address).toBe("");

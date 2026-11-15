@@ -34,6 +34,42 @@ test.describe.serial("network topology", () => {
     await expect(page.locator(".error")).toHaveCount(0);
   });
 
+  test("a host bridge is either a virtual switch with actions or says why it is not editable", async ({ page, api, n1 }) => {
+    const st = await api.get(`/nodes/${n1}/hostnet`);
+    await page.goto(`/node/${n1}/network`);
+    await expect(page.locator(".toposwitch").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Not managed by Virticle")).toHaveCount(0);
+    for (const b of st.bridges.filter((x: any) => x.readOnly !== "managed by libvirt" && x.readOnly !== "not a Linux bridge")) {
+      const sw = page.locator(`section.toposwitch[aria-label="Switch ${b.name}"]`);
+      if (b.managed) {
+        await expect(sw.getByRole("button", { name: `Actions for ${b.name}` })).toBeVisible();
+        await expect(sw.locator('[data-vsw="not-editable"]')).toHaveCount(0);
+      } else {
+        await expect(sw.locator('[data-vsw="not-editable"]')).toContainText(b.notEditable);
+        await expect(sw.getByRole("button", { name: `Actions for ${b.name}` })).toHaveCount(0);
+        await expect(sw.getByRole("button", { name: "Add network" })).toBeVisible(); // still usable
+        if (b.notEditableDetail) {
+          await sw.getByRole("button", { name: `Why ${b.name} is not editable` }).click();
+          await expect(page.getByRole("note")).toContainText(b.notEditableDetail);
+          await page.keyboard.press("Escape");
+        }
+      }
+    }
+  });
+
+  test("the switch's own address is in its header, not in a box of its own", async ({ page, api, n1 }) => {
+    const r = await api.get(`/topology?node=${n1}`);
+    await page.goto(`/node/${n1}/network`);
+    await expect(page.locator(".toposwitch").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("This node's address")).toHaveCount(0);
+    for (const s of r.nodes[0].switches) {
+      const shown = (s.hostAddresses ?? []).filter((a: any) => a.address && !/^fe80:/i.test(a.address));
+      if (shown.length === 0) continue;
+      const head = page.locator(`section.toposwitch[aria-label="Switch ${s.name}"] > header`);
+      for (const a of shown) await expect(head).toContainText(a.address);
+    }
+  });
+
   test("the datacenter tab lists node 1 and filters by name", async ({ page }) => {
     await page.goto("/datacenter/network");
     await expect(page.getByRole("tab", { name: "Network", exact: true })).toHaveAttribute("aria-selected", "true");

@@ -10,6 +10,7 @@ import { PRESETS } from "../tagColor";
 import { atLeast, useRole } from "../auth";
 import { DropdownMenu, MenuEntry } from "../Menu";
 import { ErrorBox, StateBadge, useAction } from "../ui";
+import HelpTip from "../HelpTip";
 import { MigNetResult, MigrationResult, resultItems } from "./MigrationNetwork";
 import { NodeFilter, netEvents, nodeEvents } from "./dcShared";
 import HostInterfaces, { NodeHostInterfaces } from "./HostNics";
@@ -99,10 +100,12 @@ function accent(name: string): string {
 
 const speed = (m?: number) => (m ? (m >= 1000 ? `${m / 1000} Gbit/s` : `${m} Mbit/s`) : "");
 
-/** "Use for migration" on an address (administrators): `can` says for which address it is offered. */
+/** "Use for migration" on an address (administrators): `can` says for which address it is offered; `stop` goes back to
+ * the default (the management address) from an address that carries migration. */
 interface UseMigration {
   can: (a: Addr) => boolean;
   run: (a: Addr) => void;
+  stop: () => void;
   busy: boolean;
 }
 
@@ -113,11 +116,16 @@ function Addrs({ list, use }: { list: Addr[]; use?: UseMigration }) {
         <span key={a.iface ?? "" + a.address} className="mono topoaddr">
           {a.vlan ? <span className="muted">VLAN {a.vlan} </span> : null}
           {a.address || <span className="muted">waiting for an address</span>}
-          {a.management && <span className="topomgmt"> Management</span>}
-          {a.migration && <span className="topomgmt"> Migration</span>}
+          {a.management && <> <span className="topomgmt">Management</span></>}
+          {a.migration && <> <span className="topomgmt">Migration</span></>}
           {use?.can(a) && (
             <button className="link topouse" onClick={() => use.run(a)} disabled={use.busy} data-topo-use={a.address.split("/")[0]}>
               Use for migration
+            </button>
+          )}
+          {use && a.migration && !a.management && (
+            <button className="link topouse" onClick={use.stop} disabled={use.busy} data-topo-stop={a.address.split("/")[0]}>
+              Stop using for migration
             </button>
           )}
         </span>
@@ -266,10 +274,20 @@ function SwitchBox({ node, s, accents, act, use, ctl, onAddNetwork, folded }: { 
         )}
         <h4>{s.name}</h4>
         <span className="muted">{KIND[s.kind]}</span>
+        {s.hostAddresses.some((a) => !/^fe80:/i.test(a.address)) && (
+          <span className="topohdraddr" data-topo-id={`host:${s.name}`}>
+            <Addrs list={s.hostAddresses} use={s.kind === "linux-bridge" || s.kind === "openvswitch" ? use : undefined} />
+          </span>
+        )}
         {s.state && s.kind !== "other" && <StateBadge state={s.state === "up" || s.state === "down" || s.state === "idle" ? s.state : "unknown"} />}
         {info?.vlanFiltering && <span className="muted">VLANs {info.vlans && info.vlans !== "2-4094" ? info.vlans : "all"}</span>}
         {s.mtu && s.mtu !== 1500 ? <span className="muted">MTU {s.mtu}</span> : null}
-        {act && s.kind === "linux-bridge" && info && !info.managed && info.readOnly !== "managed by libvirt" && <span className="muted">Not managed by Virticle</span>}
+        {act && s.kind === "linux-bridge" && info && !info.managed && info.readOnly !== "managed by libvirt" && (
+          <span className="muted topofixed" data-vsw="not-editable">
+            {info.notEditable || "Not editable"}
+            {info.notEditableDetail && <HelpTip label={`Why ${s.name} is not editable`} text={info.notEditableDetail + " The bridge can still be used for networks and VM interfaces."} />}
+          </span>
+        )}
         {closed && (
           <span className="muted">
             {s.portGroups.length === 1 ? "1 network" : `${s.portGroups.length} networks`}
@@ -321,14 +339,6 @@ function SwitchBox({ node, s, accents, act, use, ctl, onAddNetwork, folded }: { 
             <UplinkBox key={u.name} u={u} use={use} />
           ))}
           {s.uplinks.length === 0 && s.uplinkNote && <div className="topouplink topoplain">{s.uplinkNote}</div>}
-          {s.hostAddresses.some((a) => !/^fe80:/i.test(a.address)) && (
-            <div className="topohost" data-topo-id={`host:${s.name}`}>
-              <div className="topotitle">
-                <span>This node's address</span>
-              </div>
-              <Addrs list={s.hostAddresses} use={s.kind === "linux-bridge" || s.kind === "openvswitch" ? use : undefined} />
-            </div>
-          )}
         </div>
       </div>
       )}
@@ -392,19 +402,22 @@ function NodeBody({ n, accents, admin, operator, filtering, reload }: { n: TopoN
   const allAddrs = [...n.switches.flatMap((s) => [...s.hostAddresses, ...s.uplinks.flatMap((u) => u.addresses)]), ...n.unused.flatMap((u) => u.addresses)];
   const explicitMig = allAddrs.some((a) => a.migration);
   // The management address is offered only to go back to the default; an address that already carries migration is marked instead.
+  const setMig = async (address: string) => {
+    setMigDone([]);
+    let res: MigNetResult | undefined;
+    const ok = await migAct.run(async () => {
+      res = await put<MigNetResult>(`/nodes/${n.node}/migration-network`, { address });
+    });
+    if (ok && res) setMigDone(resultItems(res, "Migration network saved."));
+    reload();
+  };
   const use: UseMigration | undefined = admin
     ? {
         can: (a) => !a.migration && (!a.management || explicitMig),
         busy: migAct.busy,
-        run: async (a) => {
-          setMigDone([]);
-          let res: MigNetResult | undefined;
-          const ok = await migAct.run(async () => {
-            res = await put<MigNetResult>(`/nodes/${n.node}/migration-network`, { address: a.management ? "" : a.address.split("/")[0] });
-          });
-          if (ok && res) setMigDone(resultItems(res, "Migration network saved."));
-          reload();
-        },
+        run: (a) => setMig(a.management ? "" : a.address.split("/")[0]),
+        // Back to the default: the management address.
+        stop: () => setMig(""),
       }
     : undefined;
   const canAdd = admin && !!st && !blocked;
