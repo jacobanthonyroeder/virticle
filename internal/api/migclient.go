@@ -123,6 +123,7 @@ func (m *migRun) performFromController(flags libvirt.DomainMigrateFlags, params 
 // settle finds out where the VM is after Finish failed without an answer, and tells the source.
 func (m *migRun) settle(flags libvirt.DomainMigrateFlags, params []libvirt.TypedParam, ferr error) (handover, error) {
 	m.settling.Store(true)
+	m.finishLost.Store(true)
 	defer m.settling.Store(false)
 	confirm := func(moved bool) error {
 		c := int32(1)

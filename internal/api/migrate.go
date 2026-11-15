@@ -1092,7 +1092,10 @@ type migRun struct {
 	// settling is set while the end of a hand-over whose answer was lost is being found out: the job must not be
 	// aborted then, or the source would resume a VM that may run on the target.
 	settling atomic.Bool
-	srcID    int64
+	// finishLost is set once the target's answer at the end of the hand-over was lost. Whatever the target says
+	// afterwards, the files of such a run are removed only when an administrator asks.
+	finishLost atomic.Bool
+	srcID      int64
 	// jid is the run's entry in the journal (migjournal.go); created are the files it made on the target.
 	jid     int64
 	created []store.MigFile

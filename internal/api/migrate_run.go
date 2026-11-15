@@ -82,6 +82,12 @@ func (m *migRun) runOnline() error {
 	if err != nil {
 		switch hand {
 		case handNone:
+			if m.finishLost.Load() {
+				// The target said later that the VM is not there. Between the lost answer and that, the VM may have
+				// run there and been removed by hand, so nothing is removed without a person.
+				return withNote(err, restoreSnaps(),
+					m.attention(fmt.Sprintf("the answer of %s at the end of the migration was lost; it said later that %s is not there, and %s resumed on %s", m.dst.Name, p.Name, p.Name, m.src.Name)))
+			}
 			return failed(err, restoreSnaps())
 		case handDone:
 			// The end of the migration failed on the way back, but the VM runs on the target.
