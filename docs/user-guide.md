@@ -50,7 +50,7 @@ How to do the everyday things in the web UI. To install, see
 | VM **Backups** | Backups, Schedule |
 | Node **Settings** | Connection, Encrypted migration |
 
-The other tabs (Overview, Performance, Console, a node's Summary, Virtual machines, Storage, Network and Updates) are
+The other tabs (Overview, Performance, a node's Summary, Virtual machines, Storage, Network and Updates) are
 one page each.
 
 Long actions (snapshots, migration, backups, downloads) run in the background.
@@ -226,10 +226,14 @@ Sync guest clock is under **Power**.
 
 ![VNC console](img/vm-console.png)
 
-- **Display (VNC)** is the VM's screen. **Serial console** is a text terminal.
+- The console opens from the **Console** card on the Overview: in a new tab, or inside the card, which then takes
+  the width of the page and the height of the window (the settings button on the card chooses). **Console** links
+  elsewhere open it inside the card.
+- The graphical console is the VM's screen; the serial console is a text terminal. A VM with both starts with the
+  graphical one; **Serial** / **Graphical** in the toolbar changes to the other.
 - **Keys** sends combinations the browser would swallow. **Paste text** types
-  your clipboard into the guest.
-- A VM without a serial console: the **Console** tab offers to add one.
+  text into the guest, on the graphical and on the serial console.
+- A VM without any console: the **Console** card offers to add a serial console.
 - Viewers cannot open a console.
 
 ## Hardware

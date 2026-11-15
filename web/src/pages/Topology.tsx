@@ -187,8 +187,13 @@ function IfaceRow({ node, i }: { node: number; i: Iface }) {
     <li className="topoif">
       <StateBadge state={i.state} />
       <Link to={`/vm/${node}/${i.uuid}`}>{i.vm}</Link>
-      <span className="mono muted">{i.mac}</span>
-      {i.ips.length > 0 && <span className="mono">{i.ips.join(", ")}</span>}
+      {i.ips.length > 0 ? (
+        <span className="mono" title={i.mac}>
+          {i.ips.join(", ")}
+        </span>
+      ) : (
+        <span className="mono muted">{i.mac}</span>
+      )}
       {i.linkDown && <span className="topodown">Link down</span>}
     </li>
   );

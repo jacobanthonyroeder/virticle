@@ -44,7 +44,9 @@ type createVMRequest struct {
 	// ISO is the path of an installer image to attach as a CD-ROM.
 	ISO     string `json:"iso"`
 	Network string `json:"network"`
-	Start   bool   `json:"start"`
+	// Bridge connects the VM to a bridge device of the node instead of a libvirt network.
+	Bridge string `json:"bridge"`
+	Start  bool   `json:"start"`
 	// CloudInit, when set, attaches a NoCloud seed as a read-only SATA CD-ROM
 	// (volume "<name>-seed.iso" in Pool).
 	CloudInit *cloudInitRequest `json:"cloudInit"`
@@ -172,6 +174,12 @@ func (q createVMRequest) domainXML(diskPath string) string {
 			model = "virtio"
 		}
 		fmt.Fprintf(&b, "    <interface type='network'>\n      <source network='%s'/>\n      <model type='%s'/>\n    </interface>\n", esc(q.Network), esc(model))
+	} else if q.Bridge != "" {
+		model := q.NICModel
+		if model == "" {
+			model = "virtio"
+		}
+		fmt.Fprintf(&b, "    <interface type='bridge'>\n      <source bridge='%s'/>\n      <model type='%s'/>\n    </interface>\n", esc(q.Bridge), esc(model))
 	}
 	if q.TPM {
 		model := q.tpmModel
@@ -244,6 +252,12 @@ func (s *Server) createVM(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.DomainLookupByName(q.Name); err == nil {
 		fail(w, badRequest("a VM named "+q.Name+" already exists on this node"))
 		return
+	}
+	if q.Network != "" || q.Bridge != "" {
+		if err := (hwCtx{h: h}).checkAttachment(q.Network, q.Bridge); err != nil {
+			fail(w, err)
+			return
+		}
 	}
 	pool, err := lookupPool(h, q.Pool)
 	if err != nil {

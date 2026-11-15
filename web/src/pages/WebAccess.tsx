@@ -490,7 +490,7 @@ export default function WebAccess() {
 
           {mode === "own" && (
             <div className="grid2">
-              <Field label="Certificate file" hint="Instead of pasting. Re-read when it changes.">
+              <Field label="Certificate file" help="Instead of pasting. Re-read when it changes.">
                 <input value={draft.own.managed ? "" : draft.own.certFile} disabled={locked} onChange={(e) => edit({ own: { ...draft.own, managed: false, certFile: e.target.value } })} />
               </Field>
               <Field label="Key file">

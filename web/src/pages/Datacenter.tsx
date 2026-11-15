@@ -135,8 +135,8 @@ function Summary() {
                 <tr>
                   <th>Node</th>
                   <th>State</th>
-                  <th>CPU</th>
-                  <th>Memory</th>
+                  <th className="num">CPU</th>
+                  <th className="num">Memory</th>
                   <th className="num">VMs</th>
                 </tr>
               </thead>

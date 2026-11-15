@@ -83,8 +83,8 @@ once, not stored) and choose **Add node**.
 
 ![Add node dialog](docs/img/add-node.png)
 
-From a shell: `virticle node prepare admin@host` (add `--check` to change
-nothing). The controller signs in to the node as the account `virticle-node`,
+From a shell: `virticle node prepare admin@host`, or `sudo virticle node prepare`
+on the machine itself (add `--check` to change nothing). The controller signs in to the node as the account `virticle-node`,
 which may run the node command as root through one sudo rule and nothing else.
 **Root access instead of a service account** (`--root`) is the alternative.
 Details are in [docs/install-node.md](docs/install-node.md).

@@ -58,16 +58,18 @@ const COMBOS: Combo[] = [
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const KEY_DELAY_MS = 25; // per character; slow enough for a guest with a busy console
 
-/** Paste dialog, then types the text into the guest key by key. */
-function PasteDialog({ onClose, onType }: { onClose: () => void; onType: (text: string) => void }) {
+/** Paste dialog, then types the text into the guest: key by key on the display, as it is on a serial console. */
+function PasteDialog({ onClose, onType, serial }: { onClose: () => void; onType: (text: string) => void; serial?: boolean }) {
   const [text, setText] = useState("");
-  const { strokes, skipped } = strokesFor(text);
+  const { strokes, skipped } = serial ? { strokes: Array.from(text), skipped: 0 } : strokesFor(text);
   return (
     <Modal title="Paste text into the guest" onClose={onClose}>
-      <p className="muted">
-        Typed as key presses on a US layout, about {Math.round(1000 / KEY_DELAY_MS)} characters per second. Other layouts
-        come out wrong; characters with no US key are skipped.
-      </p>
+      {!serial && (
+        <p className="muted">
+          Typed as key presses on a US layout, about {Math.round(1000 / KEY_DELAY_MS)} characters per second. Other layouts
+          come out wrong; characters with no US key are skipped.
+        </p>
+      )}
       <textarea className="paste-text" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="Text to type" autoFocus />
       {skipped > 0 && <ResultLine status="warning">{skipped} character{skipped > 1 ? "s" : ""} cannot be typed and will be skipped.</ResultLine>}
       <footer>
@@ -222,14 +224,20 @@ export function SerialBar(p: {
   box: RefObject<HTMLElement | null>;
   copyAll: () => Promise<void>;
   clear: () => void;
+  paste: (text: string) => void;
   children?: ReactNode;
 }) {
   const [copied, setCopied] = useState("");
+  const [paste, setPaste] = useState(false);
   return (
     <div className="toolbar">
       <StatusLine status={p.status} detail={p.detail} onReconnect={p.onReconnect} />
       {copied && <span className="muted">{copied}</span>}
       <div className="spacer" />
+      <button disabled={p.status !== "connected"} onClick={() => setPaste(true)} title="Paste text" aria-label="Paste text">
+        <ClipboardPaste size={15} aria-hidden />
+        <span className="lbl">Paste text</span>
+      </button>
       <button
         title="Copy the whole terminal buffer"
         aria-label="Copy all"
@@ -244,6 +252,7 @@ export function SerialBar(p: {
       </button>
       <FullscreenButton box={p.box} />
       {p.children}
+      {paste && <PasteDialog serial onClose={() => setPaste(false)} onType={p.paste} />}
     </div>
   );
 }

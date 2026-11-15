@@ -2,8 +2,9 @@
 .ov { display: grid; gap: 14px; }
 .ov-band { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: stretch; }
 .ov-band > * { min-width: 0; }
-.ov-band > .cc-wide { grid-column: 1 / -1; order: 10; }
 .ov-band .cc { --console-h: 190px; }
+/* The live console in the card: the card takes the whole row and most of the window's height. */
+.ov-band > .cc-wide { grid-column: 1 / -1; --console-h: min(max(360px, calc(100dvh - 300px)), 80vw); }
 .ov-band .cc-box { max-width: none; }
 .ov-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
 .ov-grid > * { min-width: 0; }

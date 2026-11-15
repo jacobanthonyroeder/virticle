@@ -43,9 +43,6 @@
 
 /* A compact note: one line, details on demand. */
 .oneline { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: 0 0 8px; }
-.oneline details { flex: 1 1 100%; }
-.oneline summary { cursor: pointer; color: var(--accent); display: inline; }
-.oneline details > div { margin-top: 6px; }
 .hwbare .tgrid, .disc-body .tgrid { margin-top: 8px; }
 
 

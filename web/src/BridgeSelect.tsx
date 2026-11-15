@@ -19,6 +19,34 @@ export const isBridge = (n: HostNIC) => n.type === "bridge" || n.kind === "openv
 /** The addresses worth showing: IPv4 and global IPv6, not link-local. */
 export const shownAddresses = (n: HostNIC) => n.addresses.filter((a) => !a.toLowerCase().startsWith("fe80:"));
 
+/**
+ * What a VM's interface can connect to on a node, as Select options: the active virtual networks ("NAME") and
+ * the host bridges that no virtual network manages ("br:NAME"). attachBody turns the chosen value into the request.
+ */
+export function useAttachOptions(node: number | undefined, networks: Network[]) {
+  const [bridges, setBridges] = useState<HostNIC[]>([]);
+  useEffect(() => {
+    let live = true;
+    setBridges([]);
+    if (node === undefined) return;
+    get<{ interfaces: HostNIC[] }>(`/nodes/${node}/interfaces`).then(
+      (r) => live && setBridges(r.interfaces.filter(isBridge)),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [node]);
+  const managed = new Set(networks.map((n) => n.bridge).filter(Boolean));
+  return [
+    { value: "", label: "None" },
+    ...networks.filter((n) => n.active).map((n) => ({ value: n.name, label: `${n.name} (${n.forward})` })),
+    ...bridges.filter((b) => !managed.has(b.name)).map((b) => ({ value: "br:" + b.name, label: `${b.name} (host bridge)`, hint: shownAddresses(b).join("  ") || undefined })),
+  ];
+}
+
+export const attachBody = (v: string) => (v.startsWith("br:") ? { bridge: v.slice(3) } : { network: v });
+
 const LIBVIRT = "Managed by libvirt networks";
 
 function Face({ n, net }: { n?: HostNIC; net?: string }) {

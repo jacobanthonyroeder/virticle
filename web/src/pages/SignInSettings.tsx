@@ -131,7 +131,7 @@ function TwoStepSection({ cfg, save }: { cfg: Config; save: (p: { require2fa: st
   return (
     <form className="si-form" onSubmit={submit}>
       <p className="muted">Each user turns it on under My account. Identity provider users use the provider's own second factor.</p>
-      <Field label="Require two-step sign-in for" hint="Users without it are taken to set-up after signing in.">
+      <Field label="Require two-step sign-in for" help="Users without it are taken to set-up after signing in.">
         <Select
           label="Require two-step sign-in for"
           value={value}
@@ -195,7 +195,7 @@ function OidcSection({ cfg, save }: { cfg: Oidc; save: (o: object) => Promise<vo
           <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={cfg.clientSecretSet ? "Saved" : ""} autoComplete="new-password" />
         </Field>
       </div>
-      <Field label="Redirect URL" hint="Register this address at the provider.">
+      <Field label="Redirect URL" help="Register this address at the provider.">
         <div className="si-redirect">
           <code>{cfg.redirectUrl}</code>
           <button type="button" onClick={() => navigator.clipboard?.writeText(cfg.redirectUrl).then(() => setCopied(true))}>
@@ -213,13 +213,13 @@ function OidcSection({ cfg, save }: { cfg: Oidc; save: (o: object) => Promise<vo
         <Select label="Everyone else who signs in gets" value={d.defaultRole} onChange={(v) => edit({ defaultRole: v })} options={roleOptions} />
       </Field>
       <DialogAdvanced>
-        <Field label="Groups claim" hint="The token field that lists the user's groups.">
+        <Field label="Groups claim" help="The token field that lists the user's groups.">
           <input value={d.groupsClaim} onChange={(e) => edit({ groupsClaim: e.target.value })} placeholder="groups" />
         </Field>
-        <Field label="User name claim" hint="Falls back to the e-mail address.">
+        <Field label="User name claim" help="Falls back to the e-mail address.">
           <input value={d.userClaim} onChange={(e) => edit({ userClaim: e.target.value })} placeholder="preferred_username" />
         </Field>
-        <Field label="Scopes" hint="Add groups when the provider needs it.">
+        <Field label="Scopes" help="Add groups when the provider needs it.">
           <input value={d.scopes} onChange={(e) => edit({ scopes: e.target.value })} placeholder="openid profile email" />
         </Field>
       </DialogAdvanced>
@@ -267,7 +267,7 @@ function LdapSection({ cfg, save }: { cfg: Ldap; save: (o: object) => Promise<vo
       <Check checked={d.enabled} onChange={(v) => edit({ enabled: v })}>
         Allow sign-in with a directory account
       </Check>
-      <Field label="Server URL" hint="ldaps:// is encrypted from the start; ldap:// is switched to an encrypted connection (StartTLS).">
+      <Field label="Server URL" help="ldaps:// is encrypted from the start; ldap:// is switched to an encrypted connection (StartTLS).">
         <input value={d.url} onChange={(e) => edit({ url: e.target.value })} placeholder="ldaps://dc.example.org" />
       </Field>
       <div className="grid2">
@@ -321,7 +321,7 @@ function LdapSection({ cfg, save }: { cfg: Ldap; save: (o: object) => Promise<vo
         <Field label="Test user name">
           <input value={testUser} onChange={(e) => setTestUser(e.target.value)} autoComplete="off" />
         </Field>
-        <Field label="Test password (optional)" hint="Checks the user's password too. It is not stored.">
+        <Field label="Test password (optional)" help="Checks the user's password too. It is not stored.">
           <input type="password" value={testPw} onChange={(e) => setTestPw(e.target.value)} autoComplete="new-password" />
         </Field>
       </div>
