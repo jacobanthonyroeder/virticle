@@ -64,6 +64,36 @@ func TestReadOnlyCommand(t *testing.T) {
 	}
 }
 
+// The scripts the controller really runs while it looks at a node.
+func TestReadOnlyScripts(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cmd  string
+		want bool
+	}{
+		"nic inventory": {`ip -j -d addr show; for i in $(ls /sys/class/net); do echo "SPEED $i $(cat /sys/class/net/$i/speed 2>/dev/null)"; done; for i in $(ls /sys/class/net); do if [ -r /proc/net/bonding/$i ]; then echo "BOND $i"; cat /proc/net/bonding/$i; echo "ENDBOND"; fi; done`, true},
+		"tcp probe":     {`timeout 6 bash -c 'exec 3<>/dev/tcp/192.0.2.14/22'`, true},
+		"tcp probe 2":   {`timeout 6 bash -c 'exec 3<>/dev/tcp/node-two.lan/49152'`, true},
+		"probe plus":    {`timeout 6 bash -c 'exec 3<>/dev/tcp/192.0.2.14/22; rm /x'`, false},
+		"facts": {"echo '@@uid'; id -u\necho '@@conf'; grep -E '^[[:space:]]*(user|default_tls_x509_cert_dir)[[:space:]]*=' /etc/libvirt/qemu.conf 2>/dev/null\n" +
+			"echo '@@fqdn'; hostname -f 2>/dev/null\necho '@@addr'; ip -o addr show scope global 2>/dev/null\necho '@@pw'; getent passwd libvirt-qemu qemu 2>/dev/null\n" +
+			"echo '@@se'; command -v restorecon\necho '@@conffile'; [ -r /etc/libvirt/qemu.conf ] && echo yes\ntrue", true},
+		"loop with a write":    {`for i in a b; do echo $i > /tmp/x; done`, false},
+		"loop with rm":         {`for i in a b; do rm /tmp/$i; done`, false},
+		"sub command writes":   {`echo $(cat /a > /b)`, false},
+		"sub command changes":  {`echo $(ip link set eth0 down)`, false},
+		"back tick":            {"echo `rm /x`", false},
+		"while":                {`while true; do echo x; done`, false},
+		"unbalanced quote":     {`echo 'abc`, false},
+		"pipe in a pattern":    {`grep -E 'a|b' /etc/x | head -n 1`, true},
+		"awk redirect":         {`awk '{print > "/tmp/x"}' /etc/x`, false},
+		"hostname with a name": {`hostname -f 2>/dev/null; hostname foo`, false},
+	} {
+		if got := ReadOnlyCommand(tc.cmd); got != tc.want {
+			t.Errorf("%s: ReadOnlyCommand = %v, want %v\n%s", name, got, tc.want, tc.cmd)
+		}
+	}
+}
+
 // A read-only command is not recorded; a changing one is.
 func TestExecSkipsReads(t *testing.T) {
 	var s sinkRec
