@@ -280,10 +280,38 @@ restored VM starts with an empty TPM. Backups made before Virticle saved TPM sta
 
 1. Open the VM's **Backups** tab. Its **Schedule** sub page is at the left.
 2. Choose **Back up now**, pick the target node and pool, and set **Keep the newest** (older backups of this VM in that pool
-   are deleted; 0 keeps all).
+   are deleted; 0 keeps all). Into the pool of the VM's schedule, the schedule's **Keep** rules apply instead and the
+   dialog says so.
 3. **Restore** puts a backup back as a new VM or over the original (the original must be shut off).
 4. On the **Schedule** sub page, **Set up schedule** and **Save schedule** make backups run by themselves: every so many
-   minutes or hours, or daily.
+   minutes or hours, or daily. **Keep** sets how many to keep ([Retention](#retention)).
+
+### Retention
+
+The schedule keeps backups by rules. A backup kept by any rule stays; the others are deleted after each new backup.
+
+| Rule | Keeps |
+| --- | --- |
+| **Last** | The newest N backups. |
+| **Hourly** | The newest backup of each of the last N hours that have a backup. |
+| **Daily** | The same per calendar day. |
+| **Weekly** | The same per week (Monday to Sunday). |
+| **Monthly** | The same per calendar month. |
+
+Example: a backup every hour with Hourly 24, Daily 7, Weekly 4 and Monthly 6 keeps the last 24 hours hour by hour, then one
+backup per day for a week, one per week for a month and one per month for half a year.
+
+- **Short**, **Standard** and **Long** fill the fields with common values. Change them freely.
+- A rule that cannot matter at the chosen frequency is greyed out and saved as 0 (Hourly with a daily schedule).
+- Hours, days, weeks and months are counted in the controller's time zone.
+- Below the fields the assistant shows the next runs, what the schedule keeps once it has run for a while (how many
+  backups, and how far back per rule), and about how much space that takes next to the free space of the pool. The
+  estimate uses the VM's last full backup and its recent incremental ones in that pool; with no backup yet, the disk usage.
+- An incremental backup needs the backups before it, back to its full one. A kept incremental keeps them too, so a
+  weekly or monthly backup that is incremental keeps its chain (up to 6 more backups). The assistant counts them.
+- Retention never deletes the newest backup, a backup that a restore or an export is reading, or anything they need. It
+  runs only after the new backup is complete. The task names how many older backups it deleted.
+- A schedule saved before these rules keeps working with its **Keep the newest** number (it shows as **Last**).
 
 **Frozen file systems.** For a running VM with the QEMU guest agent connected, Virticle freezes the guest's file systems
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
@@ -319,8 +347,8 @@ Good to know:
   is over, the dialog and the list show what was made.
 - **Restore** works from any entry. Virticle puts the earlier backups it needs together. An entry whose earlier backups are
   missing says it cannot be restored.
-- **Keep the newest** counts backups. An incremental backup is never kept without the backups it needs, so a few more than
-  that number can stay for a while.
+- **Keep the newest** and the **Keep** rules count backups. An incremental backup is never kept without the backups it
+  needs, so a few more than that number can stay for a while.
 - **Delete** on a backup that later incremental backups need deletes them too. The dialog names how many.
 - **Export** of an incremental backup puts the whole chain together into one full backup file.
 - Every backup holds the whole TPM state (a few KiB), incremental ones too.

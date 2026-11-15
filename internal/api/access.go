@@ -48,6 +48,7 @@ var routeLevels = map[string]string{
 
 	"GET /api/controller-backup":           admin,
 	"PUT /api/controller-backup":           admin,
+	"POST /api/controller-backup/preview":  admin,
 	"POST /api/controller-backup/download": admin,
 
 	"GET /api/version": viewer,
@@ -207,6 +208,8 @@ var routeLevels = map[string]string{
 	"DELETE /api/nodes/{node}/vms/{uuid}/backup-schedule": operator,
 	"POST /api/nodes/{node}/vms/{uuid}/backup":            operator,
 	"POST /api/nodes/{node}/vms/{uuid}/backup/cancel":     operator,
+
+	"POST /api/nodes/{node}/vms/{uuid}/backup-schedule/preview": operator,
 
 	"GET /api/nodes/{node}/vms/{uuid}/replication":            viewer,
 	"PUT /api/nodes/{node}/vms/{uuid}/replication":            operator,

@@ -51,6 +51,7 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	defer holdRead(b.pd.Dir, b.name)() // retention keeps it, and what it builds on, while it is read
 	m, err := b.load()
 	if err != nil {
 		fail(w, err)

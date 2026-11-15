@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"virticle/internal/ctlbackup"
 	"virticle/internal/store"
@@ -77,5 +78,50 @@ func TestBackupAndRestoreCommands(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "nope")); err == nil {
 		t.Error("a failed restore left a directory")
+	}
+}
+
+func TestBackupCommandPrunesWithKeepFlags(t *testing.T) {
+	root := t.TempDir()
+	data := filepath.Join(root, "data")
+	os.Mkdir(data, 0o700)
+	st, err := store.Open(filepath.Join(data, store.DBName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	out := filepath.Join(root, "out")
+	os.Mkdir(out, 0o700)
+	// Forty back-dated daily backups, one of them encrypted, and a file that is not ours.
+	now := time.Now()
+	for i := 1; i <= 40; i++ {
+		os.WriteFile(filepath.Join(out, ctlbackup.FileName("old", now.AddDate(0, 0, -i), i == 3)), []byte("x"), 0o600)
+	}
+	os.WriteFile(filepath.Join(out, "notes.txt"), nil, 0o600)
+	// Without keep flags nothing goes.
+	if err := runBackup(data, out, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if fs, _ := ctlbackup.Files(out); len(fs) != 41 {
+		t.Fatalf("without flags: %d files", len(fs))
+	}
+	time.Sleep(1100 * time.Millisecond) // file names have one-second stamps
+	if code := backupCommand([]string{"-data", data, "-o", out, "--keep-daily", "5", "--keep-weekly", "3"}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	fs, _ := ctlbackup.Files(out)
+	// 5 dailies (today, with two backups of which the newer counts, and four days back) plus the newest of the
+	// weeks before them that are not covered yet.
+	if len(fs) < 6 || len(fs) > 8 {
+		t.Fatalf("kept %d: %v", len(fs), fs)
+	}
+	if _, err := os.Stat(filepath.Join(out, "notes.txt")); err != nil {
+		t.Fatal("a file that is not a backup was deleted")
+	}
+	if code := backupCommand([]string{"-data", data, "-o", filepath.Join(out, "x.tar.gz"), "--keep-last", "1"}); code != 2 {
+		t.Fatalf("keep flags with -o FILE: exit %d", code)
+	}
+	if code := backupCommand([]string{"-data", data, "-o", out, "--keep-last", "-1"}); code != 2 {
+		t.Fatalf("negative keep: exit %d", code)
 	}
 }

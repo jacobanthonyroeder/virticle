@@ -382,6 +382,13 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// Retention keeps the backup, and what it builds on, until the restore has read it.
+	release := holdRead(src.pd.Dir, src.name)
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 	p, err := s.planRestore(src, req)
 	if err != nil {
 		fail(w, err)
@@ -393,10 +400,15 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.st = newStopper(context.Background())
+	rel := release
 	id, _, err := s.startBackgroundStop(r, "restore", p.name+" ← "+src.name, p.dst.Name, taskStop{operator, p.st.stop}, func(progress func(float64)) error {
+		defer rel()
 		_, err := p.run(progress)
 		return err
 	})
+	if err == nil {
+		release = nil // the task releases it
+	}
 	if err != nil {
 		fail(w, err)
 		return

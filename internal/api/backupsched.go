@@ -12,15 +12,16 @@ import (
 
 	"virticle/internal/cluster"
 	"virticle/internal/hostconn"
+	"virticle/internal/retention"
 	"virticle/internal/snapsched"
 )
 
 // Scheduled backups. Like scheduled snapshots they keep no state of their
 // own: the schedule is the "backup-schedule" child of the VM's shared
 // metadata root, "last run" is the creation time in the manifest of the
-// newest backup of the VM in the target pool, and retention is the keepLast
-// pruning the backup itself already does. Timing (interval or daily slot) is
-// snapsched's.
+// newest backup of the VM in the target pool, and retention is the pruning the
+// backup itself does at its end, with the schedule's policy (internal/retention).
+// Timing (interval or daily slot) is snapsched's.
 
 const (
 	backupSchedChild = "backup-schedule"
@@ -37,7 +38,40 @@ type backupSchedule struct {
 	At           string `json:"at,omitempty"`
 	TargetNode   int64  `json:"targetNode"` // 0 = the node the VM is on
 	Pool         string `json:"pool"`
-	KeepLast     int    `json:"keepLast"`
+	// Retention (internal/retention): keep the newest KeepLast, and the newest backup of each of the last
+	// KeepHourly hours, KeepDaily days, KeepWeekly ISO weeks and KeepMonthly months, in the controller's time zone.
+	// A schedule from before the tiers has only KeepLast and behaves as it did.
+	KeepLast    int `json:"keepLast"`
+	KeepHourly  int `json:"keepHourly"`
+	KeepDaily   int `json:"keepDaily"`
+	KeepWeekly  int `json:"keepWeekly"`
+	KeepMonthly int `json:"keepMonthly"`
+}
+
+func (b backupSchedule) policy() retention.Policy {
+	return retention.Policy{KeepLast: b.KeepLast, Hourly: b.KeepHourly, Daily: b.KeepDaily, Weekly: b.KeepWeekly, Monthly: b.KeepMonthly}
+}
+
+func (b *backupSchedule) setPolicy(p retention.Policy) {
+	b.KeepLast, b.KeepHourly, b.KeepDaily, b.KeepWeekly, b.KeepMonthly = p.KeepLast, p.Hourly, p.Daily, p.Weekly, p.Monthly
+}
+
+// step is the usual time between two runs.
+func (b backupSchedule) step() time.Duration {
+	if b.Mode == "interval" {
+		return time.Duration(b.EveryMinutes) * time.Minute
+	}
+	return 24 * time.Hour
+}
+
+// normalize clears the rules that cannot have an effect at the schedule's frequency (hourly for a daily schedule).
+func (b *backupSchedule) normalize() {
+	if b.Mode == "interval" {
+		b.At = ""
+	} else {
+		b.EveryMinutes = 0
+	}
+	b.setPolicy(b.policy().Normalize(b.step()))
 }
 
 var poolNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -55,8 +89,13 @@ func (b backupSchedule) validate() error {
 		return fmt.Errorf("bad target node")
 	case !poolNameRE.MatchString(b.Pool):
 		return fmt.Errorf("a target pool is required")
-	case b.KeepLast < 1 || b.KeepLast > 1000:
-		return fmt.Errorf("keep-last must be between 1 and 1000 (a schedule without retention would fill the pool)")
+	}
+	p := b.policy()
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	if p.KeepsAll() {
+		return fmt.Errorf("set at least one keep value (a schedule without retention would fill the pool)")
 	}
 	return nil
 }
@@ -72,7 +111,14 @@ func (b backupSchedule) element() string {
 	} else {
 		el += fmt.Sprintf(` at=%q`, b.At)
 	}
-	return el + fmt.Sprintf(` target-node="%d" pool=%q keep-last="%d"/>`, b.TargetNode, b.Pool, b.KeepLast)
+	el += fmt.Sprintf(` target-node="%d" pool=%q`, b.TargetNode, b.Pool)
+	if !b.policy().Tiered() {
+		return el + fmt.Sprintf(` keep-last="%d"/>`, b.KeepLast)
+	}
+	// keep-last="0" makes a controller from before the tiers refuse the schedule (it needs 1 or more) instead of
+	// pruning it down to keep-last alone; this one reads the count from keep-newest.
+	return el + fmt.Sprintf(` keep-last="0" keep-newest="%d" keep-hourly="%d" keep-daily="%d" keep-weekly="%d" keep-monthly="%d"/>`,
+		b.KeepLast, b.KeepHourly, b.KeepDaily, b.KeepWeekly, b.KeepMonthly)
 }
 
 func yesNo(v bool) string {
@@ -97,6 +143,11 @@ func parseBackupSchedule(meta string) (*backupSchedule, error) {
 			Node    int64  `xml:"target-node,attr"`
 			Pool    string `xml:"pool,attr"`
 			Keep    int    `xml:"keep-last,attr"`
+			Newest  *int   `xml:"keep-newest,attr"`
+			Hourly  int    `xml:"keep-hourly,attr"`
+			Daily   int    `xml:"keep-daily,attr"`
+			Weekly  int    `xml:"keep-weekly,attr"`
+			Monthly int    `xml:"keep-monthly,attr"`
 		} `xml:"backup-schedule"`
 	}
 	if err := xml.Unmarshal([]byte(meta), &root); err != nil {
@@ -106,7 +157,11 @@ func parseBackupSchedule(meta string) (*backupSchedule, error) {
 		return nil, nil
 	}
 	b := &backupSchedule{Enabled: root.B.Enabled == "yes", Mode: root.B.Mode, EveryMinutes: root.B.Every, At: root.B.At,
-		TargetNode: root.B.Node, Pool: root.B.Pool, KeepLast: root.B.Keep}
+		TargetNode: root.B.Node, Pool: root.B.Pool, KeepLast: root.B.Keep,
+		KeepHourly: root.B.Hourly, KeepDaily: root.B.Daily, KeepWeekly: root.B.Weekly, KeepMonthly: root.B.Monthly}
+	if root.B.Newest != nil {
+		b.KeepLast = *root.B.Newest
+	}
 	return b, b.validate()
 }
 
@@ -209,7 +264,8 @@ func (s *Server) runBackupSchedule(srcID int64, h *hostconn.Host, dom libvirt.Do
 	if !bs.due(now, last) {
 		return
 	}
-	m, err := s.planBackup(srcID, h, dom, backupReq{TargetNode: bs.TargetNode, Pool: bs.Pool, KeepLast: bs.KeepLast, SHA256: &no})
+	pol := bs.policy()
+	m, err := s.planBackup(srcID, h, dom, backupReq{TargetNode: bs.TargetNode, Pool: bs.Pool, KeepLast: bs.KeepLast, SHA256: &no, policy: &pol})
 	if err != nil {
 		failed(err)
 		return
@@ -291,11 +347,7 @@ func (s *Server) putBackupSchedule(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	if bs.Mode == "interval" {
-		bs.At = ""
-	} else {
-		bs.EveryMinutes = 0
-	}
+	bs.normalize()
 	if err := bs.validate(); err != nil {
 		fail(w, badRequest(err.Error()))
 		return

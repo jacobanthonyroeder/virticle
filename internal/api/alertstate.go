@@ -238,7 +238,7 @@ func (t *alertTracker) step(in alertInput, now time.Time) (raised, cleared, all 
 			continue
 		}
 		if j.Kind == cbTaskKind {
-			add(Alert{ID: "job:" + cbTaskKind, Kind: "failed-job", Severity: "warning", Title: "The daily backup of the controller failed", Link: "/controller-backup",
+			add(Alert{ID: "job:" + cbTaskKind, Kind: "failed-job", Severity: "warning", Title: "The scheduled backup of the controller failed", Link: "/controller-backup",
 				Message: fmt.Sprintf("The backup written to the backups folder failed at %s: %s", time.Unix(j.Finished, 0).Format("2006-01-02 15:04:05"), j.Error)})
 			continue
 		}

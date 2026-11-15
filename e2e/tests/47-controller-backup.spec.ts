@@ -1,5 +1,5 @@
 // Settings > Controller backup: the controller's own backup. Safe on any lab: it only downloads an archive and looks inside it; nothing is
-// restored (restore is a command on the controller's machine) and the daily copy setting is not touched.
+// restored (restore is a command on the controller's machine) and the setting of the copies on the server is not touched.
 import { execFileSync } from "child_process";
 import { mkdtempSync, readFileSync } from "fs";
 import { tmpdir } from "os";
@@ -34,7 +34,7 @@ test.describe("controller backup", () => {
     await expect(page.getByText("It does not hold VMs, storage or networks")).toBeVisible();
     await expect(page.getByText("Restore, with the controller stopped")).toBeVisible();
     await expect(page.locator("code").filter({ hasText: "virticle restore" })).toBeVisible();
-    await expect(page.getByRole("checkbox", { name: "Keep a daily backup on this server" })).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: "Keep backups on this server" })).toBeVisible();
     await expect(page.getByText("Not a copy off this machine")).toBeVisible();
   });
 

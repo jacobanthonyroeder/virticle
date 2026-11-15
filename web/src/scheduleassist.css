@@ -1,0 +1,15 @@
+.sa { max-width: 720px; }
+.sa-every { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; }
+.sa-every input { width: 100%; }
+.sa-unit { color: var(--muted); }
+.sa-keep { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.sa-n { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sa-n small { color: var(--muted); font-size: 0.8rem; }
+.sa-n input { width: 100%; min-width: 0; }
+.sa-n input:disabled { opacity: 0.5; }
+.sa-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sa-proj { border-top: 1px solid var(--line); padding-top: 8px; margin: 4px 0 12px; min-height: 4.5em; }
+.sa-line { margin: 4px 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sa-table { display: table; width: 100%; table-layout: fixed; margin: 6px 0; font-variant-numeric: tabular-nums; }
+.sa-table th, .sa-table td { padding: 3px 6px; overflow-wrap: anywhere; }
+.sa-table th:nth-child(2), .sa-table td:nth-child(2) { width: 4.5em; }

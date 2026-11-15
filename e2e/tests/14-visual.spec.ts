@@ -395,6 +395,15 @@ test.describe.serial("visual pass", () => {
       await page.locator(".subnav").getByRole("tab", { name: "Schedule", exact: true }).click();
       await page.getByRole("button", { name: "Set up schedule" }).click();
       await shot("snapshot-schedule-form", () => expect(page.locator("#snap-schedule").getByRole("button", { name: "Save schedule" })).toBeVisible());
+      // the backup schedule assistant (not saved), on a VM and for the controller
+      const projected = () => expect(page.getByRole("region", { name: "Projection" }).getByRole("status")).toContainText("Kept:", { timeout: 30_000 });
+      await page.goto(vmUrl + "?tab=backups&sec=schedule");
+      await page.locator("#backup-schedule").getByRole("button", { name: /^(Set up|Edit) schedule$/ }).click();
+      await page.locator("#backup-schedule").getByRole("button", { name: "Standard", exact: true }).click();
+      await shot("backup-schedule-assistant", projected);
+      await page.goto("/controller-backup");
+      await page.getByRole("group", { name: "Backups on this server" }).getByRole("button", { name: "Edit schedule" }).click();
+      await shot("controller-backup-assistant", projected);
       // the bridge picker
       await page.goto(vmUrl + "?tab=hardware&sec=nics");
       await page.getByRole("button", { name: "Add interface" }).click();

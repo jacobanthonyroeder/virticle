@@ -137,6 +137,7 @@ func (s *Server) Handler() http.Handler {
 	auth("GET /api/audit", s.auditLog)
 	auth("GET /api/controller-backup", s.ctlBackupStatus)
 	auth("PUT /api/controller-backup", s.putCtlBackup)
+	auth("POST /api/controller-backup/preview", s.previewCtlBackup)
 	auth("POST /api/controller-backup/download", s.ctlBackupDownload)
 	s.webRoutes(auth)
 
@@ -265,6 +266,7 @@ func (s *Server) Handler() http.Handler {
 
 	auth("GET /api/nodes/{node}/vms/{uuid}/backup-schedule", s.getBackupSchedule)
 	auth("PUT /api/nodes/{node}/vms/{uuid}/backup-schedule", s.putBackupSchedule)
+	auth("POST /api/nodes/{node}/vms/{uuid}/backup-schedule/preview", s.previewBackupSchedule)
 	auth("DELETE /api/nodes/{node}/vms/{uuid}/backup-schedule", s.deleteBackupSchedule)
 	auth("POST /api/nodes/{node}/vms/{uuid}/backup", s.needs("backups", s.vmBackup))
 	auth("GET /api/nodes/{node}/vms/{uuid}/replication", s.getReplication)

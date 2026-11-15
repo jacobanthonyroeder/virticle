@@ -14,7 +14,7 @@ package api
 //
 //   - decideBackup: incremental on top of which backup, or full, and why.
 //   - chainOf and chainProblem: the backups a restore of one backup needs.
-//   - pruneChains: retention that never deletes a backup a kept one needs.
+//   - prunePolicy: retention (internal/retention) that never deletes a backup a kept one needs.
 //   - dependentsOf: what a manual delete takes with it.
 //   - checkpointXML, backupXMLFor: the libvirt documents.
 
@@ -24,6 +24,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"virticle/internal/retention"
 )
 
 const (
@@ -239,52 +241,53 @@ func chainProblem(by map[string]*backupManifest, dir string) string {
 	return ""
 }
 
-// pruneChains returns the backups of VM uuid to delete so that the newest keep
-// remain, newest first so that a failure half way never leaves a backup whose
-// parent is already gone. A backup that a kept one builds on is kept as well,
-// whatever its age: deleting it would make the kept one useless. keep < 1
-// prunes nothing. just (the backup written a moment ago) is never deleted.
+// pruneChains is prunePolicy with keep-last alone: the retention of before the tiers. keep < 1 prunes nothing.
 func pruneChains(all []retained, uuid string, keep int, just string) []string {
 	if keep < 1 {
 		return nil
 	}
+	return prunePolicy(all, uuid, retention.Policy{KeepLast: keep}, just, nil, time.Local)
+}
+
+// prunePolicy returns the backups of VM uuid to delete under the policy, newest first so that a failure half way
+// never leaves a backup whose parent is already gone. A backup that a kept one builds on is kept as well, whatever
+// its age: deleting it would make the kept one useless. just (the backup written a moment ago) and the backups in
+// held (read by a restore or an export right now) are never deleted, nor what they build on. A policy that keeps
+// everything deletes nothing. loc is the zone hours, days, weeks and months are counted in.
+func prunePolicy(all []retained, uuid string, pol retention.Policy, just string, held map[string]bool, loc *time.Location) []string {
+	if pol.KeepsAll() {
+		return nil
+	}
 	var mine []retained
-	by := map[string]retained{}
 	for _, b := range all {
 		if b.UUID == uuid {
 			mine = append(mine, b)
-			by[b.Key] = b
 		}
 	}
-	sort.SliceStable(mine, func(i, j int) bool { return mine[i].Created.After(mine[j].Created) })
-	if len(mine) <= keep {
-		return nil
+	at := map[string]int{}
+	for i, b := range mine {
+		at[b.Key] = i
 	}
-	need := map[string]bool{}
-	mark := func(k string) {
-		for n := 0; k != "" && n < maxChainWalk; n++ {
-			if need[k] {
-				return
-			}
-			b, ok := by[k]
-			if !ok {
-				return
-			}
-			need[k] = true
-			k = b.Parent
+	items := make([]retention.Item, len(mine))
+	for i, b := range mine {
+		items[i] = retention.Item{Time: b.Created, Parent: -1, Hold: b.Key == just || held[b.Key]}
+		if p, ok := at[b.Parent]; ok && b.Parent != "" {
+			items[i].Parent = p
 		}
 	}
-	for _, b := range mine[:keep] {
-		mark(b.Key)
-	}
-	mark(just)
-	var out []string
-	for _, b := range mine[keep:] { // newest first
-		if !need[b.Key] {
-			out = append(out, b.Key)
+	keep, _ := retention.PlanChains(items, pol, loc)
+	var out []retained
+	for i, b := range mine {
+		if !keep[i] {
+			out = append(out, b)
 		}
 	}
-	return out
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Created.After(out[j].Created) })
+	names := make([]string, len(out))
+	for i, b := range out {
+		names[i] = b.Key
+	}
+	return names
 }
 
 // dependentsOf lists the backups that need dir, directly or not, newest first.

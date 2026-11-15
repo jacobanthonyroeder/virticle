@@ -1,7 +1,8 @@
 package api
 
 // Backup of the controller itself (see internal/ctlbackup): the Controller backup page's
-// status and the download, and the optional daily copy on this server.
+// status and the download, and the optional scheduled copy on this server (daily at a time or every N hours,
+// pruned with internal/retention).
 //
 // The download hands out the controller's private keys, so it needs a web
 // session (not an API token) and the administrator's password again; a user
@@ -10,28 +11,114 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"virticle/internal/buildinfo"
 	"virticle/internal/ctlbackup"
+	"virticle/internal/retention"
 )
 
 const (
 	cbSettingKey = "controller-backup"
-	// CtlBackupKeep is how many daily copies stay on the server.
+	// ctlBackupKeep is how many daily copies stay on the server when nothing else is set (the retention of
+	// before the schedule could be set: the newest 7, which is 7 dailies for a daily copy).
 	ctlBackupKeep = 7
 	cbTaskKind    = "controller backup"
+	cbMaxHours    = 168
 )
 
+// cbSettings is the scheduled copy on this server. Settings stored before the schedule could be set hold only
+// Daily; the rest then has its defaults (withDefaults).
 type cbSettings struct {
-	Daily bool `json:"daily"`
+	Daily bool `json:"daily"` // on; the name is from when it could only run daily
+	// Mode is "daily" (at At, the controller's local time) or "interval" (every EveryHours).
+	Mode       string `json:"mode"`
+	At         string `json:"at,omitempty"`
+	EveryHours int    `json:"everyHours,omitempty"`
+	retention.Policy
+}
+
+var cbAtRE = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+
+func (c cbSettings) withDefaults() cbSettings {
+	if c.Mode == "" {
+		c.Mode = "daily"
+	}
+	if c.Mode == "daily" && c.At == "" {
+		c.At = fmt.Sprintf("%02d:%02d", ctlbackup.DailyHour, ctlbackup.DailyMinute)
+	}
+	if c.Policy.KeepsAll() {
+		c.Policy = retention.Policy{Daily: ctlBackupKeep}
+	}
+	return c
+}
+
+func (c cbSettings) step() time.Duration {
+	if c.Mode == "interval" {
+		return time.Duration(c.EveryHours) * time.Hour
+	}
+	return 24 * time.Hour
+}
+
+// normalize drops what the mode does not use and the rules that cannot have an effect at its frequency.
+func (c *cbSettings) normalize() {
+	if c.Mode == "interval" {
+		c.At = ""
+	} else {
+		c.EveryHours = 0
+	}
+	c.Policy = c.Policy.Normalize(c.step())
+}
+
+func (c cbSettings) validate() error {
+	switch {
+	case c.Mode != "daily" && c.Mode != "interval":
+		return errors.New(`mode must be "daily" or "interval"`)
+	case c.Mode == "daily" && !cbAtRE.MatchString(c.At):
+		return errors.New("the time must look like 03:30")
+	case c.Mode == "interval" && (c.EveryHours < 1 || c.EveryHours > cbMaxHours):
+		return fmt.Errorf("every must be between 1 and %d hours", cbMaxHours)
+	}
+	if err := c.Policy.Validate(); err != nil {
+		return err
+	}
+	if c.Policy.KeepsAll() {
+		return errors.New("set at least one keep value (backups without retention would fill the disk)")
+	}
+	return nil
+}
+
+func (c cbSettings) hourMinute() (int, int) {
+	h, _ := strconv.Atoi(c.At[:2])
+	m, _ := strconv.Atoi(c.At[3:])
+	return h, m
+}
+
+// next is when the copy runs after now, given the time of the last scheduled copy (zero if none).
+func (c cbSettings) next(now, last time.Time, jitter time.Duration) time.Time {
+	if c.Mode == "interval" {
+		if last.IsZero() || !last.Before(now) {
+			return now.Add(jitter)
+		}
+		t := last.Add(c.step())
+		if t.Before(now) {
+			return now.Add(jitter)
+		}
+		return t
+	}
+	h, m := c.hourMinute()
+	return ctlbackup.NextAt(now, h, m, jitter)
 }
 
 func (s *Server) cbSettings() cbSettings {
@@ -39,7 +126,7 @@ func (s *Server) cbSettings() cbSettings {
 	if v, ok, err := s.Store.WebSetting(cbSettingKey); err == nil && ok {
 		json.Unmarshal([]byte(v), &c)
 	}
-	return c
+	return c.withDefaults()
 }
 
 func (s *Server) cbSource() (ctlbackup.Source, error) {
@@ -60,8 +147,13 @@ type cbRecordView struct {
 }
 
 type cbStatus struct {
-	Daily     bool          `json:"daily"`
-	Keep      int           `json:"keep"`
+	Daily      bool   `json:"daily"`
+	Mode       string `json:"mode"`
+	At         string `json:"at,omitempty"`
+	EveryHours int    `json:"everyHours,omitempty"`
+	retention.Policy
+	Zone      string        `json:"zone"` // the controller's time zone: At, and the periods of retention
+	NextRun   int64         `json:"nextRun,omitempty"`
 	Dir       string        `json:"dir"`
 	Last      *cbRecordView `json:"last,omitempty"`      // newest successful backup of any kind
 	LastDaily *cbRecordView `json:"lastDaily,omitempty"` // newest daily attempt, also when it failed
@@ -73,8 +165,16 @@ func recView(kind string, r ctlbackup.Record) *cbRecordView {
 }
 
 func (s *Server) ctlBackupStatus(w http.ResponseWriter, r *http.Request) {
-	st := cbStatus{Daily: s.cbSettings().Daily, Keep: ctlBackupKeep, Dir: filepath.Join(s.DataDir, "backups"),
-		Command: "sudo systemctl stop virticle && sudo virticle restore FILE"}
+	c := s.cbSettings()
+	st := cbStatus{Daily: c.Daily, Mode: c.Mode, At: c.At, EveryHours: c.EveryHours, Policy: c.Policy, Zone: zoneName(time.Now()),
+		Dir: filepath.Join(s.DataDir, "backups"), Command: "sudo systemctl stop virticle && sudo virticle restore FILE"}
+	if c.Daily {
+		cbSched.Lock()
+		if !cbSched.next.IsZero() {
+			st.NextRun = cbSched.next.Unix()
+		}
+		cbSched.Unlock()
+	}
 	recs := ctlbackup.ReadRecords(s.DataDir)
 	if k, rec, ok := recs.Newest(); ok {
 		st.Last = recView(k, rec)
@@ -86,7 +186,8 @@ func (s *Server) ctlBackupStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putCtlBackup(w http.ResponseWriter, r *http.Request) {
-	var req cbSettings
+	cur := s.cbSettings()
+	req := cur // fields left out keep their values: {"daily": true} alone only switches it on
 	if err := readJSON(r, &req); err != nil {
 		fail(w, err)
 		return
@@ -95,7 +196,12 @@ func (s *Server) putCtlBackup(w http.ResponseWriter, r *http.Request) {
 		fail(w, badRequest("the controller has no data directory configured"))
 		return
 	}
-	was := s.cbSettings().Daily
+	req.normalize()
+	if err := req.validate(); err != nil {
+		fail(w, badRequest(err.Error()))
+		return
+	}
+	was := cur.Daily
 	b, _ := json.Marshal(req)
 	if err := s.Store.SetWebSetting(cbSettingKey, string(b)); err != nil {
 		fail(w, err)
@@ -104,6 +210,9 @@ func (s *Server) putCtlBackup(w http.ResponseWriter, r *http.Request) {
 	if req.Daily && !was {
 		go s.dailyBackupRun() // the first copy at once, so that "on" can be seen to work
 	}
+	cbSched.Lock()
+	cbSched.changed = true // the loop plans the next run again with the new settings
+	cbSched.Unlock()
 	s.ctlBackupStatus(w, r)
 }
 
@@ -206,33 +315,63 @@ func (c *countWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// --- the daily copy ---
+// --- the scheduled copy ---
 
 var cbOnce sync.Once
 
-// startControllerBackup runs the daily copy loop (once per process).
+// cbSched is what the status shows of the loop: the planned run, and whether the settings changed since.
+var cbSched struct {
+	sync.Mutex
+	next    time.Time
+	changed bool
+}
+
+// startControllerBackup runs the copy loop (once per process).
 func (s *Server) startControllerBackup() {
 	if s.DataDir == "" || s.Store == nil {
 		return
 	}
 	cbOnce.Do(func() {
 		d := &dailyBackup{now: time.Now, enabled: func() bool { return s.cbSettings().Daily }, run: s.dailyBackupRun,
-			jitter: func() time.Duration { return randomJitter(20 * time.Minute) }}
+			jitter: func() time.Duration { return randomJitter(20 * time.Minute) },
+			plan: func(now time.Time, jitter time.Duration) time.Time {
+				return s.cbSettings().next(now, ctlbackup.ReadRecords(s.DataDir)["daily"].Time, jitter)
+			}}
 		go func() {
 			for range time.Tick(time.Minute) {
+				cbSched.Lock()
+				if cbSched.changed {
+					d.next, cbSched.changed = time.Time{}, false
+				}
+				cbSched.Unlock()
 				d.tick()
+				if d.next.IsZero() {
+					d.tick() // plan at once, so that the status can show the next run
+				}
+				cbSched.Lock()
+				cbSched.next = d.next
+				cbSched.Unlock()
 			}
 		}()
 	})
 }
 
-// dailyBackup decides when the daily copy runs. tick is called every minute.
+// dailyBackup decides when the scheduled copy runs. tick is called every minute.
 type dailyBackup struct {
 	now     func() time.Time
 	enabled func() bool
 	run     func() error
 	jitter  func() time.Duration
-	next    time.Time
+	// plan is the next run after now (nil: daily at 03:30).
+	plan func(now time.Time, jitter time.Duration) time.Time
+	next time.Time
+}
+
+func (d *dailyBackup) planNext(now time.Time) time.Time {
+	if d.plan != nil {
+		return d.plan(now, d.jitter())
+	}
+	return ctlbackup.NextDaily(now, d.jitter())
 }
 
 // retryAfter is the wait after a failed copy.
@@ -246,7 +385,7 @@ func (d *dailyBackup) tick() bool {
 		return false
 	}
 	if d.next.IsZero() {
-		d.next = ctlbackup.NextDaily(now, d.jitter())
+		d.next = d.planNext(now)
 		return false
 	}
 	if now.Before(d.next) {
@@ -255,23 +394,27 @@ func (d *dailyBackup) tick() bool {
 	if err := d.run(); err != nil {
 		d.next = now.Add(cbRetry)
 	} else {
-		d.next = ctlbackup.NextDaily(now, d.jitter())
+		d.next = d.planNext(now)
 	}
 	return true
 }
 
 var cbRunning sync.Mutex
 
-// dailyBackupRun writes one copy into <data>/backups, keeps the newest seven,
-// records the result and leaves a task the alerts page turns into an alert
-// when the copy failed.
+// dailyBackupRun writes one copy into <data>/backups, prunes the directory with
+// the schedule's retention, records the result and leaves a task the alerts page
+// turns into an alert when the copy failed.
 func (s *Server) dailyBackupRun() error {
 	cbRunning.Lock()
 	defer cbRunning.Unlock()
 	t, terr := s.Store.StartTask(cbTaskKind, "controller", "", "scheduler")
-	size, err := s.writeDailyBackup()
+	size, gone, err := s.writeDailyBackup()
 	if terr == nil {
-		s.Store.FinishTask(&t, err)
+		note := ""
+		if gone > 0 {
+			note = fmt.Sprintf("%d older %s deleted (keep %s)", gone, plural(gone, "backup", "backups"), s.cbSettings().Policy)
+		}
+		s.Store.FinishTaskNote(&t, err, note)
 	}
 	rec := ctlbackup.Record{Time: time.Now(), OK: err == nil, Size: size}
 	if err != nil {
@@ -284,23 +427,85 @@ func (s *Server) dailyBackupRun() error {
 	return err
 }
 
-func (s *Server) writeDailyBackup() (int64, error) {
+// writeDailyBackup writes the copy and prunes; it returns the size of the copy and how many older ones went.
+func (s *Server) writeDailyBackup() (int64, int, error) {
 	src, err := s.cbSource()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	src.Now = time.Now
 	dir := filepath.Join(s.DataDir, "backups")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	_, size, err := ctlbackup.WriteFile(filepath.Join(dir, ctlbackup.FileName(src.Host, src.Now(), false)), src, "")
+	name := ctlbackup.FileName(src.Host, src.Now(), false)
+	_, size, err := ctlbackup.WriteFile(filepath.Join(dir, name), src, "")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	_, err = ctlbackup.Prune(dir, ctlBackupKeep)
-	return size, err
+	// WriteFile has checked every file into the archive and only then given it its name: prune after that.
+	gone, err := ctlbackup.PrunePolicy(dir, s.cbSettings().Policy, time.Local, name)
+	return size, len(gone), err
+}
+
+// zoneName is the controller's zone as "CET (+01:00)".
+func zoneName(t time.Time) string { return t.In(time.Local).Format("MST (-07:00)") }
+
+// POST /api/controller-backup/preview: what the schedule in the body (not saved) would keep, and the space.
+func (s *Server) previewCtlBackup(w http.ResponseWriter, r *http.Request) {
+	c := s.cbSettings()
+	if err := readJSON(r, &c); err != nil {
+		fail(w, err)
+		return
+	}
+	c.normalize()
+	if err := c.validate(); err != nil {
+		fail(w, badRequest(err.Error()))
+		return
+	}
+	now := time.Now()
+	last := ctlbackup.ReadRecords(s.DataDir)["daily"].Time
+	var runs func(from, to time.Time, max int) []time.Time
+	if c.Mode == "interval" {
+		anchor := last
+		if anchor.IsZero() {
+			anchor = now
+		}
+		runs = retention.IntervalRuns(anchor, c.step())
+	} else {
+		h, m := c.hourMinute()
+		runs = retention.DailyRuns(h, m, time.Local)
+	}
+	out := projectSchedule(runs, c.step(), 1, c.Policy, now)
+	out.NextRuns = nextRuns(c.next(now, last, 0), c.step(), c.Mode == "daily", 3)
+	dir := filepath.Join(s.DataDir, "backups")
+	files, _ := ctlbackup.Files(dir)
+	var size uint64
+	for _, f := range files {
+		out.Used += uint64(f.Size)
+	}
+	if len(files) > 0 {
+		size = uint64(files[0].Size)
+	} else if k, rec, ok := ctlbackup.ReadRecords(s.DataDir).Newest(); ok && k != "" {
+		size = uint64(rec.Size)
+	}
+	if size > 0 {
+		out.Size = &projSize{Basis: "last", Full: size, Low: size * uint64(out.Kept), High: size * uint64(out.Kept), Fulls: out.Kept}
+	}
+	if free, err := freeBytesLocal(s.DataDir); err == nil {
+		out.Free = &free
+	}
+	writeJSON(w, out)
 }
 
 // randomJitter is a random wait between 0 and max.
 func randomJitter(max time.Duration) time.Duration { return time.Duration(rand.Int64N(int64(max))) }
+
+// freeBytesLocal is the space left for an unprivileged writer on the file system of dir.
+func freeBytesLocal(dir string) (int64, error) {
+	var sf unix.Statfs_t
+	if err := unix.Statfs(dir, &sf); err != nil {
+		return 0, err
+	}
+	return int64(sf.Bavail) * int64(sf.Bsize), nil
+}
