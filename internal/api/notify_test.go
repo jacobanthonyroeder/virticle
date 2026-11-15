@@ -76,6 +76,11 @@ func newRecorder(t *testing.T, tlsOn bool, answer func(n int, w http.ResponseWri
 
 func (rc *hookSink) count() int { rc.mu.Lock(); defer rc.mu.Unlock(); return len(rc.bodies) }
 
+// body and head read what the sink recorded under its lock: a later message may arrive while a test looks.
+func (rc *hookSink) body(i int) string { rc.mu.Lock(); defer rc.mu.Unlock(); return rc.bodies[i] }
+
+func (rc *hookSink) head(i int) http.Header { rc.mu.Lock(); defer rc.mu.Unlock(); return rc.heads[i] }
+
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -191,16 +196,16 @@ func TestBurstsBecomeOneSummary(t *testing.T) {
 		notifyDest{ID: "2", Kind: "webhook", Name: "H", URL: hook.srv.URL, Severity: "warning", Cleared: true})
 	n.dispatch(manyAlerts(6), nil, "", nil)
 	waitFor(t, "messages", func() bool { return slack.count() == 1 && hook.count() == 6 })
-	if !strings.Contains(slack.bodies[0], "6 new alerts") {
-		t.Errorf("slack: %s", slack.bodies[0])
+	if !strings.Contains(slack.body(0), "6 new alerts") {
+		t.Errorf("slack: %s", slack.body(0))
 	}
 	// Exactly five are sent one by one.
 	n.dispatch(manyAlerts(5), nil, "", nil)
 	waitFor(t, "five more", func() bool { return slack.count() == 6 })
 	// The raw webhook is read by programs: always one alert per message, in the old shape.
 	var m webhookMsg
-	if err := json.Unmarshal([]byte(hook.bodies[0]), &m); err != nil || m.Event != "raise" || m.Alert.ID == "" {
-		t.Errorf("webhook body %s", hook.bodies[0])
+	if err := json.Unmarshal([]byte(hook.body(0)), &m); err != nil || m.Event != "raise" || m.Alert.ID == "" {
+		t.Errorf("webhook body %s", hook.body(0))
 	}
 }
 
@@ -213,11 +218,11 @@ func TestSeverityAndClearedChoices(t *testing.T) {
 	n.dispatch(oneAlert("warning"), oneAlert("critical"), "", nil)
 	waitFor(t, "messages", func() bool { return crit.count() == 1 && noClear.count() == 1 })
 	time.Sleep(30 * time.Millisecond)
-	if !strings.Contains(crit.bodies[0], `"event":"clear"`) {
-		t.Errorf("critical-only destination got %s (warning must be left out, the cleared critical sent)", crit.bodies[0])
+	if !strings.Contains(crit.body(0), `"event":"clear"`) {
+		t.Errorf("critical-only destination got %s (warning must be left out, the cleared critical sent)", crit.body(0))
 	}
-	if !strings.Contains(noClear.bodies[0], `"event":"raise"`) {
-		t.Errorf("no-clear destination got %s", noClear.bodies[0])
+	if !strings.Contains(noClear.body(0), `"event":"raise"`) {
+		t.Errorf("no-clear destination got %s", noClear.body(0))
 	}
 }
 
@@ -244,13 +249,13 @@ func TestSignatureHeaderOnlyWithSecret(t *testing.T) {
 		notifyDest{ID: "2", Kind: "webhook", Name: "P", URL: plain.srv.URL, Severity: "warning", Cleared: true})
 	n.dispatch(oneAlert("critical"), nil, "", nil)
 	waitFor(t, "both", func() bool { return signed.count() == 1 && plain.count() == 1 })
-	if got, want := signed.heads[0].Get("X-Virticle-Signature"), signBody("s3cret", []byte(signed.bodies[0])); got != want {
+	if got, want := signed.head(0).Get("X-Virticle-Signature"), signBody("s3cret", []byte(signed.body(0))); got != want {
 		t.Errorf("signature %q, want %q", got, want)
 	}
-	if plain.heads[0].Get("X-Virticle-Signature") != "" {
+	if plain.head(0).Get("X-Virticle-Signature") != "" {
 		t.Error("signature without a secret")
 	}
-	if signed.heads[0].Get("Content-Type") != "application/json" {
+	if signed.head(0).Get("Content-Type") != "application/json" {
 		t.Error("content type")
 	}
 }
@@ -263,8 +268,8 @@ func TestTestMessageReportsInPlainWords(t *testing.T) {
 	if r := w.sendTest(context.Background()); !r.OK || !strings.Contains(r.Message, "accepted") {
 		t.Errorf("%+v", r)
 	}
-	if !strings.Contains(rc.bodies[0], `"event":"test"`) {
-		t.Errorf("test body %s", rc.bodies[0])
+	if !strings.Contains(rc.body(0), `"event":"test"`) {
+		t.Errorf("test body %s", rc.body(0))
 	}
 	code = 404
 	r := w.sendTest(context.Background())
@@ -647,12 +652,12 @@ func TestEndToEndAgainstServiceStandIns(t *testing.T) {
 			} `json:"elements"`
 		} `json:"blocks"`
 	}
-	json.Unmarshal([]byte(slack.bodies[0]), &sl)
+	json.Unmarshal([]byte(slack.body(0)), &sl)
 	if sl.Text != "Critical: kvm1 is offline" || len(sl.Blocks) != 4 || sl.Blocks[3].Elements[0].URL != "https://virt.example.org/nodes" {
-		t.Errorf("slack raise: %s", slack.bodies[0])
+		t.Errorf("slack raise: %s", slack.body(0))
 	}
-	if !strings.Contains(slack.bodies[1], `"text":"Cleared"`) {
-		t.Errorf("slack clear: %s", slack.bodies[1])
+	if !strings.Contains(slack.body(1), `"text":"Cleared"`) {
+		t.Errorf("slack clear: %s", slack.body(1))
 	}
 	var mmb struct {
 		Attachments []struct {
@@ -660,22 +665,22 @@ func TestEndToEndAgainstServiceStandIns(t *testing.T) {
 			TitleLink string `json:"title_link"`
 		} `json:"attachments"`
 	}
-	json.Unmarshal([]byte(mm.bodies[0]), &mmb)
+	json.Unmarshal([]byte(mm.body(0)), &mmb)
 	if len(mmb.Attachments) != 1 || mmb.Attachments[0].Title != "Critical: kvm1 is offline" || mmb.Attachments[0].TitleLink != "https://virt.example.org/nodes" {
-		t.Errorf("mattermost raise: %s", mm.bodies[0])
+		t.Errorf("mattermost raise: %s", mm.body(0))
 	}
-	if !strings.Contains(mm.bodies[1], "Cleared: kvm1 is offline") {
-		t.Errorf("mattermost clear: %s", mm.bodies[1])
+	if !strings.Contains(mm.body(1), "Cleared: kvm1 is offline") {
+		t.Errorf("mattermost clear: %s", mm.body(1))
 	}
-	if !strings.Contains(dc.bodies[0], `"content":"Critical: kvm1 is offline"`) || !strings.Contains(dc.bodies[1], `"content":"Cleared: kvm1 is offline"`) {
-		t.Errorf("discord: %s / %s", dc.bodies[0], dc.bodies[1])
+	if !strings.Contains(dc.body(0), `"content":"Critical: kvm1 is offline"`) || !strings.Contains(dc.body(1), `"content":"Cleared: kvm1 is offline"`) {
+		t.Errorf("discord: %s / %s", dc.body(0), dc.body(1))
 	}
 	var wm webhookMsg
-	json.Unmarshal([]byte(hook.bodies[1]), &wm)
+	json.Unmarshal([]byte(hook.body(1)), &wm)
 	if wm.Event != "clear" || wm.Alert.ID != "node-down:1" {
-		t.Errorf("webhook clear: %s", hook.bodies[1])
+		t.Errorf("webhook clear: %s", hook.body(1))
 	}
-	if hook.heads[0].Get("X-Virticle-Signature") != signBody("k", []byte(hook.bodies[0])) {
+	if hook.head(0).Get("X-Virticle-Signature") != signBody("k", []byte(hook.body(0))) {
 		t.Error("signature")
 	}
 
@@ -685,8 +690,8 @@ func TestEndToEndAgainstServiceStandIns(t *testing.T) {
 	}
 	json.Unmarshal(e.do("GET", "/api/notify/destinations", nil, cookieOf(e, "root")).Body.Bytes(), &out)
 	w := e.do("POST", "/api/notify/destinations/"+out.Destinations[2].ID+"/test", nil, cookieOf(e, "root"))
-	if !strings.Contains(w.Body.String(), `"ok":true`) || !strings.Contains(dc.bodies[2], "Test") {
-		t.Errorf("test message: %s / %s", w.Body, dc.bodies[len(dc.bodies)-1])
+	if !strings.Contains(w.Body.String(), `"ok":true`) || !strings.Contains(dc.body(2), "Test") {
+		t.Errorf("test message: %s / %s", w.Body, dc.body(dc.count()-1))
 	}
 	json.Unmarshal(e.do("GET", "/api/notify/destinations", nil, cookieOf(e, "root")).Body.Bytes(), &out)
 	if out.Destinations[0].State != "ok" || out.Destinations[0].LastOK == 0 {
