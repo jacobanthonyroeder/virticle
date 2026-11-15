@@ -216,7 +216,8 @@ earlier versions no longer exist.
 - **The data directory** (`-data`):
   - `virticle.db`: users, password hashes, sessions, token hashes, node list,
     web access settings, alert destinations (addresses and secrets encrypted), task log, audit log and its operation traces, the state of the rolling update,
-    and the work directories of replication runs and backups that are not removed yet (see "Work directories" below).
+    the work directories of replication runs and backups that are not removed yet (see "Work directories" below),
+    and the journal of files migrations made on their targets (see [Failed migrations](#failed-migrations)).
   - `virticle.db.bak-<version>-<time>`: copy made before a schema upgrade
     (newest 3 kept).
   - `metrics.db`: the performance history of VMs and nodes, up to 7 days
