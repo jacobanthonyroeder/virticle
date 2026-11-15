@@ -6,10 +6,10 @@
 | --- | --- |
 | `virticle [flags]` | Runs the controller. |
 | `virticle version` | Prints version, commit and build date. |
-| `virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes]` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). On a terminal it asks which address and port the web interface uses (defaults: all addresses, 8463). `--address` (an IP address of this machine, or `all`) and `--port` answer those questions; they only apply while no administrator exists. It checks that the port is free, asks before it opens the port in firewalld or ufw (without a terminal it opens it, unless `--no-firewall`), makes sure the service runs and prints the address to open. `--yes` asks nothing and answers yes. `--check` changes nothing; `--undo` removes the firewall rule it added. Takes `-data`. See [install.md](install.md#setup-open-the-firewall). |
+| `virticle setup [--address ADDR] [--port N] [--check] [--undo] [--no-firewall] [--yes]` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). On a terminal it asks which address and port the web interface uses (defaults: all addresses, 8463). `--address` (an IP address of this machine, or `all`) and `--port` answer those questions; they only apply while no administrator exists. It checks that the port is free, asks before it opens the port in firewalld or ufw (without a terminal it opens it, unless `--no-firewall`), makes sure the service runs and prints the address to open. `--yes` asks nothing and answers yes. `--check` changes nothing; `--undo` removes the firewall rule it added. Takes `-data`. See [install.md](install.md#setup-choose-the-address-and-port-open-the-firewall). |
 | `virticle node prepare\|unprepare` | Prepares a host as a node, or undoes it. See [install-node.md](install-node.md). |
 | `virticle backup [-o FILE\|DIR] [--encrypt] [--passphrase-file FILE] [--keep-last\|--keep-hourly\|--keep-daily\|--keep-weekly\|--keep-monthly N]` | Writes the controller's own data (database, SSH key, certificates) to one file, while the controller runs. With `-o DIR` and `--keep-*` flags it then deletes the older backups in DIR that the [retention rules](#retention) do not keep; without them it deletes nothing. Takes `-data`. |
-| `virticle restore FILE` | Puts such a file back; the controller must be stopped. Takes `-data` and `--passphrase-file`. See [controller-backup.md](controller-backup.md). |
+| `virticle restore [--key FILE] FILE` | Puts such a file back; the controller must be stopped. `--key` names the recovery key file (`virticle-backup-key.age`) for a scheduled copy encrypted to the backup key; without it the key in the data directory is used. Takes `-data` and `--passphrase-file`. See [controller-backup.md](controller-backup.md). |
 | `virticle web show\|set\|reset` | Reads or changes the stored web access settings. `show` and `reset` take only `-data`. See [web-tls.md](web-tls.md). |
 | `virticle user reset-2fa\|reset-password USER` | Recovery on the controller's machine: turn two-step sign-in off for a user, or set a new password for a local account. Takes `-data` and, for `reset-password`, `--password-stdin`. See [sign-in.md](sign-in.md#two-step-sign-in-authenticator-app). |
 
@@ -364,12 +364,14 @@ and shut-off VMs). Tasks that ended well carry such a note as `note` in `GET /ap
 
 `POST /api/tasks/{id}/cancel` asks a running task to stop. It works for backups, replication copies, migrations, disk
 moves, image downloads, evacuations, rolling updates, restores of a backup, full clones of a VM or a volume, imports of
-a disk or OVA, backup exports and imports, volume downloads from a URL and volume uploads. For the first seven it does
+a disk or OVA, backup exports and imports, volume downloads from a URL, volume uploads and backup verifies. For the first seven it does
 the same as the cancel call of that action. A running task that can be stopped carries `cancel` in `GET /api/tasks`: the
 role needed to stop it (`operator`; `admin` for an evacuation and a rolling update). The Tasks panel and the Tasks page
 show an **x** on such a task. An evacuation and a rolling update finish the step they are in first.
 
-A task that was stopped ends as failed with a message that contains "cancelled". The work on the node ends within a few
+A task that was stopped ends as failed with a message that contains "cancelled", for example "clone cancelled". A request
+that runs such a task and waits for it answers 409 with that message (`{"error":"clone cancelled"}`), and the controller does not log it
+as an internal error. The work on the node ends within a few
 seconds, and nothing half-made stays: partial volumes, partial files, work directories and half-defined VMs are removed.
 The source (the backup, the template, the uploaded file) is never changed. Some steps cannot be interrupted, and the
 stop is then seen as soon as the step ends:
@@ -606,15 +608,19 @@ After a lost connection the controller tries again after 1 s, then waits twice a
 
 ## Versions and the node command
 
-- The node command protocol is **20** (0.2.0 had 10). A node whose node command has another number shows "prepared by an
-  older version" and must be prepared again ([install.md](install.md#upgrading)). The old node command would also refuse
-  the new requests, because it rejects fields it does not know.
-- Verbs new since 0.2.0, by feature (all described in [install-node.md](install-node.md#verbs)): virtual switches
+- The node command protocol is **21** (0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
+  "prepared by an older version" (**Outdated** on the Nodes page) and must be prepared again
+  ([install.md](install.md#upgrading)). The old node command would also refuse the new requests, because it rejects fields
+  it does not know.
+- Verbs new since 0.3.x: `age-encrypt`, `age-decrypt` (encrypted backups), `copy-kill` (stopping a clone), and `sha256 PATH
+  progress` (verify).
+- Verbs new in 0.3.0, by feature (all described in [install-node.md](install-node.md#verbs)): virtual switches
   (`net-info`, `net-plan`, `net-apply`, `net-run`, `net-confirm`, `net-rollback`, `net-status`, `net-boot`); backups
   (`backup-detach`, `df`, `work-stale`, and `convert-start` taking the incremental images); firmware (`nvram-new`,
   `disk-boot`); rolling updates (`update-start`, `update-run`, `update-status`, `node-reboot`, `selfcheck`); replication
-  (`repl-overlay`, `repl-rebase`, `repl-commit`, `repl-ls`, `mtime`, `qcow2-bitmap-rm`, `work-ls`).
-- The database schema is **6** (the table `rolling_runs` is new). A controller that finds a database of a newer schema
+  (`repl-overlay`, `repl-rebase`, `repl-commit`, `repl-ls`, `mtime`, `qcow2-bitmap-rm`, `work-ls`, `tpm-save`, `tpm-place`,
+  `hook-qemu`, `peer-ask`, `vm-probe`).
+- The database schema is **6**, the same as in 0.3.x (0.3.0 added the table `rolling_runs`). A controller that finds a database of a newer schema
   logs a warning and carries on; do not use that, see below.
 - **Two controllers of different versions must never manage the same nodes.** An older controller does not know the
   incremental backup chains (its retention deletes backups that a newer chain needs), the replica and old-copy marks in the
@@ -672,7 +678,7 @@ the VLAN ids go on the bond. Written: networkd, `05-virticle-BOND.netdev` (`Kind
 `LACPTransmitRate`, `TransmitHashPolicy`), `05-virticle-BOND.network` (`Bridge=` and the `[BridgeVLAN]` entries) and one
 `05-virticle-BRIDGE-CARD.network` per card (`Bond=`); NetworkManager, `virticle-bond-BOND` (`bond.options`, port of the bridge,
 `bridge-port.vlans`) and one `virticle-port-CARD` per card (`controller BOND`, `port-type bond`). Rollback and delete restore
-each member's own configuration. Status (shown in the topology): `/proc/net/bonding/BOND` gives each member's link, the active
+each member's own configuration. Status (shown in the Network tab): `/proc/net/bonding/BOND` gives each member's link, the active
 member (failover) and, for LACP, the partner MAC address: all zeros means the physical switch did not answer. LACP needs
 the cards to report their speed; the plan warns when they do not or when the speeds differ.
 

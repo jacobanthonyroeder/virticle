@@ -15,7 +15,7 @@ Virticle look the same.
 | VMs | Create from cloud images, ISOs or templates. Clone. cloud-init. UEFI by default, Secure Boot, virtual TPM. Hot-plug hardware. Speed limit per network card. Edit the libvirt XML. |
 | Consoles | VNC and serial, in the browser. |
 | Migration and updates | Live and offline migration between nodes, with a list of pre-flight checks. Node maintenance and evacuation. A migration network per node, with an automatic limit on a shared link. Rolling updates: all nodes updated one at a time, their VMs moved away first. |
-| Snapshots and backups | Manual or scheduled, with retention. Incremental backups that copy only what changed. Encryption with age (one switch). Restore, export, import. Backup and restore of the controller itself. |
+| Snapshots and backups | Manual or scheduled. Retention by rules (last, hourly, daily, weekly, monthly) with a preview of what is kept and the space it takes. Incremental backups that copy only what changed. Encryption with age. Verify by checksum. Restore, export, import. Backup and restore of the controller itself. |
 | Replication | A copy of a VM on a standby node, kept up to date on a schedule, that starts with one click when the first node fails. Failover is by hand. |
 | Storage | Pools, volumes, uploads, an image catalogue. Shared storage over NFS: VMs move between nodes without copying their disks. |
 | Networks | One Network tab per datacenter and per node: switches, uplinks and the VMs on each network. NAT, isolated and bridged networks with start, stop, autostart, DHCP leases and reservations. Virtual switches with VLANs, several uplinks (failover or LACP), rollback if a change cuts the node off. Warnings when nodes differ. |
@@ -128,8 +128,8 @@ Virticle checks the versions and has no setting to skip the check:
 | To do this | Do this |
 | --- | --- |
 | Find a node or VM | Use the tree on the left. Drag its edge to resize. |
-| See what happened | Look at the **Tasks** panel at the bottom. Every action shows progress and result. Long actions run in the background. |
-| Read a status | A green, yellow or red dot with the word Ok, Warning or Error. |
+| See what happened | Look at the **Tasks** panel at the bottom. Every action shows progress and result. Long actions run in the background; the **x** next to a running one stops it. |
+| Read a status | A coloured dot and the state name: green is good (Running, Ok), amber a warning, red a failure (Offline, Error), grey off. |
 | Move a VM | **Actions > Migrate**. The pre-flight list says what blocks the move. |
 | See how a VM was doing | The **Performance** tab of the VM or node. |
 | Change the web address, certificate or port | **Settings > Web access** (administrator). A change you do not confirm is undone after 60 seconds. |
@@ -148,8 +148,9 @@ hand.
 ## Upgrading
 
 Upgrade the package, then prepare every node again (the node command has a new
-version). Never let two controllers of different versions manage the same
-nodes. Steps for 0.2.0 to 0.3.0, and for older versions, are in
+version; **Nodes > Prepare all** does all of them). Never let two controllers of
+different versions manage the same nodes. Nodes below libvirt 11.0 and QEMU 10.0
+are no longer managed. Steps for 0.3.x to 0.4.0, and for older versions, are in
 [docs/install.md](docs/install.md#upgrading).
 
 ## Documentation

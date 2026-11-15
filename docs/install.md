@@ -9,7 +9,7 @@ On this page:
 
 - [Package repository](#install-from-the-package-repository) (preferred), [downloaded package](#package-from-a-download-debian-ubuntu-rhel-like), [container](#container) or [binary](#binary)
 - [First run](#first-run)
-- [Upgrading](#upgrading), with the steps from 0.2.0 and from 0.1.0, and how to roll back
+- [Upgrading](#upgrading), with the steps from 0.3.x, 0.2.0 and 0.1.0, and how to roll back
 - [Uninstall](#uninstall)
 
 Releases are at <https://github.com/jacobanthonyroeder/virticle/releases>. Below,
@@ -25,7 +25,7 @@ Releases are at <https://github.com/jacobanthonyroeder/virticle/releases>. Below
 | Node | Debian 13 (libvirt 11.3, QEMU 10.0) | Tested |
 | Node | Rocky Linux 10 (libvirt 11.10, QEMU 10.1) | Tested |
 | Node | Any other distribution that ships libvirt 11.0 and QEMU 10.0 or newer | Accepted, not tested |
-| Node | Older releases, for example Debian 12 and Ubuntu 24.04 LTS (libvirt 10.0, QEMU 8.2) | Refused |
+| Node | Older releases, for example Debian 12 (libvirt 9.0, QEMU 7.2) and Ubuntu 24.04 LTS (libvirt 10.0, QEMU 8.2) | Refused |
 
 | Install type | Notes |
 | --- | --- |
@@ -107,7 +107,7 @@ A new install serves HTTPS with a self-signed certificate on port 8463 of all
 interfaces; the journal line `open https://<address>:8463 to create the
 administrator` says where. `sudo virticle setup` lets you choose another
 address and port (see below). An install that already has stored settings keeps
-its port, including 8443 from version 0.3.0. An installation from before this default, which has
+its port, including 8443 from versions 0.3.0 to 0.3.2. An installation from before 0.3.0, which has
 an administrator and no stored web settings, keeps listening on
 `127.0.0.1:8080` and the **Web access** page says so. The same rule applies to
 every start without a `-listen` flag: a data directory without users gets the
@@ -158,6 +158,9 @@ a terminal it stops with an error.
 | `--port N` | A port from 1 to 65535. Answers the second question. |
 | `--no-firewall` | Does not change the firewall. Prints the command to run yourself. |
 | `--yes` | Asks nothing: takes the defaults and answers yes. |
+| `--check` | Changes nothing and asks nothing. Shows what setup would do. |
+| `--undo` | Removes the firewall rule that setup added, and nothing else. |
+| `-data DIR` | The data directory. Default `/var/lib/virticle` on an installed machine. |
 
 Without a terminal (a script, a pipe) nothing is asked: setup uses the flags or
 the defaults, and opens the port in the firewall unless you give
@@ -301,15 +304,37 @@ file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
 
-### From 0.3.0 to the next release
+### From 0.3.x to 0.4.0
 
-Nodes need to be prepared again: the node command has protocol 21 (it was 20), for the encryption of backups. Until you
-do, a node's **Settings** page says "This node was prepared by an older version, so features that need root are off", and
-migration, backups, replication and the other features that need root stop on it. VMs keep running. Prepare each node as in
-step 4 below (**Settings > Prepare this node**, or `virticle node prepare admin@host`). Backup encryption is off until an
-administrator turns it on.
+The same steps for 0.3.0, 0.3.1 and 0.3.2.
+
+1. **Check the node versions first.** A node needs libvirt 11.0 and QEMU 10.0 or newer (see
+   [Supported platforms](#supported-platforms)). 0.3.x managed older systems with some features off. A node below the minimum, for
+   example Debian 12 or Ubuntu 24.04, shows as Offline after the upgrade, with the reason, and is not managed. Its VMs
+   keep running. Upgrade the node's system, or move its VMs away before you upgrade the controller.
+2. **Upgrade the controller** as above. Stop the old controller first; two controllers of different versions must never
+   manage the same nodes. The database schema stays at 6, so no copy of the database is made.
+3. **Prepare each node again.** The node command has protocol 21 (0.3.x had 20). Until you do, the **Nodes** page marks
+   the node **Outdated** and shows the notice "N nodes need preparing" with **Prepare all**, and the node's **Settings**
+   say "This node was prepared by an older version, so features that need root are off." Migration, backups,
+   replication and the other features that need root stop on it. VMs keep running. Choose **Prepare all** (one
+   administrator login for all nodes), or **Settings > Prepare this node** on each node, or run
+   `virticle node prepare admin@host` (add `--root` for a Root node).
+
+What stays as it was:
+
+| What | After the upgrade |
+| --- | --- |
+| Web address and port | Kept, including port 8443 of a 0.3.x install. Only fresh installs get 8463. |
+| VM backup schedules | Keep their **Keep the newest** number. It shows as the rule **Last**; add hourly, daily, weekly or monthly rules when you edit the schedule. |
+| Daily controller backup | Kept as it was: daily at 03:30, 7 daily copies. **Edit schedule** changes it. |
+| Backup encryption | Off until an administrator turns it on under **Settings > Backup encryption**. Existing backups stay plain. |
+| Old links to the Networks and Topology pages | Open the **Network** tab of the Datacenter page. |
 
 ### From 0.2.0 to 0.3.0
+
+From 0.2.0 straight to 0.4.0: follow these steps, and read [From 0.3.x to 0.4.0](#from-03x-to-040) first. The node
+command then has protocol 21.
 
 Nodes need to be prepared again, because the node command has a new version (protocol 20, it was 10). Until you do, a node
 shows "prepared by an older version" and the features that need root on it are off: migration, backups, replication,
@@ -322,7 +347,7 @@ Stop the old controller before you start the new one.
 
 1. **Upgrade the controller** as above. A backup first is a good idea:
    `sudo virticle backup -o /root/backups/` (see [controller-backup.md](controller-backup.md)).
-2. **Check the web address.** The HTTPS default (self-signed, port 8463; 0.3.0 used 8443) applies to **fresh installs only**. A data
+2. **Check the web address.** The HTTPS default (self-signed, port 8463; 0.3.x used 8443) applies to **fresh installs only**. A data
    directory that already has users and no stored web settings keeps serving plain HTTP on `127.0.0.1:8080`, as before.
    The **Web access** page says so. To reach the controller from other computers, choose a mode on that page. Settings you
    stored with 0.2.0 are kept.

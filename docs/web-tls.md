@@ -4,7 +4,7 @@ The **Web access** page (administrators only: **Settings > Web access**) chooses
 
 ![Web access page](img/web-access.png)
 
-A new install serves a self-signed certificate on port 8463 of all interfaces, so the page is reachable from another computer at once. `sudo virticle setup` lets you choose another address and port before the first start (see [install.md](install.md#choose-the-address-and-port)). An install that already stored its settings keeps its port: version 0.3.0 used 8443, and a machine that started with it still does. The page offers three choices, and the rest under **Advanced**:
+A new install serves a self-signed certificate on port 8463 of all interfaces, so the page is reachable from another computer at once. `sudo virticle setup` lets you choose another address and port before the first start (see [install.md](install.md#choose-the-address-and-port)). An install that already stored its settings keeps its port: versions 0.3.0 to 0.3.2 used 8443, and a machine that started with one of them still does. The page offers three choices, and the rest under **Advanced**:
 
 | Choice | What it does |
 | --- | --- |
@@ -25,7 +25,7 @@ In every TLS mode the controller:
 - can run an extra HTTP listener that only redirects to HTTPS,
 - accepts the configured public URL in the Origin/CSRF check and the WebSocket Origin check.
 
-HSTS is off by default. The toggle sends `Strict-Transport-Security: max-age=31536000` on HTTPS responses. Turn it on only after HTTPS works for good, because browsers then refuse plain HTTP to that host for a year.
+HSTS is off by default. The **HSTS** box sends `Strict-Transport-Security: max-age=31536000` on HTTPS responses. Turn it on only after HTTPS works for good, because browsers then refuse plain HTTP to that host for a year.
 
 ## Applying a change safely
 

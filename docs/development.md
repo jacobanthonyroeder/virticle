@@ -69,3 +69,9 @@ must not be published: addresses of the lab, host names, jump hosts, e-mail
 addresses, passwords and keys. Look at every image afterwards. When the UI
 changes, retake the images that show it; `python3` with Pillow can reduce the
 size (quantise to 256 colours).
+
+The screens are the real UI, but the capture rewrites the API answers so that
+the small lab nodes look like production servers: 64 cores, 512 GiB of memory,
+pools of several TiB, bonded 10 GbE uplinks, more VMs, a backup history. Keep
+the numbers the same on every page (a node's summary, the Nodes list, the
+datacenter summary and the Network tab).

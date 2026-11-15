@@ -32,11 +32,12 @@ How to do the everyday things in the web UI. To install, see
 - **Tasks** (bottom): the last actions with progress and result. Running tasks
   stay on top. Drag the top edge to resize, or collapse it with the arrow.
   **All tasks** opens the full log. A running task that can be stopped (backup,
-  restore, replication copy, migration, disk move, clone, import, backup export
+  restore, verify, replication copy, migration, disk move, clone, import, backup export
   or import, download, upload, evacuation, rolling update) has an **x** next to
-  its progress: click it and confirm to stop the task. It then ends with the
-  error "cancelled", and what it had made so far is removed.
-- **Status** is always a dot and a word: green Ok, yellow Warning, red Error.
+  its progress: click it and confirm with **Stop task**. It then ends with an
+  error that says "cancelled", and what it had made so far is removed. The
+  **Tasks** page has the same **x**.
+- **Status** is always a dot and the state name, for example green Running, amber Paused, red Offline, grey Shutoff.
 - **Sub pages**: some tabs hold several separate areas. They show a short list of sub pages at the left of the
   tab (like the tree at the left of the screen). Choose an entry to see only that sub page. The list stays in view
   when the page is long. The choice is part of the address, so reload, back and links keep it. On a narrow screen the
@@ -93,10 +94,16 @@ To add another host:
 When the node's **Settings** say it was prepared by an older version, choose
 **Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
 
-After an upgrade the **Nodes** page marks each such node ("Outdated" or "Not prepared") and
-shows one notice with the count and **Prepare all**. Enter the administrator login once (used for this run only, not stored).
+After an upgrade the **Nodes** page marks each such node (**Outdated** or **Not prepared**) and
+shows one notice, "N nodes need preparing", with **Prepare all** (administrators). Enter the administrator login once
+(the same login must work on every node; used for this run only, not stored).
 The nodes are prepared one after another; a node that fails shows why and the others go on. Offline nodes are not
 listed: they cannot say, so prepare them when they are back.
+
+- **Prepare all** installs this Virticle version's node command on nodes that have an old one or none.
+- **Update packages** installs the operating system's package updates on the nodes ([below](#update-packages-rolling-update)).
+
+![Nodes page with two nodes that need preparing](img/prepare-all.png)
 
 A node has the tabs **Summary**, **Performance**, **Virtual machines**, **Storage**, **Network**,
 **Updates** and **Settings**.
@@ -117,6 +124,8 @@ What you can do with a node:
 out of the way first. **Update this node** on a node's **Updates** tab does the same for that node alone. Administrators
 only. The **Updates** tab lists every package update available for the node (package, installed version, available
 version, source); **Check again** reads the list anew.
+
+![Updates tab of a node](img/node-updates.png)
 
 ![Rolling update plan](img/rolling-update-plan.png)
 
@@ -291,6 +300,8 @@ restored VM starts with an empty TPM. Backups made before Virticle saved TPM sta
 4. On the **Schedule** sub page, **Set up schedule** and **Save schedule** make backups run by themselves: every so many
    minutes or hours, or daily. **Keep** sets how many to keep ([Retention](#retention)).
 
+![Backups tab of a VM](img/vm-backups.png)
+
 ### Retention
 
 The schedule keeps backups by rules. A backup kept by any rule stays; the others are deleted after each new backup.
@@ -321,6 +332,8 @@ backup per day for a week, one per week for a month and one per month for half a
 - Retention never deletes the newest backup, a backup that a restore or an export is reading, or anything they need. It
   runs only after the new backup is complete. The task names how many older backups it deleted.
 - A schedule saved before these rules keeps working with its **Keep the newest** number (it shows as **Last**).
+
+![Schedule with the assistant](img/schedule-assistant.png)
 
 **Frozen file systems.** For a running VM with the QEMU guest agent connected, Virticle freezes the guest's file systems
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
@@ -366,7 +379,9 @@ Good to know:
   A disk image without a checksum (a shut-off VM backed up by a schedule) is checked by size only, and the result says so.
 - **Export** of an incremental backup puts the whole chain together into one full backup file.
 - Every backup holds the whole TPM state (a few KiB), incremental ones too.
-- If the controller stops in the middle of a backup, that backup is lost. A later backup removes the half-written files.
+- If the controller or the node stops in the middle of a backup, that backup is lost. The half-written files are removed
+  when the node is back (after 10 quiet minutes when the controller restarted), or by a later backup. Replication runs are
+  cleaned up the same way.
 
 ![Delete backup dialog](img/backup-delete.png)
 
@@ -374,6 +389,8 @@ Good to know:
 
 **Settings > Backup encryption** (administrators) turns on encryption for VM backups and for the controller's scheduled
 backups. It uses [age](https://age-encryption.org). One key serves the whole installation.
+
+![Backup encryption page](img/backup-encryption.png)
 
 1. **Turn on encryption**: type a passphrase twice (10 characters or more). The browser downloads the **recovery key file**
    `virticle-backup-key.age`. Keep it off the controller, together with the passphrase. You can download it again later
@@ -628,7 +645,7 @@ A node prepared with an older Virticle needs **Prepare** once more: it installs 
 2. Enter the **Name** (also the folder: `/mnt/NAME`), the **NFS server** and the **Export path**.
 3. Choose **Add shared storage**. Every online node mounts the share and checks that a VM disk can be made on it. If that
    fails, the dialog says what to change on the server, and nothing is left half done.
-4. To use it, pick the pool with that name in **New VM** or **New disk**.
+4. To use it, pick the pool with that name in **New VM** or **Add disk**.
 
 ![Add shared storage](img/shared-storage-add.png)
 
@@ -688,7 +705,7 @@ on a click, and a network that has the same name on several nodes gets the same 
 switches the first four are open and the others show one line (name, state, how many networks and how many are
 stopped); select the arrow to open one. The filter finds a switch, a network or a virtual machine by name.
 
-![The Network tab of a node](img/topology.png)
+![The Network tab of a node](img/network.png)
 
 | Part | What it is |
 | --- | --- |
@@ -907,6 +924,8 @@ previous range. A gap is a gap: the VM was not running, or the node or the contr
 drawn as zero. Small markers on the axis show that a VM started (triangle), stopped (square) or moved to another node
 (diamond). *Download CSV* saves the current view for a spreadsheet.
 
+![Values next to the pointer](img/performance-hover.png)
+
 **What is shown.**
 
 - VM: CPU (percent of its virtual CPUs, and time spent waiting for a host CPU), memory (assigned, used inside the guest
@@ -935,6 +954,7 @@ The **Settings** menu in the top bar is for administrators. **Account** (your na
 | **Settings > Web access** | Admin | Interface, port, HTTPS and reverse proxy. See [web-tls.md](web-tls.md). |
 | **Settings > Alerts** | Admin | Where alerts are sent. See [Notifications](#notifications). |
 | **Settings > Controller backup** | Admin | Download a backup of the controller, or keep a daily one. See [controller-backup.md](controller-backup.md). |
+| **Settings > Backup encryption** | Admin | Encrypt VM backups and the controller's scheduled copies. See [Encrypted backups](#encrypted-backups). |
 | **Settings > Audit** | Admin | Lists every state-changing request, who made it and from where. |
 | **Account** | Everyone | Change your password, turn two-step sign-in on or off, create API tokens. |
 
