@@ -307,8 +307,12 @@ backup per day for a week, one per week for a month and one per month for half a
 - Below the fields the assistant shows the next runs, what the schedule keeps once it has run for a while (how many
   backups, and how far back per rule), and about how much space that takes next to the free space of the pool. The
   estimate uses the VM's last full backup and its recent incremental ones in that pool; with no backup yet, the disk usage.
-- An incremental backup needs the backups before it, back to its full one. A kept incremental keeps them too, so a
-  weekly or monthly backup that is incremental keeps its chain (up to 6 more backups). The assistant counts them.
+- An incremental backup needs the backups before it, back to its full one. A kept incremental keeps them too (up to
+  6 more backups). The assistant counts them under **Chains**.
+- With a Weekly or Monthly rule, the scheduled run that becomes the week's or month's backup is a full one: the last run
+  before the week or month ends. Weekly and monthly backups therefore keep no chain. If that run is missed (the
+  controller was down), the week's backup is the run before it and keeps its chain. Daily and hourly backups stay
+  incremental.
 - Retention never deletes the newest backup, a backup that a restore or an export is reading, or anything they need. It
   runs only after the new backup is complete. The task names how many older backups it deleted.
 - A schedule saved before these rules keeps working with its **Keep the newest** number (it shows as **Last**).
@@ -337,6 +341,7 @@ You do not choose. Virticle makes the backup that is possible and the list says 
 A backup is full when:
 
 - it is the first one of the VM to that pool, and after every 7 backups (so a restore never needs a long list);
+- the schedule keeps it as a weekly or monthly backup (see [Retention](#retention));
 - the VM was shut off, or a disk is not qcow2;
 - a disk was added, removed, resized or moved, a snapshot was reverted, or the VM was moved, restored or stopped unexpectedly;
 - an earlier backup it would build on is missing or damaged.
@@ -350,6 +355,10 @@ Good to know:
 - **Keep the newest** and the **Keep** rules count backups. An incremental backup is never kept without the backups it
   needs, so a few more than that number can stay for a while.
 - **Delete** on a backup that later incremental backups need deletes them too. The dialog names how many.
+- **Verify** reads every file of the backup and of the earlier backups it needs, and compares size and SHA-256 with the
+  manifest. It runs as a task on the node that holds the backup and changes nothing. The result is **Intact**, or
+  **Damaged** with the first missing or damaged file. An encrypted backup is checked as stored, without the passphrase.
+  A disk image without a checksum (a shut-off VM backed up by a schedule) is checked by size only, and the result says so.
 - **Export** of an incremental backup puts the whole chain together into one full backup file.
 - Every backup holds the whole TPM state (a few KiB), incremental ones too.
 - If the controller stops in the middle of a backup, that backup is lost. A later backup removes the half-written files.

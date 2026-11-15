@@ -1,6 +1,7 @@
 // The schedule assistant on VM > Backups > Schedule and on Settings > Controller backup: presets fill the keep
 // fields, a rule that cannot have an effect is disabled, the server's projection appears and follows the fields,
-// nothing scrolls sideways on a phone. The controller's schedule is looked at, not saved.
+// nothing scrolls sideways on a phone; for a running VM, weekly and monthly points are full backups (no chains kept for
+// them). The controller's schedule is looked at, not saved.
 import { Page } from "@playwright/test";
 import { cleanVMs, createCirros, expect, openVM, test } from "../lib/fixtures";
 import { P } from "../lib/env";
@@ -89,6 +90,31 @@ test.describe.serial("backup schedule assistant", () => {
     await expect(dlg).toContainText("Retention: schedule (last 5).");
     await expect(field(dlg, "Keep the newest")).toHaveCount(0);
     await page.keyboard.press("Escape");
+  });
+
+  test("a running VM: weekly and monthly points are full, so they keep no chain", async ({ page, api }) => {
+    await api.post(`/nodes/${vm.node}/vms/${vm.uuid}/action`, { action: "start" });
+    const pr = await api.post(`${sched()}/preview`, { mode: "daily", at: "02:00", pool: "default", targetNode: 0, keepDaily: 7, keepWeekly: 4, keepMonthly: 6 });
+    expect(pr.chains).toBe(true);
+    // every point a weekly or monthly rule keeps is full, except the newest (its week is not over yet)
+    const long = (pr.points as any[]).slice(1).filter((p) => p.rules?.includes("weekly") || p.rules?.includes("monthly"));
+    expect(long.length).toBeGreaterThan(3);
+    for (const p of long) expect(p.full, `point ${new Date(p.time * 1000).toISOString()}`).toBe(true);
+    expect((pr.points as any[]).filter((p) => p.reason === "needed")).toHaveLength(0);
+    // hourly points stay incremental and keep their chains
+    const hourly = await api.post(`${sched()}/preview`, { mode: "interval", everyMinutes: 60, pool: "default", targetNode: 0, keepHourly: 24, keepDaily: 7, keepWeekly: 4 });
+    expect((hourly.points as any[]).filter((p) => p.reason === "needed").length).toBeGreaterThan(0);
+    // the assistant shows no Chains row for the Standard preset on a daily schedule
+    await openVM(page, vm, "backups", "schedule");
+    const sec = page.locator("#backup-schedule");
+    await sec.getByRole("button", { name: "Edit schedule" }).click();
+    await pick(sec, "When", "Daily at a fixed time");
+    await sec.getByRole("button", { name: "Standard", exact: true }).click();
+    const table = page.getByRole("region", { name: "Projection" }).locator("table");
+    await expect(table).toContainText("Monthly", { timeout: 30_000 });
+    await expect(table).not.toContainText("Chains");
+    await expect(page.getByRole("region", { name: "Projection" })).toContainText(/\d+ full, \d+ incremental/);
+    await sec.getByRole("button", { name: "Cancel" }).click();
   });
 
   test("phone width: the assistant fits", async ({ page }) => {

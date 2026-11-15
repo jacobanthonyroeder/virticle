@@ -27,6 +27,9 @@ func TestPointFull(t *testing.T) {
 		// A weekly schedule: every run is alone in its week and builds on the previous weekly point.
 		{"alone in its week", Policy{Weekly: 8}, at(11, 1, 3), at(11, 8, 3), at(11, 15, 3), false},
 		{"alone in its week, last of the month", Policy{Weekly: 8, Monthly: 6}, at(10, 18, 3), at(10, 25, 3), at(11, 1, 3), true},
+		// Hourly at :59: the 22:59 run's next one is due at 23:59, a minute before the week ends, and may start late.
+		{"next run due just before the week ends", wm, at(11, 8, 21).Add(29 * time.Minute), at(11, 8, 22).Add(29 * time.Minute), at(11, 8, 23).Add(29 * time.Minute), true},
+		{"next run due well before the week ends", wm, at(11, 8, 20), at(11, 8, 21), at(11, 8, 22), false},
 		{"first backup", wm, time.Time{}, at(11, 8, 3), at(11, 9, 3), false},
 		{"no next run", wm, at(11, 7, 3), at(11, 8, 3), time.Time{}, false},
 	}

@@ -339,6 +339,17 @@ what the run will try, and `plannedReason` says why a full backup is planned. li
 backup, and the run then makes a full one, so a script must not take `plannedKind` as the result. Read the kind of what
 was made from `manifest.kind` (and `manifest.fullReason`) of the entry in `GET /api/backups?uuid=UUID`.
 
+**Verifying a backup.** `POST /api/nodes/{id}/backups/{pool}/{name}/verify` (operator) answers `{task}`. The task, kind
+`verify`, runs on the node that holds the backup and reads the backup and every backup it builds on, full one first:
+
+- Every file of each manifest must be there: `manifest.json`, `domain.xml`, the UEFI variables, the TPM state, the disks.
+- Files with a recorded size (disks, TPM state, encrypted UEFI variables) must have it; files with a recorded SHA-256
+  must match it (node verb `sha256 PATH progress`; progress by bytes read). Encrypted files are checked as stored
+  (`bytes` and `sha256` are those of the `.age` file), so no passphrase is needed.
+- It ends ok with a note such as "9 files intact in 3 backups" (plus "N without a checksum, size checked only" for disk
+  images that have none), or fails with the first missing or damaged file, or the first missing earlier backup.
+- It changes nothing, can be stopped (`POST /api/tasks/{id}/cancel`), and retention keeps the chain while it reads.
+
 **Freezing the guest.** libvirt's backup-begin has no flag to quiesce the guest (the value 2 that earlier builds passed is
 rejected by libvirt 11.3 and means "preserve the domain if the guest shuts down" in 11.10). For a running VM Virticle freezes
 the guest's file systems with libvirt's `DomainFsfreeze` (the guest agent's `guest-fsfreeze-freeze`) immediately before
@@ -384,8 +395,9 @@ task is stopped afterwards (run `virticle node prepare` again). A linked clone t
   `fullReason` and the disks' `source` added; backups from before have none of these and count as full.
 - A backup is full when: the VM is shut off (copied with qemu-img, no checkpoint); a disk is not qcow2; no earlier backup of the VM in the target has its checkpoint any more (restart after a killed QEMU, migration,
   restore, snapshot revert, disk move); the disks (target, size, and the base image at the bottom of the backing chain) differ from the parent's; a backup in the chain is
-  missing or its files differ from the manifest; the chain already has 7 backups; or libvirt refuses the incremental
-  backup (then the VM's checkpoints are dropped and a full backup is made).
+  missing or its files differ from the manifest; the chain already has 7 backups; the VM's schedule keeps the run as a
+  weekly or monthly point (see [Retention](#retention)); or libvirt refuses the incremental backup (then the VM's
+  checkpoints are dropped and a full backup is made).
 - The checkpoints of the same target older than the new one are deleted after a backup; a VM keeps at most 4. A failed or
   cancelled backup deletes the checkpoint it made.
 - Retention ([Retention](#retention)) keeps every backup a kept one builds on, and deletes newest first; it stops at
@@ -510,6 +522,23 @@ computes the preview, so the two agree. Walking the backups newest first:
   that moment, and every backup they build on. Deleting such a backup by hand is refused.
 - The task of a run that deleted backups ends with the note "N older backups deleted (keep RULES)".
 
+**Full weekly and monthly points.** `retention.PointFull` decides, for the scheduler and the preview alike, which run
+of a VM schedule with `keepWeekly` or `keepMonthly` is made full:
+
+- The rules keep the newest backup of each week and month, so the point of a period is its last run. A run is the last
+  one when the schedule's next run (from the schedule's timing, as if this backup were the newest) falls into a later
+  week or month. A next run due less than 2 minutes (at most half a step) before the period ends counts as later,
+  since the scheduler may start it that late.
+- Such a run is made full (reason "The schedule keeps this backup as a weekly or monthly one") only when the newest
+  backup before it is in the same period. A run alone in its period (a weekly schedule) builds on the point before it,
+  which is kept anyway.
+- A manual backup into the schedule's target is decided the same way: the schedule times its next run from the newest
+  backup. A paused schedule decides nothing.
+- A missed last run (controller down) leaves the period's point incremental, with its chain. Existing schedules need no
+  change; the rule applies from their next run on.
+- Daily and hourly points stay incremental and keep their chains. The 7-backup rotation counts from the last full
+  backup, whatever made it full.
+
 **Metadata.** The `backup-schedule` element keeps `keep-last` for a schedule with keep-last only, written as before.
 A schedule with any other rule is written with `keep-last="0"` and `keep-newest`, `keep-hourly`, `keep-daily`,
 `keep-weekly`, `keep-monthly`: a controller from before the rules refuses it (its keep-last must be 1 or more) instead of
@@ -529,7 +558,8 @@ pruning it down to keep-last alone.
   `size` (`low`, `high`, `basis` `backups`/`disks`/`last`, `full`, `incremental`, `measured`, `fulls`, `incrementals`),
   `free` and `used` (bytes in the target, and what the VM's backups or the controller's files take there now).
 - The steady state is the schedule run on paper from far enough back to fill the longest rule, up to now, pruned with
-  the same rules (chains: a full backup, then 6 incremental ones, for a running VM with qcow2 disks). The size is the
+  the same rules (chains: a full backup, then up to 6 incremental ones, and a full one for each weekly or monthly
+  point, for a running VM with qcow2 disks). The size is the
   number of full backups times the size of the VM's last full one in the target, plus the incremental ones times the
   average of the recent ones, plus or minus 20%; without an incremental one measured, 2 to 20% of a full backup each;
   with no backup at all, the allocated size of the disks.
