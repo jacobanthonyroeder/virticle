@@ -101,8 +101,10 @@ While [backup encryption](user-guide.md#encrypted-backups) is off, these files a
 not encrypted; only the controller's account can read them. While it is on, each copy
 is encrypted to the backup key (`...tar.gz.age`): the controller needs only the public
 key to write it, and the passphrase of the key to open it, which it does not have. The
-page shows a green dot with **Encrypted** or a grey one with **Not encrypted**. The copies
-protect against a bad upgrade or a mistake, **not against losing the machine**. A copy
+page shows a green dot with **Encrypted** or a grey one with **Not encrypted**. In a folder
+on the controller's own disks the copies protect against a bad upgrade or a mistake,
+**not against losing the machine**; for that, choose a folder on a share of another
+machine, or use the download or `virticle backup` from cron. A copy
 that failed raises an alert on the Alerts page. The task of a copy says how many older
 files it deleted.
 

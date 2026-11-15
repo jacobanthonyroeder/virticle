@@ -11,16 +11,16 @@ virticle \- web controller for KVM/libvirt hosts
 [\fB\-\-address\fR \fIaddr\fR] [\fB\-\-port\fR \fIn\fR] [\fB\-\-check\fR] [\fB\-\-undo\fR] [\fB\-\-no\-firewall\fR] [\fB\-\-yes\fR] [\fB\-data\fR \fIdir\fR]
 .br
 .B virticle node prepare
-[\fIoptions\fR] [\fIuser\fR@]\fIhost\fR[:\fIport\fR]
+[\fIoptions\fR] [[\fIuser\fR@]\fIhost\fR[:\fIport\fR]]
 .br
 .B virticle node unprepare
 [\fIoptions\fR] [\fIuser\fR@]\fIhost\fR[:\fIport\fR]
 .br
 .B virticle backup
-[\fB\-o\fR \fIfile|dir\fR] [\fB\-\-encrypt\fR] [\fB\-\-passphrase\-file\fR \fIfile\fR]
+[\fB\-o\fR \fIfile|dir\fR] [\fB\-\-encrypt\fR] [\fB\-\-passphrase\-file\fR \fIfile\fR] [\fB\-\-keep\-\fR\fIrule\fR \fIN\fR]
 .br
 .B virticle restore
-[\fB\-\-passphrase\-file\fR \fIfile\fR] \fIfile\fR
+[\fB\-\-key\fR \fIfile\fR] [\fB\-\-passphrase\-file\fR \fIfile\fR] \fIfile\fR
 .br
 .B virticle web
 .BR show | set | reset
@@ -96,7 +96,8 @@ reaches the node through a jump host.
 .B \-\-identity
 .IR file ,
 .B \-\-password\-stdin
-choose how to sign in as administrator (default: the SSH agent). See
+choose how to sign in to another host as administrator (default: the SSH
+agent; without one, a terminal asks for the password). See
 .B virticle node \-h
 for all options.
 .TP
@@ -175,7 +176,8 @@ Kept across upgrades.
 .TP
 .I /var/lib/virticle
 Data directory: virticle.db, id_ed25519, known_hosts, instance\-id, secret.key,
-metrics.db, and certificates. Copies of the database made before a schema
+metrics.db, certificates, and backups/ with the scheduled controller backups
+(unless another folder is chosen under Settings > Controller backup). Copies of the database made before a schema
 upgrade are named
 .IR virticle.db.bak\-<version>\-<time> .
 .SH SEE ALSO

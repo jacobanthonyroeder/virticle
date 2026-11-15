@@ -12,13 +12,13 @@ Virticle look the same.
 
 | Area | Features |
 | --- | --- |
-| VMs | Create from cloud images, ISOs or templates. Clone. cloud-init. UEFI by default, Secure Boot, virtual TPM. Hot-plug hardware. Speed limit per network card. Edit the libvirt XML. |
-| Consoles | VNC and serial, in the browser. |
+| VMs | Create from cloud images, ISOs or templates. Clone, with user, password, SSH keys and packages for the clone: through cloud-init, or written into the disk of a Linux template without it. UEFI by default, Secure Boot, virtual TPM. Hot-plug hardware. Speed limit per network card. Edit the libvirt XML. |
+| Consoles | Graphical (VNC) and serial, in the browser: inside the VM's Overview or in a tab of its own. |
 | Migration and updates | Live and offline migration between nodes, with a list of pre-flight checks. Node maintenance and evacuation. A migration network per node, with an automatic limit on a shared link. Rolling updates: all nodes updated one at a time, their VMs moved away first. |
 | Snapshots and backups | Manual or scheduled. Retention by rules (last, hourly, daily, weekly, monthly) with a preview of what is kept and the space it takes. Incremental backups that copy only what changed. Encryption with age. Verify by checksum. Restore, export, import. Backup and restore of the controller itself. |
 | Replication | A copy of a VM on a standby node, kept up to date on a schedule, that starts with one click when the first node fails. Failover is by hand. |
 | Storage | Pools, volumes, uploads, an image catalogue. Shared storage over NFS: VMs move between nodes without copying their disks. |
-| Networks | One Network tab per datacenter and per node: switches, uplinks and the VMs on each network. NAT, isolated and bridged networks with start, stop, autostart, DHCP leases and reservations. Virtual switches with VLANs, several uplinks (failover or LACP), rollback if a change cuts the node off. Warnings when nodes differ. |
+| Networks | One Network tab per datacenter and per node: switches, uplinks and the VMs on each network. NAT, isolated and bridged networks with start, stop, autostart, DHCP leases and reservations. Virtual switches with VLANs, several uplinks (failover or LACP), rollback if a change cuts the node off. Bridges made by hand with NetworkManager or netplan that fit are virtual switches too. Warnings when nodes differ. |
 | Monitoring | Performance history for 7 days with charts, a `/metrics` endpoint for Prometheus, alerts, and notifications to Slack, Mattermost, Discord or a webhook. |
 | Passthrough | PCI devices and GPUs. |
 | Access | Users with three roles, two-step sign-in, sign-in through OIDC or LDAP, API tokens, audit log, task log. |
@@ -95,7 +95,7 @@ Details are in [docs/install-node.md](docs/install-node.md).
    cloud image.
 2. Open **Virtual machines**, then **New VM**. Set the name, node, **Disk
    image**, CPU, memory and network.
-3. Open the VM and choose its **Console** tab.
+3. Open the VM. The **Console** card on its **Overview** opens the console.
 
 ![VM overview](docs/img/vm-overview.png)
 
@@ -150,7 +150,7 @@ hand.
 Upgrade the package, then prepare every node again (the node command has a new
 version; **Nodes > Prepare all** does all of them). Never let two controllers of
 different versions manage the same nodes. Nodes below libvirt 11.0 and QEMU 10.0
-are no longer managed. Steps for 0.3.x to 0.4.0, and for older versions, are in
+are not managed. Steps for 0.4.x to 0.5.0, and for older versions, are in
 [docs/install.md](docs/install.md#upgrading).
 
 ## Documentation
@@ -183,8 +183,10 @@ QEMU 10.0 or newer; older systems are refused (see
 Not tested: arm64, ACME certificate issuance, LACP against a real switch,
 sign-in with identity providers other than the test provider, and virtual
 switches on nodes that use ifupdown (refused) or plain systemd-networkd. A
-Windows 11 guest with BitLocker was tested once, on Rocky Linux nodes. There
-is no automatic failover. A
+Windows 11 guest with BitLocker and TPM 2.0 came up without its recovery key
+after a failover (Rocky Linux nodes) and after backup, verify and restore
+(plain, encrypted incremental and encrypted offline; on the same node and on
+another node). There is no automatic failover. A
 Debian node and a RHEL-family node cannot exchange VMs. The files on the
 Releases page are not signed (the package repository is). No container image
 is published.

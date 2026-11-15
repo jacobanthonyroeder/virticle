@@ -26,9 +26,9 @@ How to do the everyday things in the web UI. To install, see
 - **Top bar**: the main pages (**Virtual machines**, **Storage**, **Backups**, **Nodes**, **Tasks**), the
   **Settings** menu (administrators), alerts, theme, your account. **Backups** lists the backups of VMs;
   **Settings > Controller backup** is the backup of the controller itself.
-- **Tree** (left): nodes with their VMs, storage and networks. Type in
-  **Filter** to narrow it. Right-click an entry for its actions. Drag the edge
-  to resize.
+- **Tree** (left): nodes with their VMs, templates, storage and networks. Templates sit in a **Templates** group of
+  their own under each node, closed until you open it. Type in **Filter** to narrow it. Right-click an entry for its
+  actions (on a VM, **Migrate** and **Clone** open their dialogs). Drag the edge to resize.
 - **Tasks** (bottom): the last actions with progress and result. Running tasks
   stay on top. Drag the top edge to resize, or collapse it with the arrow.
   **All tasks** opens the full log. A running task that can be stopped (backup,
@@ -38,6 +38,7 @@ How to do the everyday things in the web UI. To install, see
   error that says "cancelled", and what it had made so far is removed. The
   **Tasks** page has the same **x**.
 - **Status** is always a dot and the state name, for example green Running, amber Paused, red Offline, grey Shutoff.
+- **Help**: a small **?** after a label or a line. Point at it (or tab to it) and the explanation shows in a box.
 - **Sub pages**: some tabs hold several separate areas. They show a short list of sub pages at the left of the
   tab (like the tree at the left of the screen). Choose an entry to see only that sub page. The list stays in view
   when the page is long. The choice is part of the address, so reload, back and links keep it. On a narrow screen the
@@ -193,7 +194,9 @@ Good to know:
    system partition can only start with BIOS, and a disk with one and no BIOS boot code only with UEFI. The
    other choice is then greyed out with a note. Leave **CPU type** on **Cluster baseline** unless you need host
    features: it is the best CPU every online node can run, so live migration works.
-5. **Create**. Every new VM gets a serial console.
+5. **Network** lists the node's networks, and as `NAME (host bridge)` its bridges that no network uses. **Import disk
+   or OVA** offers the same list.
+6. **Create**. Every new VM gets a serial console.
 
 ### Manage
 
@@ -215,7 +218,9 @@ Good to know:
 | Replication | Keep a standby copy on another node ([Replication and failover](#replication-and-failover)). |
 | More | **Edit XML**, and **Delete VM** (shut the VM down first; its disks are deleted too unless you untick the box). |
 
-Sync guest clock is under **Power**.
+Sync guest clock is under **Power**. A guest whose hardware clock runs in local time (Windows) gets its clock synced by
+itself after a start from Virticle and after a restore that starts it, once its guest agent answers. A VM that the node
+starts at boot is not synced.
 
 **Guest setup on clone.** When you open **Guest setup** in the clone dialog, Virticle looks into the source's disk
 (a few seconds) and says how the settings reach the clone:
@@ -226,6 +231,9 @@ Sync guest clock is under **Power**.
 | Written into the disk: this template has no cloud-init | A Linux template without cloud-init (installed from an ISO, say): the user, password, keys and host name are written into the clone's disk before it starts. Packages are installed at its first start. Profiles and raw user-data are not offered. |
 | Applied by Windows setup at first start | A Windows template: an answer file. |
 | Not possible: REASON | For example an unknown system or an encrypted disk. The fields are greyed out and a clone with such settings is refused. |
+| Not checked (REASON): needs cloud-init in the guest | The disk was not looked into, for example because the node has no guest disk tools (`prepare --minimal`): a seed disc, as for a cloud image. |
+
+![Clone dialog with Guest setup written into the disk](img/clone.png)
 
 Details: [reference](reference.md#guest-setup-on-clone).
 
@@ -236,17 +244,21 @@ Details: [reference](reference.md#guest-setup-on-clone).
 
 ## Console
 
-![VNC console](img/vm-console.png)
+![Graphical console inside the Console card](img/vm-console.png)
 
 - The console opens from the **Console** card on the Overview: in a new tab, or inside the card, which then takes
   the width of the page and the height of the window (the settings button on the card chooses). **Console** links
-  elsewhere open it inside the card.
+  elsewhere open it inside the card. **Collapse** goes back to the still preview.
 - The graphical console is the VM's screen; the serial console is a text terminal. A VM with both starts with the
   graphical one; **Serial** / **Graphical** in the toolbar changes to the other.
 - **Keys** sends combinations the browser would swallow. **Paste text** types
-  text into the guest, on the graphical and on the serial console.
-- A VM without any console: the **Console** card offers to add a serial console.
+  text into the guest, on the graphical and on the serial console. On the graphical console it types key presses on a
+  US layout; on the serial console the text goes as it is.
+- The serial console also has **Copy all** (the whole terminal buffer) and **Clear**.
+- A VM without any console: the **Console** card offers **Add serial console**.
 - Viewers cannot open a console.
+
+![Serial console with its toolbar](img/vm-serial.png)
 
 ## Hardware
 
@@ -354,7 +366,8 @@ backup per day for a week, one per week for a month and one per month for half a
 **Frozen file systems.** For a running VM with the QEMU guest agent connected, Virticle freezes the guest's file systems
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
 the files (databases and journals included). The task says "guest file systems frozen" or "not frozen:" with the reason (no
-guest agent, agent not answering, no freeze within 2 minutes). If the freeze fails the backup is made anyway. Scheduled backups freeze the guest the same way.
+guest agent, agent not answering, no freeze within 2 minutes). If the freeze fails the backup is made anyway; a freeze that
+takes effect after the 2 minutes is thawed at once. Scheduled backups freeze the guest the same way.
 A shut-off VM has nothing to freeze. If Virticle cannot thaw the guest afterwards, the task fails and says how to thaw it by hand.
 
 The **Backups** page in the top bar lists the backups of every VM on every node. The backup of the controller itself is
@@ -727,7 +740,7 @@ stopped); select the arrow to open one. The filter finds a switch, a network or 
 | Part | What it is |
 | --- | --- |
 | Switch | A bridge on the node: a Linux or Open vSwitch bridge, or the bridge libvirt made for one of its networks. The header has its name, kind and the node's own address on it (with its VLAN when it is on one). |
-| Networks (left) | The networks on the bridge (mode, VLAN, DHCP range, **Stopped**) and **Direct to bridge** for VM interfaces that use the bridge itself. Each lists its virtual machines with MAC and IP address. Select the name for the details; **Actions** changes the network. |
+| Networks (left) | The networks on the bridge (mode, VLAN, DHCP range, **Stopped**) and **Direct to bridge** for VM interfaces that use the bridge itself. Each lists its virtual machines with their IPv4 address, or the MAC address when none is known. Select the name for the details; **Actions** changes the network. |
 | Uplinks (right) | The network cards or bonds attached to the bridge, with link state, speed and addresses. A NAT, routed or isolated libvirt network has none and says so instead. |
 | Unused network cards | Cards that belong to no bridge. |
 | Host interfaces | Every interface of the node with type, state, MAC address, addresses, MTU and speed (folded; select it to read the node). |
@@ -740,7 +753,12 @@ that has an address: one **Management** and one **Migration** checkbox per addre
 | --- | --- |
 | Management | The controller reaches the node at this address. It tests the connection first and refuses an address it cannot reach. Moved by ticking another address; not offered for a node reached by host name (change that under **Settings**, **Connection**) or for an IPv6 address. A jump host stays as it is. |
 | Migration | Migration data from the other nodes goes to this address. Unticked: back to the management address, the default. |
-Addresses of virtual machines come from DHCP leases, so a guest with a fixed address shows none. Uplinks of Open
+
+![Edit dialog of a switch](img/network-edit.png)
+
+Addresses of virtual machines come from the DHCP leases of the network, else from the addresses the node has seen
+for the MAC address (its neighbour table), never from the guest agent. A guest that has sent nothing yet shows its MAC
+address. Uplinks of Open
 vSwitch bridges are not listed. A network that is stopped, or whose bridge is gone, is still drawn, with
 **Stopped**, so you can start or delete it.
 
@@ -880,6 +898,8 @@ over: the review lists the profiles or files that change, and a rollback brings 
 setting Virticle does not have (STP on, a bond option, a VLAN interface on it, files of ifupdown, made with `ip link` and not
 saved) says why in a few words, with details under **?**. It has no **Actions**, but networks and VM interfaces can still use
 it. The rules are in the [reference](reference.md#host-bridges-virtual-switches).
+
+![A bridge set up by hand that is not editable, with the reason under ?](img/network-not-editable.png)
 
 **If the node becomes unreachable.** Moving the address of the card the controller uses is the risky case. The node
 saves its previous settings first and restores them by itself if the controller does not confirm within the confirm time.
