@@ -5,7 +5,7 @@ says what it is, why someone would want it, and what is known about building
 it. Written on 2026-11-13 for a later session.
 
 For what exists today, see [user-guide.md](user-guide.md) (Networks, Virtual
-switches, Network topology) and [reference.md](reference.md) (Host bridges).
+switches, the Network tab) and [reference.md](reference.md) (Host bridges).
 
 ## What is built
 

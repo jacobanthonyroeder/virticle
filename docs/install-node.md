@@ -161,10 +161,12 @@ The host key of the node is recorded in the controller's `known_hosts` the first
 
 ## Upgrade and unprepare
 
-**Upgrade.** When the controller says that a node was "prepared by an older version", run prepare again. This happens
-when the node command there reports another protocol version (after every controller upgrade that changes it), or is
-still the old shell script from 0.1.0. Prepare replaces the node command and removes the old script. The steps are in
-[install.md](install.md#upgrading). The Nodes page has **Prepare all** for every node that needs it.
+**Upgrade.** When the controller says that a node was "prepared by an older version" (**Outdated** on the Nodes page),
+run prepare again. This happens when the node command there reports another protocol version (after every controller
+upgrade that changes it), or is still the old shell script from 0.1.0. Prepare replaces the node command and removes the
+old script. The steps are in [install.md](install.md#upgrading). The Nodes page has **Prepare all** for every node that
+needs it: it installs this version's node command. It is not **Update packages**, which installs the operating system's
+package updates on the nodes.
 
 **Nodes prepared by 0.2.0.** They have the account `virticle` (made by prepare, with the comment "virticle service
 account"). Preparing them again keeps that account. It does not make `virticle-node`.
@@ -190,7 +192,7 @@ connection of the controller to a node make it.
 | Debian 13 | 11.3, 10.0 | Tested |
 | Rocky Linux 10 | 11.10, 10.1 | Tested |
 | Any other Debian, Ubuntu, RHEL, AlmaLinux, Rocky or Fedora release that ships libvirt 11.0 and QEMU 10.0 or newer | 11.0 or newer, 10.0 or newer | Accepted. Prepare warns that it is untested and goes on. |
-| Older releases, for example Debian 12 and Ubuntu 24.04 LTS (libvirt 10.0, QEMU 8.2) | Below the minimum | Refused. Prepare shows an error row and changes nothing. |
+| Older releases, for example Debian 12 (libvirt 9.0, QEMU 7.2) and Ubuntu 24.04 LTS (libvirt 10.0, QEMU 8.2) | Below the minimum | Refused. Prepare shows an error row and changes nothing. |
 | Any other distribution | | Error. Install by hand (below, including the node command), then add the node. It is accepted if its libvirt and QEMU meet the minimum. |
 
 A node that is added although it is too old (a node prepared earlier, or a host that was added as already prepared)
@@ -380,7 +382,10 @@ virticle-node ALL=(root) NOPASSWD: /usr/local/libexec/virticle-node
 | `mkworkdir DIR TAG` / `chmod-work MODE DIR` | private work directory `DIR/.virticle-TAG.XXXXXX`; its mode (700 or 711) |
 | `qemu-img-info PATH [chain] [FORMAT]` | `qemu-img info` as JSON; every backing file must also be inside a root |
 | `disk-boot PATH` | what an existing disk image can start with: reads its first 64 KiB through `qemu-img dd` and prints the partition table kind, whether an EFI System Partition and a BIOS boot partition exist, and whether the first sector has boot code (JSON; nothing is mounted or run) |
-| `sha256 PATH` | SHA-256 of a file |
+| `sha256 PATH [progress]` | SHA-256 of a file; with `progress`, a line `@@progress DONE TOTAL` once a second while it reads (verify) |
+| `age-encrypt SRC DST RECIPIENT` | encrypts `SRC` to the public key `RECIPIENT` (`age1...`) into the new file `DST`; both in one work directory. Prints progress once a second, then both checksums and sizes |
+| `age-decrypt SRC DST` | decrypts `SRC` into the new file `DST` in a work directory; the identity is the first line of stdin, never an argument. Same output |
+| `tpm-save UUID DST` / `tpm-place SRC UUID` | copy the state of a VM's emulated TPM to a new file in a work directory (`NONE` when there is none); make such a file the VM's state (VM not running). Only the VM's own state file, at most 1 MiB |
 | `tools-missing NAME...` | which of `qemu-img ssh scp tar sha256sum` are missing |
 | `df DIR` | free bytes of the file system that holds `DIR` |
 | `files-size DIR NAME...` | size of each regular file `DIR/NAME` (plain names, no symbolic link), or `MISSING` |
@@ -402,6 +407,8 @@ virticle-node ALL=(root) NOPASSWD: /usr/local/libexec/virticle-node
 | `update-start`, `update-status`, `node-reboot` | start the package update in a unit of its own (`virticle-update`); print its state as JSON; restart the node in 5 seconds from a unit of its own. No arguments |
 | `update-run` | internal: the update itself (`dnf -y`, or `apt-get -y` keeping the old configuration files), started by `update-start`, never by hand |
 | `selfcheck [repair]` | checks what prepare set up and what a package update can disturb (libvirt services, start order of the storage daemon, the SELinux setting for NFS, swtpm file owner, the migration firewall service); with `repair` puts right what it can. Lines `STATUS<TAB>ID<TAB>DETAIL` |
+| `hook-qemu ACCOUNT ...` | internal: the start guard, run by libvirt's QEMU hook before a VM starts (domain XML on stdin) |
+| `peer-ask HOST PORT USER vm-state UUID\|took-over UUID GEN`, `vm-probe BRIDGE IP...` | from the standby: ask the source node about a VM over the node key; look for the VM's addresses on a bridge with ARP (the checks before an unplanned failover) |
 | `net-boot` | internal: runs at every boot while a network change is pending (`virticle-net-boot.service`) and arms the rollback timer again |
 | `convert-poll WORKDIR` / `convert-kill WORKDIR` | exit code and progress of that conversion; stop it |
 | `convert-finish WORKDIR DEST` | moves `out.part` to the new file `DEST` (never replaces) and drops the state files |

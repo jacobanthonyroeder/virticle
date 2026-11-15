@@ -32,11 +32,12 @@ How to do the everyday things in the web UI. To install, see
 - **Tasks** (bottom): the last actions with progress and result. Running tasks
   stay on top. Drag the top edge to resize, or collapse it with the arrow.
   **All tasks** opens the full log. A running task that can be stopped (backup,
-  restore, replication copy, migration, disk move, clone, import, backup export
+  restore, verify, replication copy, migration, disk move, clone, import, backup export
   or import, download, upload, evacuation, rolling update) has an **x** next to
-  its progress: click it and confirm to stop the task. It then ends with the
-  error "cancelled", and what it had made so far is removed.
-- **Status** is always a dot and a word: green Ok, yellow Warning, red Error.
+  its progress: click it and confirm with **Stop task**. It then ends with an
+  error that says "cancelled", and what it had made so far is removed. The
+  **Tasks** page has the same **x**.
+- **Status** is always a dot and the state name, for example green Running, amber Paused, red Offline, grey Shutoff.
 - **Sub pages**: some tabs hold several separate areas. They show a short list of sub pages at the left of the
   tab (like the tree at the left of the screen). Choose an entry to see only that sub page. The list stays in view
   when the page is long. The choice is part of the address, so reload, back and links keep it. On a narrow screen the
@@ -93,10 +94,14 @@ To add another host:
 When the node's **Settings** say it was prepared by an older version, choose
 **Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
 
-After an upgrade the **Nodes** page marks each such node ("Outdated" or "Not prepared") and
-shows one notice with the count and **Prepare all**. Enter the administrator login once (used for this run only, not stored).
+After an upgrade the **Nodes** page marks each such node (**Outdated** or **Not prepared**) and
+shows one notice, "N nodes need preparing", with **Prepare all** (administrators). Enter the administrator login once
+(the same login must work on every node; used for this run only, not stored).
 The nodes are prepared one after another; a node that fails shows why and the others go on. Offline nodes are not
 listed: they cannot say, so prepare them when they are back.
+
+- **Prepare all** installs this Virticle version's node command on nodes that have an old one or none.
+- **Update packages** installs the operating system's package updates on the nodes ([below](#update-packages-rolling-update)).
 
 A node has the tabs **Summary**, **Performance**, **Virtual machines**, **Storage**, **Network**,
 **Updates** and **Settings**.
@@ -366,7 +371,9 @@ Good to know:
   A disk image without a checksum (a shut-off VM backed up by a schedule) is checked by size only, and the result says so.
 - **Export** of an incremental backup puts the whole chain together into one full backup file.
 - Every backup holds the whole TPM state (a few KiB), incremental ones too.
-- If the controller stops in the middle of a backup, that backup is lost. A later backup removes the half-written files.
+- If the controller or the node stops in the middle of a backup, that backup is lost. The half-written files are removed
+  when the node is back (after 10 quiet minutes when the controller restarted), or by a later backup. Replication runs are
+  cleaned up the same way.
 
 ![Delete backup dialog](img/backup-delete.png)
 
@@ -628,7 +635,7 @@ A node prepared with an older Virticle needs **Prepare** once more: it installs 
 2. Enter the **Name** (also the folder: `/mnt/NAME`), the **NFS server** and the **Export path**.
 3. Choose **Add shared storage**. Every online node mounts the share and checks that a VM disk can be made on it. If that
    fails, the dialog says what to change on the server, and nothing is left half done.
-4. To use it, pick the pool with that name in **New VM** or **New disk**.
+4. To use it, pick the pool with that name in **New VM** or **Add disk**.
 
 ![Add shared storage](img/shared-storage-add.png)
 
@@ -935,6 +942,7 @@ The **Settings** menu in the top bar is for administrators. **Account** (your na
 | **Settings > Web access** | Admin | Interface, port, HTTPS and reverse proxy. See [web-tls.md](web-tls.md). |
 | **Settings > Alerts** | Admin | Where alerts are sent. See [Notifications](#notifications). |
 | **Settings > Controller backup** | Admin | Download a backup of the controller, or keep a daily one. See [controller-backup.md](controller-backup.md). |
+| **Settings > Backup encryption** | Admin | Encrypt VM backups and the controller's scheduled copies. See [Encrypted backups](#encrypted-backups). |
 | **Settings > Audit** | Admin | Lists every state-changing request, who made it and from where. |
 | **Account** | Everyone | Change your password, turn two-step sign-in on or off, create API tokens. |
 
