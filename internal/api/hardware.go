@@ -920,20 +920,21 @@ func macs(docs ...*domxml.Doc) map[string]bool {
 	return out
 }
 
-func (c hwCtx) checkAttachment(network, bridge string) error {
+// checkAttachment checks a network or a host bridge for a VM interface. ovs is true for an Open vSwitch bridge.
+func (c hwCtx) checkAttachment(network, bridge string) (ovs bool, err error) {
 	if (network == "") == (bridge == "") {
-		return badRequest("give either a network or a bridge")
+		return false, badRequest("give either a network or a bridge")
 	}
 	if network != "" {
 		_, err := c.h.NetworkLookupByName(network)
-		return err
+		return false, err
 	}
 	if !bridgeRE.MatchString(bridge) {
-		return badRequest("invalid bridge name")
+		return false, badRequest("invalid bridge name")
 	}
 	nics, err := hostNICList(c.h)
 	if err != nil {
-		return err
+		return false, err
 	}
 	return checkBridge(nics, bridge)
 }
@@ -962,6 +963,7 @@ func (s *Server) hwNICAdd(w http.ResponseWriter, r *http.Request) {
 	if req.Model == "" {
 		req.Model = "virtio"
 	}
+	var ovs bool
 	switch {
 	case !nicModel[req.Model]:
 		err = badRequest("model must be virtio, e1000, e1000e or rtl8139")
@@ -970,7 +972,7 @@ func (s *Server) hwNICAdd(w http.ResponseWriter, r *http.Request) {
 	case req.Limit.check() != nil:
 		err = req.Limit.check()
 	default:
-		err = c.checkAttachment(req.Network, req.Bridge)
+		ovs, err = c.checkAttachment(req.Network, req.Bridge)
 	}
 	if err != nil {
 		fail(w, err)
@@ -999,6 +1001,9 @@ func (s *Server) hwNICAdd(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(&b, "<source network='%s'/>", domxml.Esc(req.Network))
 		} else {
 			fmt.Fprintf(&b, "<source bridge='%s'/>", domxml.Esc(req.Bridge))
+			if ovs {
+				b.WriteString("<virtualport type='openvswitch'/>")
+			}
 		}
 		fmt.Fprintf(&b, "<model type='%s'/>%s</interface>", req.Model, req.Limit.xml())
 		applied, err := c.attach(b.String())
@@ -1071,6 +1076,7 @@ func (s *Server) hwNICUpdate(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	var ovs bool
 	switch {
 	case !macRE.MatchString(mac):
 		err = badRequest("invalid MAC address")
@@ -1081,7 +1087,7 @@ func (s *Server) hwNICUpdate(w http.ResponseWriter, r *http.Request) {
 	case req.Network == "" && req.Bridge == "" && req.LinkState == "" && req.Limit == nil:
 		err = badRequest("nothing to change")
 	case req.Network != "" || req.Bridge != "":
-		err = c.checkAttachment(req.Network, req.Bridge)
+		ovs, err = c.checkAttachment(req.Network, req.Bridge)
 	}
 	if err != nil {
 		fail(w, err)
@@ -1093,7 +1099,7 @@ func (s *Server) hwNICUpdate(w http.ResponseWriter, r *http.Request) {
 		if req.Network != "" || req.Bridge != "" || req.LinkState != "" {
 			var err error
 			if applied, err = c.update("interface", nicMatch(mac), func(d *domxml.Doc, n *domxml.Node) (string, error) {
-				return d.SetNICSource(n, req.Network, req.Bridge, req.LinkState)
+				return d.SetNICSourceOVS(n, req.Network, req.Bridge, req.LinkState, ovs)
 			}); err != nil {
 				return err
 			}

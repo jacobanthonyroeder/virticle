@@ -161,20 +161,24 @@ func (s *Server) nodeInterfaces(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"interfaces": nics})
 }
 
-// isBridgeDevice is true for a Linux bridge and for an Open vSwitch bridge.
-func isBridgeDevice(n hostNIC) bool { return n.Type == "bridge" || n.Kind == "openvswitch" }
+// isBridgeDevice is true for a Linux bridge and for an Open vSwitch bridge. The kernel's Open vSwitch datapath
+// "ovs-system" has the same link kind as the bridges but is no bridge.
+func isBridgeDevice(n hostNIC) bool {
+	return n.Type == "bridge" || (n.Kind == "openvswitch" && n.Name != "ovs-system")
+}
 
 // checkBridge says why a name cannot be used as the host bridge of a VM interface: it is not a device of the node,
-// or it is a device that is not a bridge. nics is the node's interface list.
-func checkBridge(nics []hostNIC, name string) error {
+// or it is a device that is not a bridge. nics is the node's interface list. ovs is true for an Open vSwitch bridge,
+// whose VM interfaces need <virtualport type='openvswitch'/>.
+func checkBridge(nics []hostNIC, name string) (ovs bool, err error) {
 	for _, n := range nics {
 		if n.Name != name {
 			continue
 		}
 		if !isBridgeDevice(n) {
-			return badRequest(fmt.Sprintf("%s is a %s interface of this node, not a bridge", name, n.Type))
+			return false, badRequest(fmt.Sprintf("%s is a %s interface of this node, not a bridge", name, n.Type))
 		}
-		return nil
+		return n.Kind == "openvswitch", nil
 	}
-	return badRequest(fmt.Sprintf("this node has no interface named %s", name))
+	return false, badRequest(fmt.Sprintf("this node has no interface named %s", name))
 }

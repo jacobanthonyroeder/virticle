@@ -61,6 +61,7 @@ type createVMRequest struct {
 	seedPath    string // set while creating, once the seed volume exists
 	diskFormat  string // driver type of the disk; qcow2 unless an existing volume says otherwise
 	tpmModel    string
+	ovsBridge   bool // the Bridge is an Open vSwitch bridge; set after the check
 }
 
 type cloudInitRequest struct {
@@ -179,7 +180,11 @@ func (q createVMRequest) domainXML(diskPath string) string {
 		if model == "" {
 			model = "virtio"
 		}
-		fmt.Fprintf(&b, "    <interface type='bridge'>\n      <source bridge='%s'/>\n      <model type='%s'/>\n    </interface>\n", esc(q.Bridge), esc(model))
+		port := ""
+		if q.ovsBridge {
+			port = "      <virtualport type='openvswitch'/>\n" // an Open vSwitch bridge: without it libvirt cannot plug the tap in
+		}
+		fmt.Fprintf(&b, "    <interface type='bridge'>\n      <source bridge='%s'/>\n%s      <model type='%s'/>\n    </interface>\n", esc(q.Bridge), port, esc(model))
 	}
 	if q.TPM {
 		model := q.tpmModel
@@ -254,10 +259,12 @@ func (s *Server) createVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if q.Network != "" || q.Bridge != "" {
-		if err := (hwCtx{h: h}).checkAttachment(q.Network, q.Bridge); err != nil {
+		ovs, err := (hwCtx{h: h}).checkAttachment(q.Network, q.Bridge)
+		if err != nil {
 			fail(w, err)
 			return
 		}
+		q.ovsBridge = ovs
 	}
 	pool, err := lookupPool(h, q.Pool)
 	if err != nil {
