@@ -28,7 +28,9 @@ How to do the everyday things in the web UI. To install, see
   **Settings > Controller backup** is the backup of the controller itself.
 - **Tree** (left): nodes with their VMs, templates, storage and networks. Templates sit in a **Templates** group of
   their own under each node, closed until you open it. Type in **Filter** to narrow it. Right-click an entry for its
-  actions (on a VM, **Migrate** and **Clone** open their dialogs). Drag the edge to resize.
+  actions. On a VM or template the menu is the **Actions** menu of its page, with **Open** and **Console** first.
+  Power actions, **Sync guest clock** and **Convert back to a VM** run at once; the other entries open the VM's page
+  with their dialog or tab. Drag the edge to resize.
 - **Tasks** (bottom): the last actions. Columns: Status, Action, Target, Node, By, Started, Duration and **Result**.
   Running tasks stay on top. Drag the top edge to resize, or collapse it with the arrow.
   **All tasks** opens the full log.
