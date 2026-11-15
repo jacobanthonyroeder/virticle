@@ -178,8 +178,12 @@ func TestStatusShowsPendingWebChange(t *testing.T) {
 	if st, _ := status(); st["webChangeUntil"] != nil {
 		t.Fatalf("nothing pending, yet: %v", st)
 	}
+	// The change really listens: on a port of its own, not on 8080, which another program or a second run of these
+	// tests at the same time may hold.
+	proposed := proxyMode("127.0.0.1")
+	proposed.Listen = "127.0.0.1:0"
 	before := time.Now()
-	w := e.do("PUT", "/api/web", map[string]any{"settings": proxyMode("127.0.0.1")}, cookieOf(e, "root"))
+	w := e.do("PUT", "/api/web", map[string]any{"settings": proposed}, cookieOf(e, "root"))
 	if w.Code != 200 {
 		t.Fatalf("apply: %d %s", w.Code, w.Body)
 	}
