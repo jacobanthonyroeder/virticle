@@ -1027,13 +1027,15 @@ request. A task on the **Tasks** page opens the same way (administrators only).
 - Passwords, keys, tokens, VNC and SPICE passwords and cloud-init data are replaced by `[redacted]` before anything is stored.
 - What a program read on standard input (keys, passwords) is never shown.
 
-Example: **POST /api/nodes/1/vms/…/snapshots** opens to
+Example: creating the VM `web-1` from the cirros image with **Start** on (`POST /api/nodes/1/vms`) opens to
 
 | Operation | Beside it |
 | --- | --- |
-| `virsh domfsfreeze web-1` | `virDomainFSFreeze` equivalent, OK, 40 ms |
-| `virsh snapshot-create-as web-1 before-upgrade --disk-only --atomic` | `virDomainSnapshotCreateXML` equivalent, OK, 210 ms |
-| `virsh domfsthaw web-1` | `virDomainFSThaw` equivalent, OK, 12 ms |
+| `/usr/local/libexec/virticle-node disk-boot '/var/lib/libvirt/images/cirros-0.6.3.qcow2'` | `virticle-node disk-boot`, OK, 349 ms |
+| `virsh vol-create-from default volume.xml --inputpool default cirros-0.6.3.qcow2` | `virStorageVolCreateXMLFrom` equivalent, OK, 267 ms |
+| `virsh vol-resize web-1.qcow2 1073741824B --pool default` | `virStorageVolResize` equivalent, OK, 106 ms |
+| `virsh define domain.xml --validate` | `virDomainDefineXMLFlags` equivalent, OK, 144 ms |
+| `virsh start web-1` | `virDomainCreate` equivalent, OK, 3.2 s |
 
 Details: [reference.md](reference.md#operation-traces).
 

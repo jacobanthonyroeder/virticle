@@ -108,8 +108,8 @@ trace of the request that started it.
 
 The two `ops` endpoints need the admin role, like the audit log. One operation:
 
-    {"seq": 2, "time": 1763240000123, "node": "node-a", "kind": "libvirt", "api": "virDomainSnapshotCreateXML",
-     "cmd": "virsh snapshot-create-as web-1 before-upgrade --disk-only --atomic", "ok": true, "ms": 210}
+    {"seq": 1, "time": 1763240000123, "node": "node-a", "kind": "libvirt", "api": "virDomainSnapshotCreateXML",
+     "cmd": "virsh snapshot-create-as web-1 before-upgrade --description 'apt upgrade'", "ok": true, "ms": 518}
 
 `kind` is `libvirt`, `exec` or `limit`; `time` is in milliseconds; `args`, `files` (`name`, `text`) and `error` appear
 when there is something to show.
