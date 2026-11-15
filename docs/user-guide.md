@@ -757,8 +757,8 @@ that has an address: one **Management** and one **Migration** checkbox per addre
 ![Edit dialog of a switch](img/network-edit.png)
 
 Addresses of virtual machines come from the DHCP leases of the network, else from the addresses the node has seen
-for the MAC address (its neighbour table), never from the guest agent. A guest that has sent nothing yet shows its MAC
-address. Uplinks of Open
+for the MAC address (its neighbour table), never from the guest agent. A shut-off VM, or one the node has not seen on
+the network yet, shows its MAC address. Uplinks of Open
 vSwitch bridges are not listed. A network that is stopped, or whose bridge is gone, is still drawn, with
 **Stopped**, so you can start or delete it.
 
