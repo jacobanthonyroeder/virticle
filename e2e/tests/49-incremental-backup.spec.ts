@@ -15,7 +15,7 @@ test.describe.serial("incremental backups", () => {
   async function backupNow(page: import("@playwright/test").Page, expected: RegExp) {
     await page.getByRole("button", { name: "Back up now" }).first().click();
     const dlg = dialog(page, `Back up ${NAME}`);
-    await expect(dlg.getByLabel("Target pool")).toContainText("default");
+    await expect(dlg.getByRole("combobox", { name: "Target pool" })).toContainText("default");
     await dlg.getByRole("button", { name: "Back up now" }).click();
     await expect(dlg).toContainText(expected, { timeout: 30_000 });
     await expect(dlg).toContainText(/ok/i, { timeout: 200_000 });
