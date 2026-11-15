@@ -337,7 +337,7 @@ export interface AgentHelp {
 
 export interface Alert {
   id: string;
-  kind: "node-down" | "pool-usage" | "host-memory" | "failed-job" | "vm-state" | "tls-expiry" | "scheduler-conflict" | "net-link" | "net-bond" | "net-drift" | "storage-unavailable" | "rolling-update" | "replica-age" | "stale-copy" | "guest-frozen";
+  kind: "node-down" | "pool-usage" | "host-memory" | "failed-job" | "vm-state" | "tls-expiry" | "scheduler-conflict" | "net-link" | "net-bond" | "net-drift" | "storage-unavailable" | "rolling-update" | "replica-age" | "stale-copy" | "guest-frozen" | "migration-leftover";
   severity: "warning" | "critical";
   title: string;
   message: string;
@@ -346,6 +346,28 @@ export interface Alert {
   since: number;
   /** The person whose action failed, for an alert about a task they started; empty for the scheduler and the rest. */
   user?: string;
+}
+/** A migration in the journal of files made on its target (GET /api/migration-leftovers). */
+export interface MigRun {
+  id: number;
+  uuid: string;
+  name: string;
+  srcName: string;
+  dstName: string;
+  state: "prepare" | "switching" | "failed" | "attention";
+  unsure: boolean;
+  note?: string;
+  files: { path: string; size: number; state: "present" | "kept"; reason?: string }[];
+}
+/** What a Remove of such files did. */
+export interface CleanResult {
+  run: number;
+  name: string;
+  node: string;
+  removed: { path: string; size: number }[];
+  kept: { path: string; size: number; reason?: string }[];
+  note?: string;
+  state: string;
 }
 export interface EvacVM {
   uuid: string;

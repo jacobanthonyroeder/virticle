@@ -420,7 +420,10 @@ virticle-node ALL=(root) NOPASSWD: /usr/local/libexec/virticle-node
 | `repl-ls WORKDIR` | `NAME\|SIZE` of every regular file in a replica work directory |
 | `mtime PATH...` | modification time (nanoseconds) and size of each file |
 | `qcow2-bitmap-rm PATH NAME...` | removes the named persistent bitmaps, only names this program gives its own (`virticle-*`, `backup-*`), from a qcow2 image that no QEMU has open |
-| `nvram-new TEMPLATE DST` | makes a qcow2 UEFI variable store from the firmware package's raw template (below `/usr/share`, at most 8 MiB); `DST` is a new `.qcow2` name in the NVRAM directory |
+| `nvram-new TEMPLATE DST` | makes a qcow2 UEFI variable store from the firmware package's raw template (below `/usr/share`, at most 8 MiB); `DST` is a new `.qcow2` name in the NVRAM directory; prints the identity of the new file |
+| `file-id PATH...` | the identity of each regular file (its file handle, else inode number and birth time), its size and allocation; `MISSING` or `OTHER` (a link, a directory) |
+| `remove-id PATH ID` | removes the regular file only when its identity is `ID` and no process holds a lock on it: renames it to a private name, checks that, then removes it or renames it back. Prints `removed`, `missing`, `differs` or `inuse` |
+| `img-new PATH FORMAT BYTES [BACKING BACKINGFORMAT]` | a new, empty raw or qcow2 image (qcow2 with an optional backing file inside the roots); never replaces a file; prints its identity |
 | `update-start`, `update-status`, `node-reboot` | start the package update in a unit of its own (`virticle-update`); print its state as JSON; restart the node in 5 seconds from a unit of its own. No arguments |
 | `update-run` | internal: the update itself (`dnf -y`, or `apt-get -y` keeping the old configuration files), started by `update-start`, never by hand |
 | `selfcheck [repair]` | checks what prepare set up and what a package update can disturb (libvirt services, start order of the storage daemon, the SELinux setting for NFS, swtpm file owner, the migration firewall service); with `repair` puts right what it can. Lines `STATUS<TAB>ID<TAB>DETAIL` |
@@ -444,7 +447,7 @@ virticle-node ALL=(root) NOPASSWD: /usr/local/libexec/virticle-node
 | `net-run ID` | internal: the part of `net-apply` that runs in a transient systemd unit, so the SSH session may die while the network changes |
 | `peer-key`, `peer-allow`, `peer-disallow` | the account's own node key; install or remove a peer's key (restricted to `peer-recv`) |
 | `peer-hostkey-set HOST PORT`, `peer-hostkey-unset HOST PORT`, `peer-list` | host keys the node accepts for its peers; what is on record |
-| `peer-send HOST PORT USER SRC DST MODE [BYTES_PER_SECOND]`, `peer-ping HOST PORT USER`, `peer-recv` | send a file to a peer node; test a peer; receive (the forced command of a peer's key) |
+| `peer-send HOST PORT USER SRC DST MODE [BYTES_PER_SECOND]`, `peer-ping HOST PORT USER`, `peer-recv` | send a file to a peer node; test a peer; receive (the forced command of a peer's key). The receiver answers with the identity of the file it made, and the sender prints it |
 | `svc-allow`, `svc-hosts`, `svc-list`, `svc-peerkey` | internal: the node command starts itself again as the service account to edit that account's `~/.ssh` files, so root never follows a link planted there. Not meant to be called by hand. |
 | `convert-run`, `import-convert-run` | internal: the detached part of `convert-start` and `import-convert-start` |
 

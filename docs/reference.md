@@ -183,7 +183,7 @@ A destination of type **Webhook** receives a `POST` with `Content-Type: applicat
 
 - `event`: `raise`, `clear`, or `test` (the **Send test message** button; its alert has `"id":"test"`).
 - `alert.kind`: `node-down`, `pool-usage`, `host-memory`, `failed-job`, `vm-state`, `tls-expiry`,
-  `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`, `guest-frozen`. `severity` is `warning` or `critical`. `node` is
+  `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`, `guest-frozen`, `migration-leftover`. `severity` is `warning` or `critical`. `node` is
   the node id and `link` the page in the web UI (both may be missing); `since` and `time` are Unix seconds.
   A `failed-job` alert of a task that a person started (not the scheduler) carries `user` and is shown in the web UI
   only; destinations receive the failed-job alerts of scheduled runs.
@@ -262,6 +262,83 @@ earlier versions no longer exist.
 - Limit on a shared link, per node: `""` (default, 80% of the link speed when known, else none), `"none"` or
   `"custom:<Mbit/s>"`. It applies only while migration data shares the interface of the management address. The lower
   limit of the two nodes wins. `bandwidthMiB` in a migrate request replaces it.
+
+## Failed migrations
+
+A migration makes files on its target: copies of backing images and snapshot files, the cloud-init seed, the empty
+images the disks are mirrored into, a UEFI variable store. When it fails, these copies are removed, and nothing else.
+
+**Making a file.** The node command makes it only where no file exists (exclusive create, never a replacement) and
+answers with the file's identity. Only then is the file recorded as the run's.
+
+| Identity | When |
+| --- | --- |
+| File handle (`name_to_handle_at`): the inode and its generation on ext4, XFS, btrfs; the server's file handle on NFS | Every file system that has one |
+| Inode number and birth time | A file system without handles |
+| None | Neither: the file is never removed by the controller |
+
+The handle survives writes, renames, relabelling, a reboot and a remount, and changes when the file is deleted and
+made again under the same name. Device numbers are not used: an NFS mount or an LVM volume can get another one after a
+reboot. On NFS both nodes see the same handle for the same file, so the source's own file seen through a share is
+recognised.
+
+**The journal.** Before the first file is made the run is written to the database (`mig_runs`): VM uuid and name,
+source, target, state. Each file it made follows (`mig_files`): path, identity, size, state, the reason it is kept.
+
+| State | Meaning |
+| --- | --- |
+| `prepare` | Files are being made. Nothing was handed over. |
+| `switching` | The hand-over started (recorded before it starts). |
+| `failed` | It failed and the VM was confirmed on the source. |
+| `attention` | The outcome or the VM's whereabouts are not confirmed. Nothing is removed by itself. |
+
+A successful migration drops its entry: the files are the VM's then.
+
+**The rule.** A journalled file is removed only when all of these hold, checked at that moment. What cannot be checked
+counts as "no".
+
+- The file's identity is the one in the journal: it is the same file, not one that took its name.
+- No domain on the target refers to it: disks of the live and the stored definition, their whole backing chains (libvirt's
+  and `qemu-img`'s), UEFI stores, snapshot files. No volume in an active pool is built on it. No other journal entry and
+  no running migration claims it.
+- It is not on storage the source also uses: not an NFS pool that the source mounts at the same place, not outside every
+  pool (the UEFI directory excepted), and not the same file as the source's file of that name.
+- The VM is on the source and only there: defined, its disk files present; not defined or running on the target, not an
+  unfinished incoming copy there. A VM found on the target, or on neither node, or with missing disks puts the run into
+  `attention`.
+- The run is in `prepare` or `failed`. A run found in `switching` by a process that did not see the outcome goes to
+  `attention`, and so does a run whose outcome was not seen (`unsure`). Such a run is only cleaned by **Remove**.
+
+The removal is atomic on the node (`remove-id`): the file is renamed to a private name, its identity is checked on what
+was renamed, and it is removed, or renamed back. A file that a process (QEMU) holds a lock on is renamed back too.
+
+**The end of a live migration.** When the target's answer to the last step is lost (the connection broke), the target
+may run the VM already. The source is then told nothing until the target says where the VM is: the task asks for up to 3
+minutes; after that the VM stays paused on the source and the cleanup asks again when the target is online. Running
+there: the source copy is stopped and the run needs attention. Not there: the source resumes the VM. In both cases
+nothing is removed by itself.
+
+**After a successful migration** the source files are removed only when the VM is defined on the target with every
+file of its definition there, it is no longer defined on the source, nothing on the source refers to the file, and the
+file is not the same file as on the target (identity).
+
+**Retries.** On the failure itself, when either node comes online, and on the alert pass (at most every 5 minutes per
+run). An attempt that removes something or keeps a file for a new reason runs as the task `migration cleanup`; its
+operation trace holds the node calls and its Result lists what was removed and what was kept, with the reason.
+
+**Alert** `migration-leftover`, one per run, id `migleft:<run>`: "Files of a failed migration of NAME are left on NODE"
+(warning, with paths, sizes and reasons), or "The migration of NAME needs attention" (critical, says where the VM is).
+It clears when the entry is gone.
+
+**API.**
+
+| Request | Role | Does |
+| --- | --- | --- |
+| `GET /api/migration-leftovers` | viewer | `{"runs": [...]}`: id, uuid, name, srcName, dstName, state, unsure, note, files (path, ident, size, state, reason) |
+| `POST /api/migration-leftovers/{id}/remove` | admin | Applies the rule now, as a task. Answers `removed` (path, size), `kept` (path, size, reason), `note`, `state` (`""` when the entry is gone) |
+| `POST /api/migration-leftovers/{id}/keep` | admin | Drops the entry. The files stay as ordinary volumes. |
+
+There is no force option.
 
 ## Schedules
 
@@ -771,10 +848,12 @@ name, each with a fixed pattern); the caller cannot pass commands. The script is
 
 ## Versions and the node command
 
-- The node command protocol is **22** (0.4.0 had 21, 0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
+- The node command protocol is **23** (0.5.0 had 22, 0.4.0 had 21, 0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
   "prepared by an older version" (**Virticle update needed** on the Nodes page) and must be prepared again
   ([install.md](install.md#upgrading)). The old node command would also refuse the new requests, because it rejects fields
   it does not know.
+- Verbs new since 0.5.0: `file-id`, `remove-id`, `img-new` ([Failed migrations](#failed-migrations)); `peer-recv`,
+  `peer-send` and `nvram-new` answer with the identity of the file they made.
 - Verbs new since 0.4.0: `guest-inspect`, `guest-customize` ([Guest setup on clone](#guest-setup-on-clone)).
 - Verbs new since 0.3.x: `age-encrypt`, `age-decrypt` (encrypted backups), `copy-kill` (stopping a clone), and `sha256 PATH
   progress` (verify).
@@ -784,7 +863,8 @@ name, each with a fixed pattern); the caller cannot pass commands. The script is
   `disk-boot`); rolling updates (`update-start`, `update-run`, `update-status`, `node-reboot`, `selfcheck`); replication
   (`repl-overlay`, `repl-rebase`, `repl-commit`, `repl-ls`, `mtime`, `qcow2-bitmap-rm`, `work-ls`, `tpm-save`, `tpm-place`,
   `hook-qemu`, `peer-ask`, `vm-probe`).
-- The database schema is **6**, the same as in 0.3.x (0.3.0 added the table `rolling_runs`). A controller that finds a database of a newer schema
+- The database schema is **8** (0.5.0 had 7; 8 adds the tables `mig_runs` and `mig_files`, the journal of
+  [failed migrations](#failed-migrations); 0.3.0 added the table `rolling_runs`). A controller that finds a database of a newer schema
   logs a warning and carries on; do not use that, see below.
 - **Two controllers of different versions must never manage the same nodes.** An older controller does not know the
   incremental backup chains (its retention deletes backups that a newer chain needs), the replica and old-copy marks in the

@@ -11,7 +11,7 @@ import "sort"
 
 // ReadOnlyVerbs are the verbs that change nothing on the node.
 var ReadOnlyVerbs = []string{
-	"backup-scan", "convert-poll", "df", "disk-boot", "files-size", "free-space", "gpu-users", "guest-inspect",
+	"backup-scan", "convert-poll", "df", "disk-boot", "file-id", "files-size", "free-space", "gpu-users", "guest-inspect",
 	"hook-qemu", "image-info", "import-convert-status", "migtls-state", "mtime", "net-info", "net-plan", "net-status",
 	"peer-ask", "peer-key", "peer-list", "peer-ping", "qemu-img-info", "read", "realpath", "repl-ls", "roots",
 	"selfcheck", "sha256", "stat", "svc-hosts", "svc-list", "svc-peerkey", "tar-list", "tar-pack", "tools-missing",
@@ -22,11 +22,11 @@ var ReadOnlyVerbs = []string{
 // data to another node.
 var ChangingVerbs = []string{
 	"age-decrypt", "age-encrypt", "backup-detach", "chmod-work", "convert-finish", "convert-kill", "convert-run",
-	"convert-start", "copy", "copy-kill", "download", "download-cancel", "guest-customize", "import-convert-kill",
+	"convert-start", "copy", "copy-kill", "download", "download-cancel", "guest-customize", "img-new", "import-convert-kill",
 	"import-convert-run", "import-convert-start", "migtls-commit", "migtls-discard", "migtls-mkdir", "migtls-put",
 	"migtls-remove", "migtls-rmdir", "mkworkdir", "move", "net-apply", "net-boot", "net-confirm", "net-rollback",
 	"net-run", "node-reboot", "nvram-new", "peer-allow", "peer-disallow", "peer-hostkey-set", "peer-hostkey-unset",
-	"peer-recv", "peer-send", "qcow2-bitmap-rm", "remove", "repl-commit", "repl-overlay", "repl-rebase", "rmdir",
+	"peer-recv", "peer-send", "qcow2-bitmap-rm", "remove", "remove-id", "repl-commit", "repl-overlay", "repl-rebase", "rmdir",
 	"rmtree", "svc-allow", "sysprep", "tar-extract", "tar-unpack", "tpm-place", "tpm-save", "update-run",
 	"update-start", "write",
 }

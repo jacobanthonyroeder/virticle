@@ -273,6 +273,8 @@ th.sel, td.sel { width: 28px; padding-right: 0; }
 .alertpanel ul { list-style: none; margin: 0; padding: 0; }
 .alertpanel li { padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .alertpanel .amsg { margin: 4px 0; word-break: break-word; }
+.alertpanel .aactions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.alertpanel .error { margin: 8px 14px; }
 .alertpanel footer { padding: 8px 14px; font-size: 12px; }
 .alertpanel a { color: var(--link); }
 .pad { padding: 14px; }

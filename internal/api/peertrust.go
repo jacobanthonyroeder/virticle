@@ -131,7 +131,14 @@ func peerMode(mode string) string {
 // copy gets (empty: 600). progress, when set, is called with the bytes of this
 // file sent so far.
 func copyToNode(ctx context.Context, from, to *hostconn.Host, ep migEndpoint, srcPath, dstPath, mode string, progress func(done uint64)) error {
-	return from.PeerSend(ctx, ep.Host, ep.port(), ep.User, srcPath, dstPath, peerMode(mode), ep.RateBps, func(done, total uint64) {
+	_, err := copyToNodeID(ctx, from, to, ep, srcPath, dstPath, mode, progress)
+	return err
+}
+
+// copyToNodeID is copyToNode that returns the identity of the file made on to ("" when its file system gives
+// none; see internal/nodecmd/verbs_fileid.go).
+func copyToNodeID(ctx context.Context, from, to *hostconn.Host, ep migEndpoint, srcPath, dstPath, mode string, progress func(done uint64)) (string, error) {
+	return from.PeerSendID(ctx, ep.Host, ep.port(), ep.User, srcPath, dstPath, peerMode(mode), ep.RateBps, func(done, total uint64) {
 		if progress != nil {
 			progress(done)
 		}

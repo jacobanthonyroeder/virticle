@@ -637,6 +637,27 @@ Good to know:
   confirm. Virticle never replaces them by itself.
 - A Debian node and a RHEL-family node cannot exchange VMs.
 
+### When a migration fails
+
+The VM stays on the source. The copies made on the target are removed, and nothing else:
+
+| Situation | What happens |
+| --- | --- |
+| The target can be checked | The copies go at once. |
+| The target is offline, or cannot be checked | The copies stay. The alert **Files of a failed migration of NAME are left on NODE** lists them. They are removed when the node is back, and the alert clears. |
+| A copy was replaced by another file of the same name, or something uses it | That file stays. The alert says why. |
+| The connection to the target broke at the very end | The VM may run on the target already. Nothing is removed on either node. The alert **The migration of NAME needs attention** says where the VM runs. |
+| The controller restarted during the migration | The copies are found again after the restart and removed by the same rule. |
+
+An administrator can act on the alert:
+
+- **Remove** checks again and removes what is proven to be the migration's own copies. A window lists what was removed
+  and what was kept, and why.
+- **Keep** leaves the files as ordinary volumes. The controller no longer removes them.
+
+After a successful migration the source files go only when the VM is confirmed on the target with its disks. The rule
+is in [reference.md](reference.md#failed-migrations).
+
 ### Migration network
 
 By default a node receives migration data at its management address, the one

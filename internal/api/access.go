@@ -97,7 +97,12 @@ var routeLevels = map[string]string{
 	"POST /api/rolling-update/continue":      admin,
 	"POST /api/rolling-update/restore":       admin,
 	"POST /api/rolling-update/dismiss":       admin,
-	"GET /api/nodes/{node}/interfaces":       viewer,
+
+	// The journal of files failed migrations left on their targets (migjournal.go).
+	"GET /api/migration-leftovers":              viewer,
+	"POST /api/migration-leftovers/{id}/remove": admin,
+	"POST /api/migration-leftovers/{id}/keep":   admin,
+	"GET /api/nodes/{node}/interfaces":          viewer,
 
 	// Host bridges change the network the controller reaches the node over: admin, even for reading the plan.
 	"GET /api/nodes/{node}/hostnet":           admin,

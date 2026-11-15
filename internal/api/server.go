@@ -77,6 +77,7 @@ type Server struct {
 	takeOvers  sync.Map // node id -> true: taken over from another controller, see markTakeOver
 
 	workSweepOnce sync.Once // workdirs.go
+	migCleanOnce  sync.Once // migjournal.go
 }
 
 type ctxKey struct{}
@@ -89,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	s.resumeRolling()
 	s.startMigAuto()
 	s.startWorkSweep()
+	s.startMigCleanup()
 	s.startCPUBaseline()
 	s.routes = nil
 	pub := func(pattern string, h http.HandlerFunc) {
@@ -258,6 +260,9 @@ func (s *Server) Handler() http.Handler {
 	auth("POST /api/nodes/{node}/vms/{uuid}/migrate/check", s.needs("migration", s.migrateCheck))
 	auth("POST /api/nodes/{node}/vms/{uuid}/migrate", s.needs("migration", s.migrate))
 	auth("POST /api/nodes/{node}/vms/{uuid}/migrate/cancel", s.migrateCancel)
+	auth("GET /api/migration-leftovers", s.migLeftovers)
+	auth("POST /api/migration-leftovers/{id}/remove", s.migLeftoverRemove)
+	auth("POST /api/migration-leftovers/{id}/keep", s.migLeftoverKeep)
 	auth("GET /api/nodes/{node}/migration-network", s.migNetGet)
 	auth("PUT /api/nodes/{node}/migration-network", s.migNetPut)
 	auth("GET /api/nodes/{node}/migration-tls", s.migTLSStatus)

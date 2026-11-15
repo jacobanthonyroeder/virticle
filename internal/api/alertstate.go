@@ -20,7 +20,7 @@ import (
 
 type Alert struct {
 	ID       string `json:"id"`
-	Kind     string `json:"kind"`     // node-down | pool-usage | host-memory | failed-job | vm-state | tls-expiry | scheduler-conflict | net-link | net-bond | net-drift | storage-unavailable | rolling-update | replica-age | stale-copy | guest-frozen
+	Kind     string `json:"kind"`     // node-down | pool-usage | host-memory | failed-job | vm-state | tls-expiry | scheduler-conflict | net-link | net-bond | net-drift | storage-unavailable | rolling-update | replica-age | stale-copy | guest-frozen | migration-leftover
 	Severity string `json:"severity"` // warning | critical
 	Title    string `json:"title"`
 	Message  string `json:"message"`
@@ -130,6 +130,7 @@ type alertInput struct {
 	Jobs       []store.Task    // tasks of the scheduler and of users in the window
 	Conflicts  []schedConflict // nodes where another controller takes scheduled snapshots
 	Rolling    *Alert          // a rolling update that stopped and was neither continued, put back nor dismissed
+	Leftovers  []alertLeftover // journalled runs of failed migrations (migjournal.go)
 	CertExpiry time.Time       // zero when the UI does not use a certificate of its own
 	// Debounced are alerts about network state (card links, bonds, drift between nodes) that flap easily: one is
 	// raised only after it was seen on two consecutive passes, and cleared only after it was missing on two.
@@ -244,6 +245,9 @@ func (t *alertTracker) step(in alertInput, now time.Time) (raised, cleared, all 
 	}
 	if in.Rolling != nil {
 		add(*in.Rolling)
+	}
+	for _, l := range in.Leftovers {
+		add(leftoverAlert(l))
 	}
 	// A job is in trouble when its newest run failed; a later success clears it. Runs of the scheduler and of users
 	// of one kind on one target are one job: the newest decides, whoever ran it.

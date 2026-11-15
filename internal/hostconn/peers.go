@@ -103,15 +103,21 @@ func (h *Host) PeerPing(host, port, user string) error {
 // octal digits). rate limits the transfer to that many bytes per second (0: not limited). progress, when
 // set, is called with bytes sent and total.
 func (h *Host) PeerSend(ctx context.Context, host, port, user, src, dst, mode string, rate uint64, progress func(done, total uint64)) error {
+	_, err := h.peerSend(ctx, host, port, user, src, dst, mode, rate, progress)
+	return err
+}
+
+func (h *Host) peerSend(ctx context.Context, host, port, user, src, dst, mode string, rate uint64, progress func(done, total uint64)) (string, error) {
 	var tail []string
 	done := false
+	id := ""
 	args := []string{host, port, user, src, dst, mode}
 	if rate > 0 {
 		args = append(args, strconv.FormatUint(rate, 10))
 	}
 	cmd, err := h.nodeCmd("peer-send", args...)
 	if err != nil {
-		return err
+		return "", err
 	}
 	err = h.Stream(ctx, cmd, func(l string) {
 		if d, t, ok := parseProgress(l); ok {
@@ -121,7 +127,7 @@ func (h *Host) PeerSend(ctx context.Context, host, port, user, src, dst, mode st
 			return
 		}
 		if strings.HasPrefix(l, "@@done ") {
-			done = true
+			done, id = true, doneID(l)
 			return
 		}
 		if l = strings.TrimSpace(l); l != "" {
@@ -139,9 +145,9 @@ func (h *Host) PeerSend(ctx context.Context, host, port, user, src, dst, mode st
 		if err == nil {
 			err = errors.New("incomplete")
 		}
-		return fmt.Errorf("%s: %w", msg, err)
+		return "", fmt.Errorf("%s: %w", msg, err)
 	}
-	return nil
+	return id, nil
 }
 
 func parseProgress(l string) (done, total uint64, ok bool) {
