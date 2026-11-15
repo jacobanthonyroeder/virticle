@@ -41,6 +41,7 @@ test.describe.serial("verify backup", () => {
 
   test.beforeAll(async ({ api, n1 }) => {
     test.setTimeout(600_000);
+    await api.post("/backup-encryption/off").catch(() => {});
     vm = await createCirros(api, n1, NAME, { start: true });
     for (let i = 0; i < 3; i++) await backUp(api, vm);
     dirs = (await backups(api, vm.uuid)).map((b) => b.dir);

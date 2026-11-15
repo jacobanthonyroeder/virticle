@@ -324,10 +324,17 @@ function Verify(props: { b: BackupEntry; onClose: () => void }) {
   const act = useAction();
   const [id, setId] = useState(0);
   const [seen, setSeen] = useState<Record<number, Task>>({});
-  // Task events can come before the start answer: keep them by id.
+  // Task events can come before the start answer: keep them by id. After the start answer, and after the event
+  // stream reconnects, the task list is read once.
+  const keep = (t: Task) => setSeen((m) => (m[t.id] && m[t.id].status !== "running" && t.status === "running" ? m : { ...m, [t.id]: t }));
+  const reread = (task: number) => get<Task[]>("/tasks").then((l) => l.filter((x) => x.id === task).forEach(keep), () => {});
   useEvents((e) => {
-    if (e.type === "task" && e.task && e.task.kind === "verify" && e.task.target === b.dir) setSeen((m) => ({ ...m, [e.task!.id]: e.task! }));
+    if (e.type === "task" && e.task && e.task.kind === "verify" && e.task.target === b.dir) keep(e.task);
+    if (e.type === "node" && e.detail === "resync" && id) reread(id);
   });
+  useEffect(() => {
+    if (id) reread(id);
+  }, [id]);
   const started = useRef(false);
   useEffect(() => {
     if (started.current) return;
