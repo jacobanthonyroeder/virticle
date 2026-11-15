@@ -7,8 +7,9 @@ fixes this.
 
 ## What changed
 
-`rpc.go`, `libvirt.go` (third change) and the new test files
-`stream_wedge_test.go` and `disconnect_race_test.go`. Everything else is
+`rpc.go`, `libvirt.go` (third and fourth change), the new file `hook.go`
+(fourth change) and the new test files `stream_wedge_test.go`,
+`disconnect_race_test.go` and `hook_test.go`. Everything else is
 byte-identical to the base version. First change: `requestStream`, the
 deferred deregister.
 
@@ -81,6 +82,20 @@ of them tells it. It was also a data race on `l.disconnected`.
 
 The test fails against the base version (the first round already) and passes
 with the patch.
+
+## Fourth change: a call hook on a view of the connection
+
+Not a fix: an addition for Virticle's operation traces (`internal/optrace`).
+`libvirt.go`: the connection state moved into `rpcState`, which `Libvirt`
+embeds by pointer, so that `WithCallHook` can return a second `Libvirt` that
+shares the connection and carries a hook. `rpc.go`: `requestStream` calls the
+hook before and after a call when the value has one (the work itself moved to
+`call`, unchanged). `hook.go`: `CallHook`, `WithCallHook`, `DecodeArgs`
+(decodes a call's arguments into its `...Args` struct), `EncodeArgs` (for
+tests) and the program numbers. A value without a hook (every one that
+`New` and `NewWithDialer` return) works exactly as before; the only cost is a
+nil check per call. The struct literals in `rpc_test.go` follow the new
+layout. Test: `hook_test.go`.
 
 ## Not fixed here
 

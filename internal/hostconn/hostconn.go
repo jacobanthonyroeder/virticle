@@ -20,6 +20,8 @@ import (
 	"github.com/digitalocean/go-libvirt"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"virticle/internal/optrace"
 )
 
 // Sockets tried in order: the monolithic/proxy socket first, then the modular
@@ -52,6 +54,66 @@ type Host struct {
 
 	stop     chan struct{} // closed by Close: ends the keepalives
 	stopOnce sync.Once
+
+	// A view made by Traced: root is the shared host it was made from, tr the trace its calls go to, under
+	// the node name node. All three are empty on the shared host.
+	root *Host
+	tr   *optrace.Trace
+	node string
+}
+
+// Traced returns a view of h that records in tr, under the node name node, the libvirt calls that change
+// something and every command run on the node (see internal/optrace). The view shares h's connection; only
+// the calls made through it are recorded, so the shared host the collectors use costs nothing extra. A nil tr
+// returns h itself.
+func (h *Host) Traced(tr *optrace.Trace, node string) *Host {
+	if tr == nil || h == nil {
+		return h
+	}
+	b := h.Base()
+	v := &Host{Name: b.Name, ssh: b.ssh, jump: b.jump, root: b, tr: tr, node: node}
+	if b.Libvirt != nil {
+		v.Libvirt = b.Libvirt.WithCallHook(func(program, proc uint32, payload []byte) func(error) {
+			return tr.Libvirt(node, program, proc, payload)
+		})
+	}
+	return v
+}
+
+// Base is the shared host of a view made by Traced, or h itself. Use it where a host is a key (caches, maps):
+// views of one host are different pointers.
+func (h *Host) Base() *Host {
+	if h != nil && h.root != nil {
+		return h.root
+	}
+	return h
+}
+
+// Trace is the trace a view records in, or nil.
+func (h *Host) Trace() *optrace.Trace { return h.tr }
+
+// exec records a command run through a view; the function it returns takes the command's error.
+func (h *Host) exec(cmd string) func(error) {
+	if h.tr == nil {
+		return func(error) {}
+	}
+	done := h.tr.Exec(h.node, cmd)
+	if done == nil {
+		return func(error) {}
+	}
+	return func(err error) { done(exitStatus(err), err) }
+}
+
+// exitStatus is a command's exit status: 0 without an error, -1 when it did not end on its own.
+func exitStatus(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *ssh.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitStatus()
+	}
+	return -1
 }
 
 // SSH keepalives. A peer that vanishes without closing its TCP connection (a node that hangs, is frozen or loses
@@ -165,6 +227,10 @@ func keepalive(send func() error, stop <-chan struct{}, interval, timeout time.D
 // close that Close sends first. Every call waiting on the connection fails;
 // Close still has to be called.
 func (h *Host) Abort() {
+	if h.root != nil {
+		h.root.Abort()
+		return
+	}
 	h.ssh.Close()
 	if h.jump != nil {
 		h.jump.Close()
@@ -173,6 +239,10 @@ func (h *Host) Abort() {
 
 // Close tears down the libvirt session and the SSH connection(s).
 func (h *Host) Close() {
+	if h.root != nil {
+		h.root.Close()
+		return
+	}
 	if h.stop != nil {
 		h.stopOnce.Do(func() { close(h.stop) })
 	}
@@ -210,9 +280,11 @@ func (h *Host) Run(cmd string) (string, error) {
 		return "", err
 	}
 	defer s.Close()
+	done := h.exec(cmd)
 	// CombinedOutput serialises the two copy goroutines; sharing a plain
 	// bytes.Buffer between Stdout and Stderr is a data race.
 	out, err := s.CombinedOutput(cmd)
+	done(err)
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -233,7 +305,9 @@ func (h *Host) Stream(ctx context.Context, cmd string, line func(string)) error 
 	if err != nil {
 		return err
 	}
+	rec := h.exec(cmd)
 	if err := s.Start(cmd); err != nil {
+		rec(err)
 		return err
 	}
 	done := make(chan struct{})
@@ -250,9 +324,12 @@ func (h *Host) Stream(ctx context.Context, cmd string, line func(string)) error 
 		line(strings.TrimRight(sc.Text(), "\r"))
 	}
 	if ctx.Err() != nil {
+		rec(ctx.Err())
 		return nil
 	}
-	return s.Wait()
+	err = s.Wait()
+	rec(err)
+	return err
 }
 
 // tailBuf keeps the last few KiB written to it (a command's stderr).
@@ -290,7 +367,9 @@ func (h *Host) Pipe(ctx context.Context, cmd string, stdin io.Reader, stdout io.
 	defer s.Close()
 	var errs tailBuf
 	s.Stdin, s.Stdout, s.Stderr = stdin, stdout, &errs
+	rec := h.exec(cmd)
 	if err := s.Start(cmd); err != nil {
+		rec(err)
 		return err
 	}
 	done := make(chan struct{})
@@ -304,13 +383,16 @@ func (h *Host) Pipe(ctx context.Context, cmd string, stdin io.Reader, stdout io.
 	}()
 	if err := s.Wait(); err != nil {
 		if ctx.Err() != nil {
+			rec(ctx.Err())
 			return ctx.Err()
 		}
+		rec(err)
 		if msg := errs.String(); msg != "" {
 			return fmt.Errorf("%w: %s", err, msg)
 		}
 		return err
 	}
+	rec(nil)
 	return nil
 }
 

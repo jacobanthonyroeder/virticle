@@ -370,7 +370,7 @@ func (s *Server) markOldVM(sh *hostconn.Host, sd libvirt.Domain, toName string, 
 func (s *Server) reverseReplication(req *http.Request, h *hostconn.Host, dom libvirt.Domain, nodeID int64, old *hostconn.Host, every int) error {
 	oldID := int64(0)
 	for _, n := range s.Nodes.Status() {
-		if hh, err := s.Nodes.Host(n.ID); err == nil && hh == old {
+		if hh, err := s.Nodes.Host(n.ID); err == nil && hh == old.Base() {
 			oldID = n.ID
 		}
 	}

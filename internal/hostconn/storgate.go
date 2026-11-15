@@ -111,21 +111,21 @@ func (g *storGate) hold(fn func()) error {
 // "virsh dumpxml" during a server outage), and each one that waits holds one of the connection's five slots. Without
 // the gate a few VM pages used them all and the VM list and the node page timed out too.
 func (h *Host) DomainGetXMLDesc(d libvirt.Domain, flags libvirt.DomainXMLFlags) (xml string, err error) {
-	if gerr := h.gate.call(func() { xml, err = h.Libvirt.DomainGetXMLDesc(d, flags) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { xml, err = h.Libvirt.DomainGetXMLDesc(d, flags) }); gerr != nil {
 		return "", gerr
 	}
 	return
 }
 
 func (h *Host) DomainGetBlockInfo(d libvirt.Domain, path string, flags uint32) (allocation, capacity, physical uint64, err error) {
-	if gerr := h.gate.call(func() { allocation, capacity, physical, err = h.Libvirt.DomainGetBlockInfo(d, path, flags) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { allocation, capacity, physical, err = h.Libvirt.DomainGetBlockInfo(d, path, flags) }); gerr != nil {
 		return 0, 0, 0, gerr
 	}
 	return
 }
 
 func (h *Host) ConnectListAllStoragePools(need int32, flags libvirt.ConnectListAllStoragePoolsFlags) (pools []libvirt.StoragePool, n uint32, err error) {
-	if gerr := h.gate.call(func() { pools, n, err = h.Libvirt.ConnectListAllStoragePools(need, flags) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { pools, n, err = h.Libvirt.ConnectListAllStoragePools(need, flags) }); gerr != nil {
 		return nil, 0, gerr
 	}
 	return
@@ -134,56 +134,56 @@ func (h *Host) ConnectListAllStoragePools(need int32, flags libvirt.ConnectListA
 // StoragePoolRefresh scans the pool's directory, which takes as long as the directory is big; it has no time
 // limit, only a slot.
 func (h *Host) StoragePoolRefresh(p libvirt.StoragePool, flags uint32) (err error) {
-	if gerr := h.gate.hold(func() { err = h.Libvirt.StoragePoolRefresh(p, flags) }); gerr != nil {
+	if gerr := h.Base().gate.hold(func() { err = h.Libvirt.StoragePoolRefresh(p, flags) }); gerr != nil {
 		return gerr
 	}
 	return
 }
 
 func (h *Host) StoragePoolGetInfo(p libvirt.StoragePool) (state uint8, capacity, allocation, available uint64, err error) {
-	if gerr := h.gate.call(func() { state, capacity, allocation, available, err = h.Libvirt.StoragePoolGetInfo(p) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { state, capacity, allocation, available, err = h.Libvirt.StoragePoolGetInfo(p) }); gerr != nil {
 		return 0, 0, 0, 0, gerr
 	}
 	return
 }
 
 func (h *Host) StoragePoolGetXMLDesc(p libvirt.StoragePool, flags libvirt.StorageXMLFlags) (xml string, err error) {
-	if gerr := h.gate.call(func() { xml, err = h.Libvirt.StoragePoolGetXMLDesc(p, flags) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { xml, err = h.Libvirt.StoragePoolGetXMLDesc(p, flags) }); gerr != nil {
 		return "", gerr
 	}
 	return
 }
 
 func (h *Host) StoragePoolIsActive(p libvirt.StoragePool) (active int32, err error) {
-	if gerr := h.gate.call(func() { active, err = h.Libvirt.StoragePoolIsActive(p) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { active, err = h.Libvirt.StoragePoolIsActive(p) }); gerr != nil {
 		return 0, gerr
 	}
 	return
 }
 
 func (h *Host) StoragePoolListAllVolumes(p libvirt.StoragePool, need int32, flags uint32) (vols []libvirt.StorageVol, n uint32, err error) {
-	if gerr := h.gate.call(func() { vols, n, err = h.Libvirt.StoragePoolListAllVolumes(p, need, flags) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { vols, n, err = h.Libvirt.StoragePoolListAllVolumes(p, need, flags) }); gerr != nil {
 		return nil, 0, gerr
 	}
 	return
 }
 
 func (h *Host) StoragePoolLookupByName(name string) (pool libvirt.StoragePool, err error) {
-	if gerr := h.gate.call(func() { pool, err = h.Libvirt.StoragePoolLookupByName(name) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { pool, err = h.Libvirt.StoragePoolLookupByName(name) }); gerr != nil {
 		return libvirt.StoragePool{}, gerr
 	}
 	return
 }
 
 func (h *Host) StoragePoolGetAutostart(p libvirt.StoragePool) (auto int32, err error) {
-	if gerr := h.gate.call(func() { auto, err = h.Libvirt.StoragePoolGetAutostart(p) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { auto, err = h.Libvirt.StoragePoolGetAutostart(p) }); gerr != nil {
 		return 0, gerr
 	}
 	return
 }
 
 func (h *Host) StorageVolLookupByName(p libvirt.StoragePool, name string) (vol libvirt.StorageVol, err error) {
-	if gerr := h.gate.call(func() { vol, err = h.Libvirt.StorageVolLookupByName(p, name) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { vol, err = h.Libvirt.StorageVolLookupByName(p, name) }); gerr != nil {
 		return libvirt.StorageVol{}, gerr
 	}
 	return
@@ -191,21 +191,21 @@ func (h *Host) StorageVolLookupByName(p libvirt.StoragePool, name string) (vol l
 
 // StorageVolLookupByPath, StorageVolGetInfo and StorageVolGetXMLDesc look at the volume's file on disk.
 func (h *Host) StorageVolLookupByPath(file string) (vol libvirt.StorageVol, err error) {
-	if gerr := h.gate.call(func() { vol, err = h.Libvirt.StorageVolLookupByPath(file) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { vol, err = h.Libvirt.StorageVolLookupByPath(file) }); gerr != nil {
 		return libvirt.StorageVol{}, gerr
 	}
 	return
 }
 
 func (h *Host) StorageVolGetInfo(v libvirt.StorageVol) (typ int8, capacity, allocation uint64, err error) {
-	if gerr := h.gate.call(func() { typ, capacity, allocation, err = h.Libvirt.StorageVolGetInfo(v) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { typ, capacity, allocation, err = h.Libvirt.StorageVolGetInfo(v) }); gerr != nil {
 		return 0, 0, 0, gerr
 	}
 	return
 }
 
 func (h *Host) StorageVolGetXMLDesc(v libvirt.StorageVol, flags uint32) (xml string, err error) {
-	if gerr := h.gate.call(func() { xml, err = h.Libvirt.StorageVolGetXMLDesc(v, flags) }); gerr != nil {
+	if gerr := h.Base().gate.call(func() { xml, err = h.Libvirt.StorageVolGetXMLDesc(v, flags) }); gerr != nil {
 		return "", gerr
 	}
 	return

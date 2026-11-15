@@ -351,7 +351,7 @@ func (s *Server) runEvacuation(user string, srcID int64, src *hostconn.Host, dom
 }
 
 func (s *Server) moveOne(user string, srcID int64, src *hostconn.Host, dom libvirt.Domain, res *evacResult, run *evacRun) error {
-	l, pre, err := s.launchMigration(userRequest(user), srcID, src, dom, migReq{Target: res.Target, Encrypt: run.encrypt})
+	l, pre, err := s.launchMigration(s.traced(userRequest(user)), srcID, src, dom, migReq{Target: res.Target, Encrypt: run.encrypt})
 	if errors.Is(err, errPreflight) {
 		reasons := blockingReasons(pre.Checks)
 		return errors.New("pre-flight failed: " + strings.Join(reasons, "; "))

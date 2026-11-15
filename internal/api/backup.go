@@ -388,6 +388,7 @@ func backupTarget(vm, node, pool string) string { return vm + " → " + node + "
 // launchBackup registers the planned run (one per VM) and starts it as a
 // background task; the channel receives its result.
 func (s *Server) launchBackup(r *http.Request, h *hostconn.Host, m *bkRun) (int64, <-chan error, error) {
+	h, m.src, m.dst = s.traceHost(r, h), s.traceHost(r, m.src), s.traceHost(r, m.dst)
 	bkRuns.Lock()
 	if _, busy := bkRuns.m[m.uuid]; busy {
 		bkRuns.Unlock()

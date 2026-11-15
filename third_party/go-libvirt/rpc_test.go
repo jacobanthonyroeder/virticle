@@ -232,7 +232,7 @@ func TestEncode(t *testing.T) {
 }
 
 func TestRegister(t *testing.T) {
-	l := &Libvirt{}
+	l := &Libvirt{rpcState: &rpcState{}}
 	l.callbacks = make(map[int32]chan response)
 	id := int32(1)
 	c := make(chan response)
@@ -246,7 +246,7 @@ func TestRegister(t *testing.T) {
 func TestDeregister(t *testing.T) {
 	id := int32(1)
 
-	l := &Libvirt{}
+	l := &Libvirt{rpcState: &rpcState{}}
 	l.callbacks = map[int32]chan response{
 		id: make(chan response),
 	}
@@ -260,7 +260,7 @@ func TestDeregister(t *testing.T) {
 func TestAddStream(t *testing.T) {
 	id := int32(1)
 
-	l := &Libvirt{}
+	l := &Libvirt{rpcState: &rpcState{}}
 	l.events = make(map[int32]*event.Stream)
 
 	stream := event.NewStream(0, id)
@@ -341,7 +341,7 @@ func TestStream(t *testing.T) {
 	stream := event.NewStream(constants.Program, 1)
 	defer stream.Shutdown()
 
-	l := &Libvirt{}
+	l := &Libvirt{rpcState: &rpcState{}}
 	l.events = map[int32]*event.Stream{
 		id: stream,
 	}
@@ -362,7 +362,7 @@ func TestStream(t *testing.T) {
 
 func TestSerial(t *testing.T) {
 	count := int32(10)
-	l := &Libvirt{}
+	l := &Libvirt{rpcState: &rpcState{}}
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -434,12 +434,12 @@ func TestRouteDeadlock(t *testing.T) {
 	id := int32(1)
 	rch := make(chan response, 1)
 
-	l := &Libvirt{
+	l := &Libvirt{rpcState: &rpcState{
 		callbacks: map[int32]chan response{
 			id: rch,
 		},
 		events: make(map[int32]*event.Stream),
-	}
+	}}
 	stream := event.NewStream(constants.Program, id)
 
 	l.addStream(stream)
@@ -506,7 +506,7 @@ func TestRouteDeadlock(t *testing.T) {
 func TestQEMUEventHandoffWindow(t *testing.T) {
 	id := int32(1)
 
-	l := &Libvirt{events: make(map[int32]*event.Stream)}
+	l := &Libvirt{rpcState: &rpcState{events: make(map[int32]*event.Stream)}}
 	stream := event.NewStream(constants.QEMUProgram, id)
 	l.addStream(stream)
 

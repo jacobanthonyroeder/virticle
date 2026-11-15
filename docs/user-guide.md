@@ -1009,13 +1009,40 @@ The **Settings** menu in the top bar is for administrators. **Account** (your na
 | **Settings > Alerts** | Admin | Where alerts are sent. See [Notifications](#notifications). |
 | **Settings > Controller backup** | Admin | Download a backup of the controller, or keep a daily one. See [controller-backup.md](controller-backup.md). |
 | **Settings > Backup encryption** | Admin | Encrypt VM backups and the controller's scheduled copies. See [Encrypted backups](#encrypted-backups). |
-| **Settings > Audit** | Admin | Lists every state-changing request, who made it and from where. |
+| **Settings > Audit** | Admin | Lists every state-changing request, who made it and from where, and what it ran on the nodes. See [Operations](#operations). |
 | **Account** | Everyone | Change your password, turn two-step sign-in on or off, create API tokens. |
 
 ![Account page with two-step sign-in on](img/account.png)
 
 API tokens are described in [reference.md](reference.md#api-tokens). To read the numbers with Prometheus or Grafana, see
 [metrics.md](metrics.md).
+
+### Operations
+
+A request in the audit log that changed something on a node opens to its operations: **N operations** under the
+request. A task on the **Tasks** page opens the same way (administrators only).
+
+| Line | Shows |
+| --- | --- |
+| A libvirt call | The `virsh` command that does the same, run as root on the node, then the libvirt function and "equivalent". A call without such a command shows the function and its arguments. |
+| A program on the node | The command line as it ran, then the program. |
+| Each line | OK or Failed, the time it took, **Copy**. An XML document the call carried opens under its file name. |
+
+- Reads (lists, XML, statistics) are not listed.
+- Passwords, keys, tokens, VNC and SPICE passwords and cloud-init data are replaced by `[redacted]` before anything is stored.
+- What a program read on standard input (keys, passwords) is never shown.
+
+Example: creating the VM `web-1` from the cirros image with **Start** on (`POST /api/nodes/1/vms`) opens to
+
+| Operation | Beside it |
+| --- | --- |
+| `/usr/local/libexec/virticle-node disk-boot '/var/lib/libvirt/images/cirros-0.6.3.qcow2'` | `virticle-node disk-boot`, OK, 349 ms |
+| `virsh vol-create-from default volume.xml --inputpool default cirros-0.6.3.qcow2` | `virStorageVolCreateXMLFrom` equivalent, OK, 267 ms |
+| `virsh vol-resize web-1.qcow2 1073741824B --pool default` | `virStorageVolResize` equivalent, OK, 106 ms |
+| `virsh define domain.xml --validate` | `virDomainDefineXMLFlags` equivalent, OK, 144 ms |
+| `virsh start web-1` | `virDomainCreate` equivalent, OK, 3.2 s |
+
+Details: [reference.md](reference.md#operation-traces).
 
 ## Troubleshooting
 

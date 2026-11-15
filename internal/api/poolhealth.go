@@ -107,6 +107,7 @@ var nfsProber = &poolProber{
 // younger than probeFresh; an older "up" is probed again first, waiting at most probeLimit. A path the node did
 // not answer for is reported as down.
 func (pp *poolProber) probe(h *hostconn.Host, paths []string) map[string]mountState {
+	h = h.Base() // a key: views of one host share its entries
 	if len(paths) == 0 {
 		return nil
 	}
@@ -144,6 +145,7 @@ func (pp *poolProber) probe(h *hostconn.Host, paths []string) map[string]mountSt
 // and a newer one is fetched in the background, so a page never waits for a dead server. Do not decide to touch
 // the mount from a peek.
 func (pp *poolProber) peek(h *hostconn.Host, paths []string) map[string]mountState {
+	h = h.Base() // a key: views of one host share its entries
 	if len(paths) == 0 {
 		return nil
 	}
@@ -181,6 +183,7 @@ func (pp *poolProber) peek(h *hostconn.Host, paths []string) map[string]mountSta
 
 // note records that somebody asked about the paths and makes sure the background loop of the node runs.
 func (pp *poolProber) note(h *hostconn.Host, paths []string) {
+	h = h.Base() // a key: views of one host share its entries
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	m := pp.asked[h]
@@ -200,6 +203,7 @@ func (pp *poolProber) note(h *hostconn.Host, paths []string) {
 
 // keepFresh probes the node's mounts until nobody has asked about them for probeKeep.
 func (pp *poolProber) keepFresh(h *hostconn.Host) {
+	h = h.Base() // a key: views of one host share its entries
 	for {
 		pp.mu.Lock()
 		if !pp.anyAsked(h) {
@@ -217,6 +221,7 @@ func (pp *poolProber) keepFresh(h *hostconn.Host) {
 
 // anyAsked drops the paths nobody asked about lately and reports whether any is left. mu must be held.
 func (pp *poolProber) anyAsked(h *hostconn.Host) bool {
+	h = h.Base() // a key: views of one host share its entries
 	m := pp.asked[h]
 	for p, at := range m {
 		if pp.now().Sub(at) > probeKeep {
@@ -229,6 +234,7 @@ func (pp *poolProber) anyAsked(h *hostconn.Host) bool {
 // refresh probes every path asked about for the node and stores the answer. One refresh per node runs at a time;
 // a caller that arrives meanwhile waits for it.
 func (pp *poolProber) refresh(h *hostconn.Host) {
+	h = h.Base() // a key: views of one host share its entries
 	pp.mu.Lock()
 	if ch, running := pp.busy[h]; running {
 		pp.mu.Unlock()
@@ -291,6 +297,7 @@ func pick(have map[string]mountState, want []string) map[string]mountState {
 // forget drops the last answer for a node: a mount was just added or removed there, and the old answer would be
 // served for up to probeStale. The next question waits for a new probe.
 func (pp *poolProber) forget(h *hostconn.Host) {
+	h = h.Base() // a key: views of one host share its entries
 	pp.mu.Lock()
 	delete(pp.cache, h)
 	pp.mu.Unlock()

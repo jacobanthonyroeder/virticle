@@ -14,6 +14,8 @@ func (h *Host) RunInput(cmd, stdin string) (string, error) {
 	}
 	defer s.Close()
 	s.Stdin = strings.NewReader(stdin)
+	done := h.exec(cmd) // the command line only: what goes to stdin is never recorded
 	out, err := s.CombinedOutput(cmd)
+	done(err)
 	return strings.TrimSpace(string(out)), err
 }

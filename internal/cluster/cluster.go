@@ -139,7 +139,7 @@ func (m *Manager) ConfigOfHost(h *hostconn.Host) (store.Node, bool) {
 	defer m.mu.Unlock()
 	for _, n := range m.nodes {
 		n.mu.Lock()
-		same := n.host == h
+		same := n.host == h.Base() // h may be a traced view of the connection
 		cfg := n.cfg
 		n.mu.Unlock()
 		if same {

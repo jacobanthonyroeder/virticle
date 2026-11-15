@@ -95,6 +95,8 @@ colours in components.
 | Icons | Lucide, 14 to 16 px, next to a label. An icon alone only for a well-known action, with an `aria-label`. |
 | Errors | An `.error` box (`ErrorBox`) next to what failed, with the server's message. `ErrorBox` raises the first letter, so a server message that starts with a lower-case word shows as a sentence. |
 | Collapsed part | `DialogAdvanced` (a button with a chevron, title as given). Never a native `<details>`. |
+| Table row that opens | A chevron button with a count under the row's main text ("3 operations"); the details go into a full-width row below. Rows without details have no button. |
+| Command line | Monospace, wraps inside its box (never cut, never sideways), a **Copy** link beside it. |
 | Empty state | A dashed box with one short line. |
 | Help | The `Help` component: a small grey "?" in a circle after the text it explains. The explanation shows in a box while the pointer is on it or it has the focus. No clickable words ("Why", "Details") for explanations. This is the only place for explanations. |
 | Tasks | Long work runs as a task: progress in the Tasks dock, a stop "x" when it can be stopped. |
