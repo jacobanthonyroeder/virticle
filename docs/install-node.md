@@ -165,10 +165,10 @@ The host key of the node is recorded in the controller's `known_hosts` the first
 
 ## Upgrade and unprepare
 
-**Upgrade.** When the controller says that a node was "prepared by an older version" (**Outdated** on the Nodes page),
+**Upgrade.** When the controller says that a node was "prepared by an older version" (**Virticle update needed** on the Nodes page),
 run prepare again. This happens when the node command there reports another protocol version (after every controller
 upgrade that changes it), or is still the old shell script from 0.1.0. Prepare replaces the node command and removes the
-old script. The steps are in [install.md](install.md#upgrading). The Nodes page has **Prepare all** for every node that
+old script. The steps are in [install.md](install.md#upgrading). The Nodes page has **Update Virticle on nodes** for every node that
 needs it: it installs this version's node command. It is not **Update packages**, which installs the operating system's
 package updates on the nodes.
 

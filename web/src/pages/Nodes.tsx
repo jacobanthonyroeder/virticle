@@ -47,8 +47,8 @@ export default function Nodes() {
       )}
       {needPrep > 0 && (
         <div className="prepbanner">
-          <StatusLine status="warning">{needPrep === 1 ? "1 node needs preparing" : `${needPrep} nodes need preparing`}</StatusLine>
-          {admin && <button onClick={() => setPrepAll(true)} title="Installs this version's Virticle node command on them">Prepare all</button>}
+          <StatusLine status="warning">{needPrep === 1 ? "1 node needs a Virticle update" : `${needPrep} nodes need a Virticle update`}</StatusLine>
+          {admin && <button onClick={() => setPrepAll(true)} title="Installs this controller's version of the Virticle node command on them">Update Virticle on nodes</button>}
         </div>
       )}
       <ErrorBox error={nodes.error} />
@@ -111,7 +111,7 @@ function NodeRow({ n, canRemove, alerts, nodes }: { n: NodeStatus; canRemove: bo
         <StateBadge state={n.state} />
         {prepareState(n) && (
           <div>
-            <span className="badge s-needs-prepare">{prepareState(n) === "older" ? "Outdated" : "Not prepared"}</span>
+            <span className="badge s-needs-prepare">{prepareState(n) === "older" ? "Virticle update needed" : "Not prepared"}</span>
           </div>
         )}
         {n.error && <StatusLine status="error">{n.error}</StatusLine>}

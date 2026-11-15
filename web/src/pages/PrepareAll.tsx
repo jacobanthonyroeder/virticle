@@ -103,7 +103,7 @@ export default function PrepareAll({ nodes, onClose }: { nodes: NodeStatus[]; on
   if (targets) {
     const body = { adminUser: adminUser.trim() || "root", password: cred === "password" ? secret : "", privateKey: cred === "key" ? secret : "" };
     return (
-      <Modal title="Prepare all" onClose={onClose}>
+      <Modal title="Update Virticle on nodes" onClose={onClose}>
         <div className="table-scroll">
           <table>
             <tbody>
@@ -117,7 +117,7 @@ export default function PrepareAll({ nodes, onClose }: { nodes: NodeStatus[]; on
     );
   }
   return (
-    <Modal title="Prepare all" onClose={onClose}>
+    <Modal title="Update Virticle on nodes" onClose={onClose}>
       <form onSubmit={start} autoComplete="off">
         <div className="grid2">
           <Field label="Administrator user" hint="root, or a user that may use sudo. The same login must work on every node.">
@@ -152,7 +152,7 @@ export default function PrepareAll({ nodes, onClose }: { nodes: NodeStatus[]; on
             Cancel
           </button>
           <button type="submit" className="primary">
-            Prepare all
+            Update
           </button>
         </footer>
       </form>

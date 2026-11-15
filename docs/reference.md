@@ -663,7 +663,7 @@ name, each with a fixed pattern); the caller cannot pass commands. The script is
 ## Versions and the node command
 
 - The node command protocol is **22** (0.4.0 had 21, 0.3.x had 20, 0.2.0 had 10). A node whose node command has another number shows
-  "prepared by an older version" (**Outdated** on the Nodes page) and must be prepared again
+  "prepared by an older version" (**Virticle update needed** on the Nodes page) and must be prepared again
   ([install.md](install.md#upgrading)). The old node command would also refuse the new requests, because it rejects fields
   it does not know.
 - Verbs new since 0.4.0: `guest-inspect`, `guest-customize` ([Guest setup on clone](#guest-setup-on-clone)).

@@ -95,16 +95,16 @@ To add another host:
 When the node's **Settings** say it was prepared by an older version, choose
 **Prepare this node** there (after an upgrade: see [install.md](install.md#upgrading)).
 
-After an upgrade the **Nodes** page marks each such node (**Outdated** or **Not prepared**) and
-shows one notice, "N nodes need preparing", with **Prepare all** (administrators). Enter the administrator login once
+After an upgrade the **Nodes** page marks each such node (**Virticle update needed** or **Not prepared**) and
+shows one notice, "N nodes need a Virticle update", with **Update Virticle on nodes** (administrators). Enter the administrator login once
 (the same login must work on every node; used for this run only, not stored).
 The nodes are prepared one after another; a node that fails shows why and the others go on. Offline nodes are not
 listed: they cannot say, so prepare them when they are back.
 
-- **Prepare all** installs this Virticle version's node command on nodes that have an old one or none.
+- **Update Virticle on nodes** installs this Virticle version's node command on nodes that have an old one or none.
 - **Update packages** installs the operating system's package updates on the nodes ([below](#update-packages-rolling-update)).
 
-![Nodes page with two nodes that need preparing](img/prepare-all.png)
+![Nodes page with two nodes that need a Virticle update](img/prepare-all.png)
 
 A node has the tabs **Summary**, **Performance**, **Virtual machines**, **Storage**, **Network**,
 **Updates** and **Settings**.
