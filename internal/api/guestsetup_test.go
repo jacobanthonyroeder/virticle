@@ -68,9 +68,9 @@ func TestDiskRequest(t *testing.T) {
 		t.Fatalf("plain password in the request: %s", out)
 	}
 	var q struct {
-		Hostname, User, PasswordHash string
-		SSHKeys, Packages            []string
-		SELinux                      bool
+		Hostname, User, PasswordHash, PackageManager string
+		SSHKeys, Packages                            []string
+		SELinux                                      bool
 	}
 	if err := json.Unmarshal([]byte(out), &q); err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestDiskRequest(t *testing.T) {
 		t.Errorf("request %+v", q)
 	}
 	// The guest agent (as the seed disc brings it) and sudo (for the user's group) are added when missing.
-	if strings.Join(q.Packages, " ") != "htop qemu-guest-agent sudo" {
+	if strings.Join(q.Packages, " ") != "htop qemu-guest-agent sudo" || q.PackageManager != "apt" {
 		t.Errorf("packages %q", q.Packages)
 	}
 	debian.GuestAgent, debian.Sudo, debian.SELinux = true, true, true

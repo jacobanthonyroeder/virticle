@@ -138,13 +138,14 @@ func verbGuestInspect(c *Ctx) error {
 	start.Stderr = ef
 	out, err := start.Output()
 	m := guestfishPIDRE.FindSubmatch(out)
-	if err != nil || m == nil {
-		_, _ = ef.Seek(0, io.SeekStart)
-		eb, _ := io.ReadAll(io.LimitReader(ef, 4096))
-		return Fail("guestfish did not start: %s", strings.TrimSpace(string(eb)+" "+string(out)))
+	pid := ""
+	if m != nil {
+		pid = string(m[1])
 	}
-	pid := string(m[1])
 	stop := func() {
+		if pid == "" {
+			return
+		}
 		// Not c.Context: this also runs after a signal has cancelled it.
 		if p, err := c.Tool("guestfish"); err == nil {
 			sctx, done := context.WithTimeout(context.Background(), 30*time.Second)
@@ -158,6 +159,14 @@ func verbGuestInspect(c *Ctx) error {
 		if n, _ := strconv.Atoi(pid); n > 1 && procIsNamed(n, "guestfish") {
 			_ = syscall.Kill(n, syscall.SIGTERM)
 		}
+		// guestfish leaves its control socket behind (TMPDIR is not set for tools).
+		_ = os.Remove(fmt.Sprintf("/tmp/.guestfish-%d/socket-%s", os.Geteuid(), pid))
+	}
+	if err != nil || m == nil {
+		stop()
+		_, _ = ef.Seek(0, io.SeekStart)
+		eb, _ := io.ReadAll(io.LimitReader(ef, 4096))
+		return Fail("guestfish did not start: %s", strings.TrimSpace(string(eb)+" "+string(out)))
 	}
 	undo := c.Cleanup(stop)
 	defer func() { stop(); undo() }()
@@ -270,8 +279,10 @@ type GuestRequest struct {
 	// PasswordHash is a SHA-512 crypt hash; the plain password never reaches the node.
 	PasswordHash string   `json:"passwordHash"`
 	SSHKeys      []string `json:"sshKeys"`
-	// Packages are installed when the guest first starts.
-	Packages []string `json:"packages"`
+	// Packages are installed when the guest first starts, with PackageManager
+	// (apt, dnf, yum or zypper; required with packages).
+	Packages       []string `json:"packages"`
+	PackageManager string   `json:"packageManager"`
 	// SELinux asks for a relabel (older virt-customize does not relabel by itself).
 	SELinux bool `json:"selinux"`
 }
@@ -316,6 +327,9 @@ func (q GuestRequest) check() error {
 			return Die("invalid package name %q", p)
 		}
 	}
+	if len(q.Packages) > 0 && installCommands[q.PackageManager] == "" {
+		return Die("packages need a known package manager (apt, dnf, yum or zypper)")
+	}
 	if q.Hostname == "" && q.User == "" && len(q.Packages) == 0 {
 		return Die("nothing to change")
 	}
@@ -327,16 +341,33 @@ func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'
 // GuestScript is the script virt-customize runs inside the guest for q: it
 // creates the user when missing (home directory, the sudo or wheel group,
 // password-less sudo, as cloud-init's default user), sets the password hash
-// and adds the SSH keys. "" when q has no user.
+// and adds the SSH keys. It also puts the host name into /etc/hosts (as
+// cloud-init's manage_etc_hosts does; virt-customize --hostname sets only
+// /etc/hostname on some systems). "" when q has neither.
 func GuestScript(q GuestRequest) string {
-	if q.User == "" {
+	if q.User == "" && q.Hostname == "" {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString(`#!/bin/sh
 # Written by virticle-node guest-customize.
 set -e
-u=` + shq(q.User) + `
+`)
+	if q.Hostname != "" {
+		b.WriteString(`n=` + shq(q.Hostname) + `
+if [ -f /etc/hosts ] && ! grep -qw -- "$n" /etc/hosts; then
+  if grep -q '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+    sed -i "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t$n/" /etc/hosts
+  else
+    printf '127.0.1.1\t%s\n' "$n" >> /etc/hosts
+  fi
+fi
+`)
+	}
+	if q.User == "" {
+		return b.String()
+	}
+	b.WriteString(`u=` + shq(q.User) + `
 if ! getent passwd "$u" >/dev/null 2>&1; then
   g=
   for x in sudo wheel; do
@@ -382,10 +413,40 @@ chmod 600 "$f"
 	return b.String()
 }
 
+// installCommands install the packages in "$pk", per package manager.
+var installCommands = map[string]string{
+	"apt":    `apt-get -q update && DEBIAN_FRONTEND=noninteractive apt-get -q -y install $pk`,
+	"dnf":    `dnf -y install $pk`,
+	"yum":    `yum -y install $pk`,
+	"zypper": `zypper -n install $pk`,
+}
+
+// FirstBootScript installs q's packages at the guest's first start. It tries
+// again for five minutes: the first-boot service of virt-customize starts
+// before the network has an address. "" without packages.
+func FirstBootScript(q GuestRequest) string {
+	if len(q.Packages) == 0 || installCommands[q.PackageManager] == "" {
+		return ""
+	}
+	return `#!/bin/sh
+# Written by virticle-node guest-customize: the packages of the clone, once the network answers.
+pk=` + shq(strings.Join(q.Packages, " ")) + `
+i=0
+until ` + installCommands[q.PackageManager] + `; do
+  i=$((i+1))
+  if [ $i -ge 30 ]; then echo "virticle: packages not installed: $pk"; exit 1; fi
+  sleep 10
+done
+echo "virticle: packages installed: $pk"
+case " $pk " in *" qemu-guest-agent "*) systemctl start qemu-guest-agent || true ;; esac
+`
+}
+
 // GuestCustomizeArgs is the virt-customize command line for the disks and q.
-// script is the path of the guest script ("" for none). Nothing secret is in
-// it: the password hash is only in the script file.
-func GuestCustomizeArgs(formats, paths []string, q GuestRequest, script string) []string {
+// script is the path of the guest script ("" for none), firstboot the path of
+// the first-boot script ("" for none). Nothing secret is in it: the password
+// hash is only in the script file.
+func GuestCustomizeArgs(formats, paths []string, q GuestRequest, script, firstboot string) []string {
 	args := []string{"--no-network"}
 	for i := range paths {
 		args = append(args, "--format", formats[i], "-a", paths[i])
@@ -396,8 +457,8 @@ func GuestCustomizeArgs(formats, paths []string, q GuestRequest, script string) 
 	if script != "" {
 		args = append(args, "--run", script)
 	}
-	if len(q.Packages) > 0 {
-		args = append(args, "--firstboot-install", strings.Join(q.Packages, ","))
+	if firstboot != "" {
+		args = append(args, "--firstboot", firstboot)
 	}
 	if q.SELinux {
 		args = append(args, "--selinux-relabel")
@@ -429,8 +490,8 @@ func verbGuestCustomize(c *Ctx) error {
 	if _, err := c.Tool("virt-customize"); err != nil {
 		return err
 	}
-	script := ""
-	if s := GuestScript(q); s != "" {
+	script, firstboot := "", ""
+	if s, fb := GuestScript(q), FirstBootScript(q); s != "" || fb != "" {
 		base := c.poolRunDir()
 		if err := os.MkdirAll(base, 0o700); err != nil {
 			return Fail("cannot create %s: %v", base, err)
@@ -442,12 +503,21 @@ func verbGuestCustomize(c *Ctx) error {
 		rm := func() { _ = os.RemoveAll(dir) }
 		undo := c.Cleanup(rm)
 		defer func() { rm(); undo() }()
-		script = filepath.Join(dir, "virticle-guest-setup.sh")
-		if err := os.WriteFile(script, []byte(s), 0o700); err != nil {
-			return Fail("cannot write the guest script: %v", err)
+		for _, f := range []struct {
+			text string
+			path *string
+			name string
+		}{{s, &script, "virticle-guest-setup.sh"}, {fb, &firstboot, "virticle-packages.sh"}} {
+			if f.text == "" {
+				continue
+			}
+			*f.path = filepath.Join(dir, f.name)
+			if err := os.WriteFile(*f.path, []byte(f.text), 0o700); err != nil {
+				return Fail("cannot write the guest script: %v", err)
+			}
 		}
 	}
-	cmd, err := c.Command("virt-customize", GuestCustomizeArgs(formats, paths, q, script)...)
+	cmd, err := c.Command("virt-customize", GuestCustomizeArgs(formats, paths, q, script, firstboot)...)
 	if err != nil {
 		return err
 	}

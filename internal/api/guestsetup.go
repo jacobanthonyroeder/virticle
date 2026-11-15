@@ -181,10 +181,11 @@ func (g guestSetup) diskRequest(cloneName string, c cloneCustomize) (string, err
 	}
 	f := g.facts
 	pk := append([]string{}, c.Packages...)
-	if len(pk) > 0 && f.PackageManagement == "" {
+	knownPM := map[string]bool{"apt": true, "dnf": true, "yum": true, "zypper": true}[f.PackageManagement]
+	if len(pk) > 0 && !knownPM {
 		return "", badRequest("packages cannot be installed: the package manager of " + g.System + " is not known")
 	}
-	if f.PackageManagement != "" {
+	if knownPM {
 		// What the seed disc would bring: the guest agent; and sudo for the new user's sudo group.
 		has := map[string]bool{}
 		for _, p := range pk {
@@ -203,8 +204,12 @@ func (g guestSetup) diskRequest(cloneName string, c cloneCustomize) (string, err
 		PasswordHash string   `json:"passwordHash,omitempty"`
 		SSHKeys      []string `json:"sshKeys,omitempty"`
 		Packages     []string `json:"packages,omitempty"`
+		Manager      string   `json:"packageManager,omitempty"`
 		SELinux      bool     `json:"selinux,omitempty"`
 	}{Hostname: host, User: c.User, SSHKeys: keys, Packages: pk, SELinux: f.SELinux}
+	if len(pk) > 0 {
+		req.Manager = f.PackageManagement
+	}
 	if c.Password != "" {
 		h, err := cloudinit.HashPassword(c.Password)
 		if err != nil {

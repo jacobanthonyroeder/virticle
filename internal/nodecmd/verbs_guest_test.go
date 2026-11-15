@@ -20,10 +20,10 @@ func guestReq(t *testing.T, q GuestRequest) string {
 }
 
 func TestGuestCustomizeArgsHoldNoSecret(t *testing.T) {
-	q := GuestRequest{Hostname: "web1", User: "admin", PasswordHash: testHash, SSHKeys: []string{"ssh-ed25519 AAAAC3Nz me@host"}, Packages: []string{"htop", "curl"}, SELinux: true}
-	args := GuestCustomizeArgs([]string{"qcow2", "raw"}, []string{"/p/a.qcow2", "/p/b.img"}, q, "/run/x/virticle-guest-setup.sh")
+	q := GuestRequest{Hostname: "web1", User: "admin", PasswordHash: testHash, SSHKeys: []string{"ssh-ed25519 AAAAC3Nz me@host"}, Packages: []string{"htop", "curl"}, PackageManager: "apt", SELinux: true}
+	args := GuestCustomizeArgs([]string{"qcow2", "raw"}, []string{"/p/a.qcow2", "/p/b.img"}, q, "/run/x/virticle-guest-setup.sh", "/run/x/virticle-packages.sh")
 	want := []string{"--no-network", "--format", "qcow2", "-a", "/p/a.qcow2", "--format", "raw", "-a", "/p/b.img",
-		"--hostname", "web1", "--run", "/run/x/virticle-guest-setup.sh", "--firstboot-install", "htop,curl", "--selinux-relabel"}
+		"--hostname", "web1", "--run", "/run/x/virticle-guest-setup.sh", "--firstboot", "/run/x/virticle-packages.sh", "--selinux-relabel"}
 	if strings.Join(args, "\n") != strings.Join(want, "\n") {
 		t.Errorf("args\n%q\nwant\n%q", args, want)
 	}
@@ -33,15 +33,18 @@ func TestGuestCustomizeArgsHoldNoSecret(t *testing.T) {
 		}
 	}
 	// Only the host name: no script, no packages, no relabel.
-	args = GuestCustomizeArgs([]string{"qcow2"}, []string{"/p/a.qcow2"}, GuestRequest{Hostname: "h"}, "")
+	args = GuestCustomizeArgs([]string{"qcow2"}, []string{"/p/a.qcow2"}, GuestRequest{Hostname: "h"}, "", "")
 	if strings.Join(args, " ") != "--no-network --format qcow2 -a /p/a.qcow2 --hostname h" {
 		t.Errorf("host name only: %q", args)
 	}
 }
 
 func TestGuestScript(t *testing.T) {
-	if s := GuestScript(GuestRequest{Hostname: "h"}); s != "" {
-		t.Errorf("no user, no script: %q", s)
+	if s := GuestScript(GuestRequest{Packages: []string{"htop"}}); s != "" {
+		t.Errorf("no user, no host name, no script: %q", s)
+	}
+	if s := GuestScript(GuestRequest{Hostname: "web1"}); !strings.Contains(s, "n='web1'") || !strings.Contains(s, "/etc/hosts") || strings.Contains(s, "useradd") {
+		t.Errorf("host name only:\n%s", s)
 	}
 	s := GuestScript(GuestRequest{User: "admin", PasswordHash: testHash, SSHKeys: []string{"ssh-ed25519 AAAA it's me"}})
 	for _, w := range []string{"u='admin'", "useradd -m", "for x in sudo wheel", "NOPASSWD:ALL", "usermod -p '" + testHash + "' \"$u\"",
@@ -54,6 +57,21 @@ func TestGuestScript(t *testing.T) {
 	s = GuestScript(GuestRequest{User: "admin", SSHKeys: []string{"ssh-ed25519 AAAA"}})
 	if strings.Contains(s, "usermod") || strings.Contains(s, "PasswordAuthentication") {
 		t.Errorf("keys only:\n%s", s)
+	}
+}
+
+func TestFirstBootScript(t *testing.T) {
+	if s := FirstBootScript(GuestRequest{PackageManager: "apt"}); s != "" {
+		t.Errorf("no packages: %q", s)
+	}
+	s := FirstBootScript(GuestRequest{Packages: []string{"htop", "qemu-guest-agent"}, PackageManager: "dnf"})
+	for _, w := range []string{"pk='htop qemu-guest-agent'", "until dnf -y install $pk; do", "-ge 30", "systemctl start qemu-guest-agent"} {
+		if !strings.Contains(s, w) {
+			t.Errorf("script lacks %q:\n%s", w, s)
+		}
+	}
+	if s := FirstBootScript(GuestRequest{Packages: []string{"htop"}, PackageManager: "apt"}); !strings.Contains(s, "apt-get -q update && DEBIAN_FRONTEND=noninteractive apt-get -q -y install $pk") {
+		t.Errorf("apt:\n%s", s)
 	}
 }
 
@@ -80,8 +98,10 @@ func TestGuestCustomizeRefuses(t *testing.T) {
 		"key no user":      guestReq(t, GuestRequest{SSHKeys: []string{"ssh-ed25519 AAAA"}}),
 		"not a key":        guestReq(t, GuestRequest{User: "admin", SSHKeys: []string{"hello world"}}),
 		"key with newline": guestReq(t, GuestRequest{User: "admin", SSHKeys: []string{"ssh-ed25519 AAAA\nrm -rf /"}}),
-		"option package":   guestReq(t, GuestRequest{Packages: []string{"--run=x"}}),
-		"comma package":    guestReq(t, GuestRequest{Packages: []string{"a,b"}}),
+		"option package":   guestReq(t, GuestRequest{Packages: []string{"--run=x"}, PackageManager: "apt"}),
+		"comma package":    guestReq(t, GuestRequest{Packages: []string{"a,b"}, PackageManager: "apt"}),
+		"no manager":       guestReq(t, GuestRequest{Packages: []string{"htop"}}),
+		"odd manager":      guestReq(t, GuestRequest{Packages: []string{"htop"}, PackageManager: "sh -c"}),
 	} {
 		n.refused(why, stdin, "guest-customize", raw)
 	}
@@ -106,7 +126,7 @@ stat -c %a "$s" > `+rec+`.mode
 echo "$s" > `+rec+`.path
 echo "backend=$LIBGUESTFS_BACKEND"
 `)
-	q := GuestRequest{Hostname: "web1", User: "admin", PasswordHash: testHash, SSHKeys: []string{"ssh-ed25519 AAAA me"}, Packages: []string{"htop"}}
+	q := GuestRequest{Hostname: "web1", User: "admin", PasswordHash: testHash, SSHKeys: []string{"ssh-ed25519 AAAA me"}, Packages: []string{"htop"}, PackageManager: "apt"}
 	out := n.ok(guestReq(t, q), "guest-customize", raw, n.pool("disk.qcow2"))
 	if !strings.Contains(out, "backend=direct") {
 		t.Errorf("output %q", out)
@@ -116,7 +136,7 @@ echo "backend=$LIBGUESTFS_BACKEND"
 		t.Errorf("the hash is on the command line:\n%s", args)
 	}
 	if !strings.Contains(string(args), "--format\nraw\n-a\n"+raw+"\n--format\nqcow2\n-a\n"+n.pool("disk.qcow2")+"\n--hostname\nweb1\n--run\n") ||
-		!strings.HasSuffix(string(args), "--firstboot-install\nhtop\n") {
+		!strings.Contains(string(args), "--firstboot\n"+filepath.Dir(strings.TrimSpace(readFile(rec+".path")))+"/virticle-packages.sh\n") {
 		t.Errorf("arguments:\n%s", args)
 	}
 	script, _ := os.ReadFile(rec + ".script")

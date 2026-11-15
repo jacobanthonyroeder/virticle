@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { get, post, put, VMDetail } from "../api";
 import { ErrorBox, Field, Modal, useAction } from "../ui";
@@ -24,7 +24,7 @@ interface GuestSetup {
   system?: string;
 }
 
-function setupLine(g: GuestSetup | undefined, error: string | undefined, template: boolean): string {
+function setupLine(g: GuestSetup | undefined, error: string | undefined, template: boolean): ReactNode {
   if (error) return error;
   if (!g) return "Checking";
   if (g.unchecked) return `Not checked (${g.unchecked}): needs cloud-init in the guest`;
@@ -34,7 +34,16 @@ function setupLine(g: GuestSetup | undefined, error: string | undefined, templat
     case "unattend":
       return "Applied by Windows setup at first start";
     case "disk":
-      return `Written into the disk: this ${template ? "template" : "VM"} has no cloud-init`;
+      return (
+        <span>
+          Written into the disk: this {template ? "template" : "VM"} has no cloud-init
+          <Help label="About writing into the disk">
+            Written while the clone is shut off. A new user gets a home directory, the sudo or wheel group and sudo
+            without a password; an existing user gets the password and keys. Packages and the guest agent are installed
+            at the first start. Profiles and raw user-data need cloud-init.
+          </Help>
+        </span>
+      );
   }
   return `Not possible: ${g.problem}`;
 }
