@@ -198,6 +198,7 @@ type cbStatus struct {
 	Zone      string        `json:"zone"` // the controller's time zone: At, and the periods of retention
 	NextRun   int64         `json:"nextRun,omitempty"`
 	Dir       string        `json:"dir"`
+	DirCustom bool          `json:"dirCustom,omitempty"` // a folder the administrator chose, which may be on another machine
 	Last      *cbRecordView `json:"last,omitempty"`      // newest successful backup of any kind
 	LastDaily *cbRecordView `json:"lastDaily,omitempty"` // newest daily attempt, also when it failed
 	Command   string        `json:"restoreCommand"`
@@ -210,7 +211,7 @@ func recView(kind string, r ctlbackup.Record) *cbRecordView {
 func (s *Server) ctlBackupStatus(w http.ResponseWriter, r *http.Request) {
 	c := s.cbSettings()
 	st := cbStatus{Daily: c.Daily, Mode: c.Mode, At: c.At, EveryHours: c.EveryHours, Policy: c.Policy, Zone: zoneName(time.Now()),
-		Dir: s.cbDir(), Command: "sudo systemctl stop virticle && sudo virticle restore FILE"}
+		Dir: s.cbDir(), DirCustom: c.Dir != "", Command: "sudo systemctl stop virticle && sudo virticle restore FILE"}
 	if c.Daily {
 		cbSched.Lock()
 		if !cbSched.next.IsZero() {

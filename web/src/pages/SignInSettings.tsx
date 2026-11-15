@@ -181,7 +181,7 @@ function OidcSection({ cfg, save }: { cfg: Oidc; save: (o: object) => Promise<vo
       <Check checked={d.enabled} onChange={(v) => edit({ enabled: v })}>
         Allow sign-in with an identity provider
       </Check>
-      <Field label="Provider name" hint={`The button says "Sign in with ${d.name || "..."}".`}>
+      <Field label="Provider name" hint={d.name ? `The button says "Sign in with ${d.name}".` : undefined}>
         <input value={d.name} onChange={(e) => edit({ name: e.target.value })} placeholder="Microsoft Entra ID" />
       </Field>
       <Field label="Issuer URL">

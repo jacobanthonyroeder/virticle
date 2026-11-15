@@ -22,6 +22,7 @@ interface Status extends Keep {
   zone: string;
   nextRun?: number;
   dir: string;
+  dirCustom?: boolean;
   last?: Rec;
   lastDaily?: Rec;
   restoreCommand: string;
@@ -177,9 +178,11 @@ export default function ControllerBackup() {
               <EncDot on={enc.data.on} />
             </p>
           )}
-          <p>
-            Not a copy off this machine: use the download above or <code>virticle backup -o DIR --keep-daily 7</code> from cron.
-          </p>
+          {!st?.dirCustom && (
+            <p>
+              Not a copy off this machine: use the download above or <code>virticle backup -o DIR --keep-daily 7</code> from cron.
+            </p>
+          )}
           <ErrorBox error={daily.error} />
           {st && !form && (
             <div className="actions">
