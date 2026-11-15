@@ -82,21 +82,48 @@ func (c *Ctx) ageProgress(n *atomic.Int64, total int64) func() {
 	}
 }
 
-// hashCount hashes and counts what passes through it.
+// hashCount hashes and counts what passes through it. The hashing runs in a goroutine of its own, so the two
+// checksums and the encryption use separate cores: a copy of each block is queued (at most a few MiB).
 type hashCount struct {
-	h hash.Hash
-	n atomic.Int64
+	h    hash.Hash
+	n    atomic.Int64
+	q    chan []byte
+	done chan struct{}
+	free chan []byte
 }
 
-func newHashCount() *hashCount { return &hashCount{h: sha256.New()} }
+func newHashCount() *hashCount {
+	hc := &hashCount{h: sha256.New(), q: make(chan []byte, 4), done: make(chan struct{}), free: make(chan []byte, 6)}
+	go func() {
+		defer close(hc.done)
+		for b := range hc.q {
+			hc.h.Write(b)
+			select {
+			case hc.free <- b[:0]:
+			default:
+			}
+		}
+	}()
+	return hc
+}
 
 func (hc *hashCount) Write(p []byte) (int, error) {
-	hc.h.Write(p)
+	var b []byte
+	select {
+	case b = <-hc.free:
+	default:
+	}
+	hc.q <- append(b, p...)
 	hc.n.Add(int64(len(p)))
 	return len(p), nil
 }
 
-func (hc *hashCount) sum() string { return hex.EncodeToString(hc.h.Sum(nil)) }
+// sum ends the hashing and returns the digest; call it once, after the last Write.
+func (hc *hashCount) sum() string {
+	close(hc.q)
+	<-hc.done
+	return hex.EncodeToString(hc.h.Sum(nil))
+}
 
 // ctxReader stops reading once the verb's context is cancelled (a signal).
 type ctxReader struct {

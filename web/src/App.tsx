@@ -15,6 +15,7 @@ import Audit from "./pages/Audit";
 import WebAccess from "./pages/WebAccess";
 import WebPending from "./WebPending";
 import ControllerBackup from "./pages/ControllerBackup";
+import BackupEncryption from "./pages/BackupEncryption";
 import Account from "./pages/Account";
 import SignInSettings from "./pages/SignInSettings";
 import { TwoStepSetup } from "./pages/TwoStep";
@@ -42,6 +43,7 @@ const SETTINGS = [
   { label: "Web access", to: "/web-access" },
   { label: "Alerts", to: "/alerts-settings" },
   { label: "Controller backup", to: "/controller-backup" },
+  { label: "Backup encryption", to: "/backup-encryption" },
   { label: "Audit", to: "/audit" },
 ];
 
@@ -170,6 +172,7 @@ export default function App() {
           {session.role === "admin" && <Route path="/sign-in" element={<SignInSettings />} />}
           {session.role === "admin" && <Route path="/alerts-settings" element={<AlertSettings />} />}
           {session.role === "admin" && <Route path="/controller-backup" element={<ControllerBackup />} />}
+          {session.role === "admin" && <Route path="/backup-encryption" element={<BackupEncryption />} />}
           <Route path="*" element={<div className="empty">Not found</div>} />
         </Routes>
       </main>

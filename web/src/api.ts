@@ -246,7 +246,7 @@ export interface Task {
   cancel?: Role; // set while the task runs and can be stopped: the role that may stop it
 }
 export interface ServerEvent {
-  type: "node" | "domain" | "network" | "pool" | "task" | "alert" | "tags" | "cpubaseline" | "rolling";
+  type: "node" | "domain" | "network" | "pool" | "task" | "alert" | "tags" | "cpubaseline" | "rolling" | "backupkey";
   node?: number;
   name?: string;
   uuid?: string;

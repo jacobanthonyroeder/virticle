@@ -356,6 +356,40 @@ Good to know:
 
 ![Delete backup dialog](img/backup-delete.png)
 
+### Encrypted backups
+
+**Settings > Backup encryption** (administrators) turns on encryption for VM backups and for the controller's scheduled
+backups. It uses [age](https://age-encryption.org). One key serves the whole installation.
+
+1. **Turn on encryption**: type a passphrase twice (10 characters or more). The browser downloads the **recovery key file**
+   `virticle-backup-key.age`. Keep it off the controller, together with the passphrase. You can download it again later
+   with your password.
+2. From now on every new backup is encrypted, also scheduled ones: nobody needs to be present. A green dot with
+   **Encrypted** shows on the encryption page, in the header of each backups page and on each encrypted backup in the
+   lists. A grey dot with **Not encrypted** shows when it is off, and on every backup made without it.
+3. **Restore** of an encrypted backup asks for the passphrase. A wrong passphrase is refused before anything changes. An
+   incremental backup on an encrypted one asks too, even if it is not encrypted itself.
+4. **Export** of an encrypted full backup gives a file whose disks stay encrypted; it asks for nothing. Export of an
+   encrypted incremental backup asks for the passphrase, because the chain is put together, and the result is encrypted
+   again with the same key. **Import** takes both.
+
+Good to know:
+
+- The passphrase is never stored. The controller keeps the key only in the recovery key file, which the passphrase
+  opens. So scheduled backups can be encrypted, but nothing on the controller can decrypt them without you.
+- **Change passphrase** keeps the same key: all backups stay readable. Download the recovery key file again; the old file
+  still opens with the old passphrase.
+- **Turn off encryption**: new backups are plain again. The key stays, because the encrypted backups need it. The page
+  says how many still do.
+- The controller backup holds the recovery key file, so a restored controller can still restore encrypted VM backups.
+- Encryption protects backups at rest (a stolen disk, a copied pool, an export file). It does not protect against someone
+  who controls a node: the VM's own disks are plain there.
+- A node prepared by an older version cannot encrypt. While encryption is on, a backup on such a node fails with a message
+  to prepare the node again; it is never stored unencrypted.
+- Replication copies are not encrypted: the standby must be able to start.
+
+**If the passphrase or the recovery key file is lost, the encrypted backups are lost. Nobody can recover them.**
+
 ## Replication and failover
 
 A VM can have a copy on a second node, never older than its interval, that you start with one click when the first node

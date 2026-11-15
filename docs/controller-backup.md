@@ -25,6 +25,7 @@ One file, `virticle-backup-<host>-<UTC time>.tar.gz`, with:
 | `tls-cert.pem`, `tls-key.pem`, `web-own/`, `acme/` | The web certificates and the ACME account |
 | `instance-id` | Marks the scheduled snapshots of this controller |
 | `secret.key`, the key that encrypts the stored secrets (two-step seeds, sign-in passwords, notification addresses), if it exists | |
+| `backup-key.age`, the recovery key file of [backup encryption](user-guide.md#encrypted-backups), if a key was made | The key of the encrypted VM backups, still locked with its passphrase. A restored controller restores encrypted VM backups with that passphrase. The public key is in the database |
 | `manifest.json` | Format version, program version, time, host name, the database schema version, every file with its SHA-256 |
 
 Not included: `metrics.db` (rebuilt by itself), logs, the copies made before an
@@ -89,11 +90,36 @@ files it keeps and how far back, and about how much space (the size of the last
 file times the number kept) next to the free space. An install that had the daily
 copy on keeps it, with 7 dailies.
 
-These files are not encrypted, because a passphrase kept next to the data would
-protect nothing; only the controller's account can read them. They protect against
-a bad upgrade or a mistake, **not against losing the machine**. A copy that failed
-raises an alert on the Alerts page. The task of a copy says how many older files it
-deleted.
+While [backup encryption](user-guide.md#encrypted-backups) is off, these files are
+not encrypted; only the controller's account can read them. While it is on, each copy
+is encrypted to the backup key (`...tar.gz.age`): the controller needs only the public
+key to write it, and the passphrase of the key to open it, which it does not have. The
+page shows a green dot with **Encrypted** or a grey one with **Not encrypted**. The copies
+protect against a bad upgrade or a mistake, **not against losing the machine**. A copy
+that failed raises an alert on the Alerts page. The task of a copy says how many older
+files it deleted.
+
+### Restore a copy encrypted to the backup key
+
+The key that opens such a copy is inside the copy. So `restore` takes it from outside:
+
+- On the same machine, with the data directory still there, `restore` uses
+  `<data directory>/backup-key.age` and asks for its passphrase:
+
+      sudo systemctl stop virticle
+      sudo virticle restore /var/lib/virticle/backups/virticle-backup-HOST-STAMP.tar.gz.age
+
+- On a new machine, or when the data directory is lost, give the recovery key file you
+  downloaded when you turned on encryption:
+
+      sudo virticle restore --key virticle-backup-key.age virticle-backup-HOST-STAMP.tar.gz.age
+
+`--passphrase-file FILE` reads the passphrase of the key from a file instead. A key file of
+another key is refused with "encrypted to another backup key". Without either key the
+restore stops before it changes anything. The restored data directory holds the key again.
+
+The age tool opens it as well, without Virticle:
+`age -d -i virticle-backup-key.age FILE.tar.gz.age | tar tz`.
 
 ## (a) Restore on the same machine
 

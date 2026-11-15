@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { bytes, get, post, put } from "../api";
 import ScheduleAssistant, { describeKeep, effectiveKeep, Freq, Keep, keepOf, Projection } from "../ScheduleAssistant";
 import { ErrorBox, Field, StateBadge, useAction } from "../ui";
+import { EncDot, useBackupEncryption } from "../BackupKey";
 
 interface Rec {
   time: number;
@@ -47,6 +48,7 @@ export default function ControllerBackup() {
   const dl = useAction();
   const daily = useAction();
   const [form, setForm] = useState<{ freq: Freq; keep: Keep } | undefined>();
+  const enc = useBackupEncryption();
 
   const load = useCallback(() => {
     get<Status>("/controller-backup").then(setSt, () => {});
@@ -111,7 +113,10 @@ export default function ControllerBackup() {
   return (
     <>
       <div className="head">
-        <h1>Controller backup</h1>
+        <div className="headtitle">
+          <h1>Controller backup</h1>
+          {enc.data && <EncDot on={enc.data.on} title={enc.data.on ? "Scheduled backups are encrypted to the backup key (Settings > Backup encryption)" : "Scheduled backups are not encrypted (Settings > Backup encryption)"} />}
+        </div>
       </div>
       <div className="cards">
         <form className="card" onSubmit={download} aria-label="Download backup" autoComplete="off">
@@ -160,8 +165,13 @@ export default function ControllerBackup() {
                 : {describeFreq(st)}, keep {describeKeep(st)}
               </>
             )}
-            . Not encrypted; only the controller&apos;s account can read them.
+            .
           </p>
+          {enc.data && (
+            <p title={enc.data.on ? "Encrypted to the backup key: restore needs the recovery key file and its passphrase (virticle restore --key FILE)" : "Only the controller's account can read them. Turn on encryption under Settings > Backup encryption"}>
+              <EncDot on={enc.data.on} />
+            </p>
+          )}
           <p>
             Not a copy off this machine: use the download above or <code>virticle backup -o DIR --keep-daily 7</code> from cron.
           </p>
