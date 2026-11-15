@@ -2,10 +2,10 @@ import { describeWhen, NextRunLine } from "../ScheduleTime";
 import ScheduleAssistant, { describeKeep, effectiveKeep, Freq, Keep, keepOf, Projection } from "../ScheduleAssistant";
 import { browserZone, localToUtc, utcToLocal } from "../tz";
 import DialogAdvanced from "./DialogAdvanced";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, bytes, del, get, NodeStatus, Pool, post, put, Task, VMDetail } from "../api";
 import { useRole } from "../auth";
-import { useLive } from "../live";
+import { useEvents, useLive } from "../live";
 import PoolSelect from "../PoolSelect";
 import Select from "../Select";
 import { ErrorBox, Field, Modal, NodePicker, Progress, useAction, useConfirm, usePrompt } from "../ui";
@@ -318,10 +318,52 @@ function Restore(props: { b: BackupEntry; onClose: () => void; onDone: () => voi
   );
 }
 
+/** Verifies a backup and the backups it builds on: follows the task through the event stream. */
+function Verify(props: { b: BackupEntry; onClose: () => void }) {
+  const { b } = props;
+  const act = useAction();
+  const [id, setId] = useState(0);
+  const [seen, setSeen] = useState<Record<number, Task>>({});
+  // Task events can come before the start answer: keep them by id.
+  useEvents((e) => {
+    if (e.type === "task" && e.task && e.task.kind === "verify" && e.task.target === b.dir) setSeen((m) => ({ ...m, [e.task!.id]: e.task! }));
+  });
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    act.run(async () => setId((await post<{ task: number }>(url(b) + "/verify")).task));
+  }, []);
+  const t = id ? seen[id] : undefined;
+  const status = t?.status ?? "running";
+  return (
+    <Modal title={`Verify ${b.manifest?.vm ?? b.dir}`} onClose={props.onClose}>
+      <p className="muted">{b.manifest ? when(b.manifest.created) : b.dir}</p>
+      <ErrorBox error={act.error} />
+      {!act.error && (
+        <>
+          <p>
+            <span className={"badge s-" + (status === "ok" ? "ok" : status === "failed" ? "failed" : "running")}>{status === "ok" ? "Intact" : status === "failed" ? "Damaged" : "Verifying"}</span>
+          </p>
+          <Progress value={status === "ok" ? 1 : (t?.progress ?? 0)} failed={status === "failed"} />
+          {status === "ok" && t?.note && <p className="muted">{t.note}</p>}
+          {status === "failed" && <ErrorBox error={t?.error} />}
+          {status === "running" && id > 0 && (
+            <div className="actions">
+              <button onClick={() => post(`/tasks/${id}/cancel`).catch(() => {})}>Stop</button>
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () => void }) {
   const role = useRole();
   const [restoring, setRestoring] = useState<BackupEntry | undefined>();
   const [deleting, setDeleting] = useState<BackupEntry | undefined>();
+  const [verifying, setVerifying] = useState<BackupEntry | undefined>();
   const act = useAction();
   const prompt = usePrompt();
   // An encrypted incremental backup is put together for the export, which needs the key: the passphrase is checked
@@ -397,6 +439,11 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
                       Restore
                     </button>
                   )}
+                  {b.manifest && role !== "viewer" && (
+                    <button onClick={() => setVerifying(b)} title={isIncremental(b) ? "Check every file and checksum, with the earlier backups it needs" : "Check every file and checksum"}>
+                      Verify
+                    </button>
+                  )}
                   {b.manifest && role !== "viewer" && !b.chainError && isIncremental(b) && b.needsKey && (
                     <button onClick={() => exportKeyed(b)} title="Download as one tar file; needs the passphrase to put it together">
                       Export
@@ -417,6 +464,7 @@ function BackupTable(props: { list: BackupEntry[]; global?: boolean; reload: () 
         </tbody>
       </table>
       {restoring && <Restore b={restoring} onClose={() => setRestoring(undefined)} onDone={props.reload} />}
+      {verifying && <Verify b={verifying} onClose={() => setVerifying(undefined)} />}
       {deleting && (
         <Modal title="Delete backup" onClose={() => setDeleting(undefined)}>
           <p>
