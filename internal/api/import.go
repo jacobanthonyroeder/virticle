@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"path"
 	"regexp"
@@ -804,10 +805,13 @@ func (s *Server) importOVA(r *http.Request, st *stopper, h *hostconn.Host, pool 
 			return err
 		}
 		progress(0.05)
-		created := []string{}
+		var created []hostconn.FileID
+		// undo removes the disks this import made, only while each is still that file and nothing holds it open.
 		undo := func() {
 			for _, v := range created {
-				h.Remove(pd.Dir + "/" + v)
+				if why := removeOwnFile(h, v); why != "" {
+					log.Printf("import %s: %s was kept: %s", req.Name, v.Path, why)
+				}
 			}
 		}
 		for i, d := range ovf.Disks {
@@ -826,7 +830,12 @@ func (s *Server) importOVA(r *http.Request, st *stopper, h *hostconn.Host, pool 
 				undo()
 				return fmt.Errorf("disk %s: %w", d.File, err)
 			}
-			created = append(created, vols[i])
+			// The conversion put the disk there exclusively just now; its identity proves it in undo.
+			if ids, ierr := h.FileIDs(pd.Dir + "/" + vols[i]); ierr == nil && len(ids) == 1 && ids[0].Exists {
+				created = append(created, ids[0])
+			} else {
+				created = append(created, hostconn.FileID{Path: pd.Dir + "/" + vols[i], Exists: true})
+			}
 			h.Remove(local) // free the space before the next disk
 		}
 		if !st.commit() {

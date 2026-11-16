@@ -882,6 +882,10 @@ func downStorage(h *hostconn.Host, dirs []string) string {
 	if err != nil {
 		return "cannot list the storage pools: " + err.Error()
 	}
+	return downIn(pools, dirs)
+}
+
+func downIn(pools map[string]dstPool, dirs []string) string {
 	for _, d := range dirs {
 		if pl, ok := pools[path.Clean(d)]; ok && pl.down {
 			return "the storage " + pl.pool.Name + " (" + d + ") does not answer"
