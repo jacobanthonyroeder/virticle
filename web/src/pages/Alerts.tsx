@@ -5,6 +5,7 @@ import { Alert, CleanResult, MigRun, bytes, get, post } from "../api";
 import { useRole } from "../auth";
 import { useLive } from "../live";
 import { StatusDot } from "../Checks";
+import Help from "../Help";
 import { ErrorBox, Modal, useAction, useConfirm } from "../ui";
 
 /** Current alerts; refetched whenever the server announces a change. */
@@ -85,6 +86,7 @@ export function AlertBell() {
                 <li key={a.id} className={a.severity}>
                   <div className="atitle">
                     <StatusDot status={a.severity === "critical" ? "error" : "warning"} /> {a.link ? <NavLink to={a.link} onClick={() => setOpen(false)}>{a.title}</NavLink> : a.title}
+                    {a.help && <Help label="How to resolve">{a.help}</Help>}
                   </div>
                   <div className="amsg">{a.message}</div>
                   {a.kind === "migration-leftover" && admin && (

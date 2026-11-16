@@ -168,7 +168,8 @@ func useQcow2Nvram(h *hostconn.Host, dom libvirt.Domain) string {
 	if ex, err := h.Exists(target); err != nil || ex[target] {
 		return "" // something is there already; never touch it
 	}
-	if err := h.NewNVRAM(n.Template, target); err != nil {
+	id, err := h.NewNVRAMID(n.Template, target)
+	if err != nil {
 		log.Printf("nvram %s: no qcow2 store on %s: %v", dom.Name, h.Name, err)
 		return "The UEFI variable store of this VM is a raw file (the node could not make a qcow2 one: " + impFirstLine(err.Error()) + "), so snapshots of it are external."
 	}
@@ -177,7 +178,7 @@ func useQcow2Nvram(h *hostconn.Host, dom libvirt.Domain) string {
 	// still removed, see withoutFirmwareSelection.
 	_, err = h.DomainDefineXMLFlags(withQcow2Nvram(raw, n, target), libvirt.DomainDefineValidate)
 	if err != nil {
-		_ = h.Remove(target)
+		_ = removeOwnFile(h, hostconn.FileID{Path: target, Exists: true, Regular: true, ID: id}) // only the store made here
 		log.Printf("nvram %s: qcow2 store refused on %s: %v", dom.Name, h.Name, err)
 		return "The UEFI variable store of this VM is a raw file (libvirt did not accept a qcow2 one), so snapshots of it are external."
 	}

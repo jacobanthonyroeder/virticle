@@ -293,7 +293,9 @@ answers with the file's identity. Only then is the file recorded as the run's.
 The handle survives writes, renames, relabelling, a reboot and a remount, and changes when the file is deleted and
 made again under the same name. Device numbers are not used: an NFS mount or an LVM volume can get another one after a
 reboot. On NFS both nodes see the same handle for the same file, so the source's own file seen through a share is
-recognised.
+recognised. Checked in the lab (Linux 6.12 clients, an NFS server on XFS): two clients, mounting with NFS 3, 4.1 or 4.2,
+saw the same handle for a file; a file deleted and made again under the same name (even with the same inode number) got
+another one; the handle was the same after the server restarted and after a remount.
 
 **The journal.** Before the first file is made the run is written to the database (`mig_runs`): VM uuid and name,
 source, target, state. Each file it made follows (`mig_files`): path, identity, size, state, the reason it is kept.
@@ -315,7 +317,13 @@ counts as "no".
   and `qemu-img`'s), UEFI stores, snapshot files. No volume in an active pool is built on it. No other journal entry and
   no running migration claims it.
 - It is not on storage the source also uses: not an NFS pool that the source mounts at the same place, not outside every
-  pool (the UEFI directory excepted), and not the same file as the source's file of that name.
+  pool (the UEFI directory excepted), and not the same file as the source's file of that name. An NFS pool at the same
+  place counts as another share only when that is proven: another export, or servers whose addresses have none in
+  common. Then the identity check above still applies.
+- The storage answers. An NFS pool whose share does not answer (the probe of [Shared storage (NFS)](#shared-storage-nfs)) is not touched: the
+  attempt keeps everything with the reason "the storage ... does not answer". Each node call of a cleanup has a time
+  limit (1 minute to look, 3 minutes to remove), so a share that stops answering in the middle never holds up the
+  controller; a removal that ran out of time is looked at again on the next attempt.
 - The VM is on the source and only there: defined, its disk files present; not defined or running on the target, not an
   unfinished incoming copy there. A VM found on the target, or on neither node, or with missing disks puts the run into
   `attention`.
@@ -325,11 +333,29 @@ counts as "no".
 The removal is atomic on the node (`remove-id`): the file is renamed to a private name, its identity is checked on what
 was renamed, and it is removed, or renamed back. A file that a process (QEMU) holds a lock on is renamed back too.
 
+| File system | Private name | Way back |
+| --- | --- | --- |
+| With `RENAME_NOREPLACE` (ext4, XFS, btrfs) | `NAME.virticle-rm.XXXXXX` next to it, made without replacing anything | Rename without replacing |
+| Without it (NFS 3, 4.1, 4.2: the Linux client answers EINVAL) | A new directory `NAME.virticle-rm.XXXXXX` (mkdir fails where the name exists), the file renamed into it | Hard link, then the private copy is dropped |
+
+Neither way back replaces a file that took the name meanwhile: the file then stays under the private name and the
+error names it. When the node command is stopped by a signal in between, it puts the file back. On NFS 3 a lock that
+another node holds on a file is not visible (the lab showed it with NLM); on NFS 4 it is.
+
 **The end of a live migration.** When the target's answer to the last step is lost (the connection broke), the target
 may run the VM already. The source is then told nothing until the target says where the VM is: the task asks for up to 3
-minutes; after that the VM stays paused on the source and the cleanup asks again when the target is online. Running
-there: the source copy is stopped and the run needs attention. Not there: the source resumes the VM. In both cases
-nothing is removed by itself.
+minutes; after that the VM stays paused on the source, with no time limit, and the cleanup asks again when the target is
+online. Running there: the source copy is stopped and the run needs attention. Not there: the source resumes the VM. In
+both cases nothing is removed by itself.
+
+To settle it by hand while the target does not answer to the controller (the "?" of the alert says the same):
+
+1. On the target, as root: `virsh list --all`.
+2. The VM runs there: it moved. Keep it. Stop the paused copy on the source (`virsh destroy NAME`), never resume it, and
+   leave its disks until the VM on the target is checked.
+3. The VM is not there, or only as a paused incoming copy: stop that copy on the target (`virsh destroy NAME`), then
+   resume the VM on the source (**Resume**, or `virsh resume NAME`).
+4. Then **Remove** or **Keep** the files in the alert.
 
 **After a successful migration** the source files are removed only when the VM is defined on the target with every
 file of its definition there, it is no longer defined on the source, nothing on the source refers to the file, and the
@@ -340,8 +366,24 @@ run). An attempt that removes something or keeps a file for a new reason runs as
 operation trace holds the node calls and its Result lists what was removed and what was kept, with the reason.
 
 **Alert** `migration-leftover`, one per run, id `migleft:<run>`: "Files of a failed migration of NAME are left on NODE"
-(warning, with paths, sizes and reasons), or "The migration of NAME needs attention" (critical, says where the VM is).
-It clears when the entry is gone.
+(warning, with paths, sizes and reasons), or "The migration of NAME needs attention" (critical, says where the VM is;
+`help` says how to settle it by hand, shown behind a "?"). It clears when the entry is gone.
+
+## Files made by disk move, clone, restore and import
+
+The same proof as for migrations: a file is removed after a failure only while it is still the file the operation
+made, and while no process holds it open (`remove-id`). What stays is named in the task's result.
+
+| Operation | Making the new file | After a failure |
+| --- | --- | --- |
+| Disk move, running VM | The empty target image by the node, exclusively, with its identity | Removed by identity; another file under the name is left as it is |
+| Disk move, shut-off VM | libvirt copies to `NAME.virticle-move-XXXXXXXX`; the node then gives the copy its name without replacing anything | The private copy is removed by identity; a volume that took the name meanwhile stays |
+| Disk move, old volume | Deleted after the move by identity: kept when another file has its name or a process has it open | |
+| Clone, full copy; volume clone | As the shut-off disk move; a name that exists on disk, listed by libvirt or not, is refused | Removed by identity |
+| Clone, linked; cloud-init seed | The image by the node, exclusively | Removed by identity |
+| Restore | Each disk is moved into the pool by the node without replacing anything, and recorded only then; the UEFI store is copied exclusively | Only those files are removed, by identity. A VM that took the name or UUID meanwhile is never defined over |
+| Restore over an existing VM | The VM is checked again when it is removed: still shut off, not being replicated. It loses what a normal delete removes (writable, not shareable pool volumes and its cloud-init seed), and nothing when linked clones are built on its disks; each by identity | |
+| OVA import | Each disk is converted and moved into place exclusively | The disks made so far are removed by identity |
 
 **API.**
 

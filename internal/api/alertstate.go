@@ -30,6 +30,8 @@ type Alert struct {
 	// User is the person who ran the failed task of a failed-job alert; empty for everything the scheduler did and
 	// for alerts that no task caused. The destinations get these alerts like any other.
 	User string `json:"user,omitempty"`
+	// Help says how to resolve the alert by hand, for the "?" by its title (webhooks carry it too).
+	Help string `json:"help,omitempty"`
 }
 
 type alertConfig struct {

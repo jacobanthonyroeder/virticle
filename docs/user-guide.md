@@ -656,6 +656,7 @@ The VM stays on the source. The copies made on the target are removed, and nothi
 | The target is offline, or cannot be checked | The copies stay. The alert **Files of a failed migration of NAME are left on NODE** lists them. They are removed when the node is back, and the alert clears. |
 | A copy was replaced by another file of the same name, or something uses it | That file stays. The alert says why. |
 | The connection to the target broke at the very end | The VM may run on the target already. Nothing is removed on either node. The alert **The migration of NAME needs attention** says where the VM runs. |
+| The target's NFS share does not answer | Nothing is touched there. The copies stay until the share answers again. |
 | The controller restarted during the migration | The copies are found again after the restart and removed by the same rule. |
 
 An administrator can act on the alert:
@@ -663,6 +664,14 @@ An administrator can act on the alert:
 - **Remove** checks again and removes what is proven to be the migration's own copies. A window lists what was removed
   and what was kept, and why.
 - **Keep** leaves the files as ordinary volumes. The controller no longer removes them.
+
+When the connection broke at the very end and the target does not answer, the VM stays paused on the source until it
+does, so it never runs on both nodes. The "?" of the alert says how to settle it by hand: check on the target whether
+the VM runs there, then either stop the paused copy on the source, or resume it there. Details:
+[reference](reference.md#failed-migrations).
+
+Disk move, clone, restore and import follow the same rule for the files they make: after a failure only their own new
+files go, and a file that took the name meanwhile stays. The task result names what was kept.
 
 After a successful migration the source files go only when the VM is confirmed on the target with its disks. The rule
 is in [reference.md](reference.md#failed-migrations).
