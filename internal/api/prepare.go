@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"virticle/internal/hostconn"
 	"virticle/internal/prepare"
 )
 
@@ -21,7 +22,11 @@ type prepareReq struct {
 	AdminUser  string `json:"adminUser"`
 	Password   string `json:"password"`   // secret: used for this run only
 	PrivateKey string `json:"privateKey"` // secret: used for this run only
-	CheckOnly  bool   `json:"checkOnly"`
+	// A login on the jump host, for a jump host that does not accept the controller's key yet. Secrets, used for this
+	// run only and only when the controller's key is refused there.
+	JumpPassword   string `json:"jumpPassword"`
+	JumpPrivateKey string `json:"jumpPrivateKey"`
+	CheckOnly      bool   `json:"checkOnly"`
 
 	AllowRoot bool `json:"allowRoot"`
 	Minimal   bool `json:"minimal"`
@@ -48,6 +53,9 @@ type prepJob struct {
 	user  string // the account the controller will log in as
 	addr  string
 	jump  string
+	// jumpLogin: the jump host did not accept the controller's key (or the login given): the dialog asks for a login.
+	jumpLogin bool
+	extra     []prepare.Row // shown before the rows of the run
 }
 
 type prepJobView struct {
@@ -58,11 +66,13 @@ type prepJobView struct {
 	User  string        `json:"user"`
 	Addr  string        `json:"addr"`
 	Jump  string        `json:"jump,omitempty"`
+	// JumpLogin: the run stopped at the jump host, which does not accept the controller's key.
+	JumpLogin bool `json:"jumpLogin,omitempty"`
 }
 
 func (j *prepJob) set(rows []prepare.Row) {
 	j.mu.Lock()
-	j.rows = rows
+	j.rows = append(append([]prepare.Row{}, j.extra...), rows...)
 	j.mu.Unlock()
 }
 
@@ -112,8 +122,15 @@ func (s *Server) prepareStart(w http.ResponseWriter, r *http.Request) {
 	if k := strings.TrimSpace(req.PrivateKey); k != "" {
 		admin.KeyPEM = []byte(k + "\n")
 	}
+	admin.JumpPassword = req.JumpPassword
+	if k := strings.TrimSpace(req.JumpPrivateKey); k != "" {
+		admin.JumpKeyPEM = []byte(k + "\n")
+	}
+	if !req.CheckOnly && admin.HasJumpLogin() {
+		admin.ControllerKey = s.PubKey // a check changes nothing, also not on the jump host
+	}
 	// The secrets now live in admin only; drop the request's copies.
-	req.Password, req.PrivateKey = "", ""
+	req.Password, req.PrivateKey, req.JumpPassword, req.JumpPrivateKey = "", "", "", ""
 
 	job := &prepJob{check: req.CheckOnly, user: o.ServiceUser(), addr: req.Addr, jump: req.Jump}
 	kind := "prepare node"
@@ -129,10 +146,21 @@ func (s *Server) prepareStart(w http.ResponseWriter, r *http.Request) {
 		}()
 		conn, err := prepare.Dial(s.Nodes, admin)
 		if err != nil {
-			job.set([]prepare.Row{{ID: "admin", Title: "Administrator access", Status: prepare.Error, Detail: "could not sign in: " + err.Error()}})
+			job.set([]prepare.Row{prepare.DialFailure(err)})
+			if hostconn.JumpAuthRefused(err) {
+				job.mu.Lock()
+				job.jumpLogin = true
+				job.mu.Unlock()
+			}
 			return err
 		}
 		defer conn.Close()
+		if conn.JumpKeyAdded {
+			job.mu.Lock()
+			job.extra = []prepare.Row{{ID: "jump", Title: "Jump host", Status: prepare.Info,
+				Detail: "controller key added to " + admin.Jump + ", for forwarding only"}}
+			job.mu.Unlock()
+		}
 		run := &prepare.Runner{N: conn, SudoPassword: admin.Password}
 		// The account the controller will sign in as is settled by the check;
 		// the UI registers the node with it.
@@ -207,7 +235,7 @@ func (s *Server) prepareStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	j.mu.Lock()
-	v := prepJobView{Rows: append([]prepare.Row{}, j.rows...), Done: j.done, OK: j.ok, Check: j.check, User: j.user, Addr: j.addr, Jump: j.jump}
+	v := prepJobView{Rows: append([]prepare.Row{}, j.rows...), Done: j.done, OK: j.ok, Check: j.check, User: j.user, Addr: j.addr, Jump: j.jump, JumpLogin: j.jumpLogin}
 	j.mu.Unlock()
 	writeJSON(w, v)
 }

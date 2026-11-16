@@ -95,6 +95,54 @@ test.describe.serial("prepare node, check only", () => {
     await page.keyboard.press("Escape");
   });
 
+  // A jump host that does not accept the controller's key (a new controller): E2E_JUMP_NOKEY is user@address of an
+  // account there that has no authorized_keys entry for it, E2E_JUMP_PASSWORD its password. The node (E2E_NODE1) must be
+  // reachable from that jump host. Check only: nothing is written on the jump host.
+  test("a jump host that refuses the controller's key asks for its own login", async ({ page, api, n1 }) => {
+    test.skip(!process.env.E2E_JUMP_NOKEY || !process.env.E2E_JUMP_PASSWORD, "no jump account without the controller's key (E2E_JUMP_NOKEY, E2E_JUMP_PASSWORD)");
+    const jumpPw = process.env.E2E_JUMP_PASSWORD as string;
+    const node = (await api.nodes()).find((n) => n.id === n1) as any;
+    await page.goto("/nodes");
+    await page.getByRole("button", { name: "Add node" }).click();
+    const dlg = dialog(page, "Add node");
+    await field(dlg, "Address").fill(node.addr);
+    await dlg.getByText("Advanced", { exact: true }).click();
+    await field(dlg, "Jump host (optional)").fill(process.env.E2E_JUMP_NOKEY as string);
+    // the jump host login is not asked for before the jump host refused the controller's key
+    await expect(dlg.getByText("Jump host password")).toHaveCount(0);
+    await pick(dlg, "Credential", "Private key");
+    await dlg.locator("textarea").fill(key);
+    await dlg.getByRole("button", { name: "Check", exact: true }).click();
+
+    const res = dialog(page, "Check node");
+    const row = res.locator("ul.checklist li", { hasText: "Jump host" });
+    await expect(row).toContainText("the controller's key is not accepted", { timeout: 60_000 });
+    await res.getByRole("button", { name: "Back" }).click();
+    // the login is asked for now, with what it does behind the help mark
+    const pwField = field(dlg, "Jump host password");
+    await expect(pwField).toBeVisible();
+    await dlg.locator("label.field", { hasText: "Jump host password" }).getByRole("button", { name: "About Jump host password" }).hover();
+    await expect(page.getByRole("tooltip")).toContainText("restrict,port-forwarding");
+    await pwField.fill("wrong-jump-password");
+    await dlg.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(dialog(page, "Check node").locator("ul.checklist li", { hasText: "Jump host" })).toContainText("sign-in refused", { timeout: 60_000 });
+    await dialog(page, "Check node").getByRole("button", { name: "Back" }).click();
+    await pwField.fill(jumpPw);
+    await dlg.getByRole("button", { name: "Check", exact: true }).click();
+
+    const ok = dialog(page, "Check node");
+    await expect(ok.locator("ul.checklist")).toContainText("Administrator access", { timeout: 60_000 });
+    await expect(ok.locator("ul.checklist li", { hasText: "Jump host" })).toHaveCount(0); // a check adds nothing on the jump host
+    await expect(ok.locator("ul.checklist li", { hasText: "Administrator access" }).getByRole("img", { name: "ok" })).toBeVisible();
+    // the secrets are nowhere on the page, in the tasks or in the audit log
+    for (const secret of [jumpPw, "wrong-jump-password"]) {
+      await expect(page.locator("body")).not.toContainText(secret);
+      expect(JSON.stringify(await api.get("/tasks"))).not.toContain(secret);
+      expect(JSON.stringify(await api.get("/audit"))).not.toContain(secret);
+    }
+    await page.keyboard.press("Escape");
+  });
+
   test("the API refuses a run without a credential and a bad account name", async ({ api }) => {
     const miss = await api.ctx.fetch("/api/prepare", { method: "POST", data: { addr: "192.0.2.1", checkOnly: true } });
     expect(miss.status()).toBe(400);

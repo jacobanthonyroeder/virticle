@@ -197,7 +197,8 @@ Where the arguments go depends on the system, and the help mark (second line on 
 ```
 virticle node prepare [--check] [--minimal] [--root] [--user NAME] [--use-existing-user[=NAME]] [--confirm]
                       [--from ADDR] [--take-over] [--jump user@host]
-                      [--identity FILE] [--password-file FILE] [--password-stdin] [--data DIR] [[user@]host[:port]]
+                      [--identity FILE] [--password-file FILE] [--password-stdin]
+                      [--jump-identity FILE] [--jump-password-file FILE] [--data DIR] [[user@]host[:port]]
 ```
 
 Without a host, prepare works on the machine it runs on and must run as root (`sudo virticle node prepare`); no
@@ -214,7 +215,8 @@ sign-in is needed. `sudo virticle node add` does this and adds the node; `node a
 | `--confirm` | Only with `--use-existing-user`: add the groups and the sudo rule. |
 | `--from ADDR` | Adds `from="ADDR"` to the key, so it works only from the controller's address. |
 | `--take-over` | The node trusts another Virticle controller's key (prepare then stops and asks): remove that key. See [controller-backup.md](controller-backup.md#c-there-is-no-backup-and-the-controller-is-lost). |
-| `--jump user@host` | Reaches the node through a jump host. |
+| `--jump user@host` | Reaches the node through a jump host. See [Through a jump host](#through-a-jump-host). |
+| `--jump-identity FILE`, `--jump-password-file FILE` | A login for the jump host, used only when it does not accept the controller's key. `VIRTICLE_JUMP_PASSWORD` works too; a terminal asks. |
 | `--identity FILE`, `--password-file FILE`, `--password-stdin` | How you sign in to another host as administrator. Default: your SSH agent; without one, a terminal asks for the password. For scripts: `--password-file` (the first line of the file), `VIRTICLE_NODE_PASSWORD`, or `--password-stdin`. |
 | `--data DIR` | The controller's data directory (its key, `known_hosts`, instance id). Default `/var/lib/virticle` on an installed machine, else `data`. |
 
@@ -224,6 +226,42 @@ address and SSH user, `virticle-node` or `root`). The other options are for the 
 `--data`.
 
 The host key of the node is recorded in the controller's `known_hosts` the first time it is seen.
+
+### Through a jump host
+
+A jump host is a machine the controller connects through to reach a node (`--jump user@host`, or **Advanced > Jump
+host** in the dialog). The controller signs in to the jump host with its own key, now and whenever it connects to the
+node later. A new controller has a new key that the jump host does not know yet. The error then names the jump host:
+
+```
+jump host user@jump: the controller's key is not accepted
+```
+
+Give a login for the jump host, in the same ways as the administrator's:
+
+| Where | How |
+| --- | --- |
+| Web dialog | Press **Back**. **Jump host credential** and the password or private key appear under **Advanced**. |
+| Terminal | A question: `Password for user@jump`. |
+| Scripts | `--jump-password-file FILE` (the first line), `--jump-identity FILE` or `VIRTICLE_JUMP_PASSWORD`. Never on the command line. |
+
+The login is used for this run only, is not stored, and is used only when the controller's key is refused. Your SSH agent
+is tried as well. The run then goes on to the node.
+
+When the login was needed, Virticle adds one line to the jump host account's `~/.ssh/authorized_keys` (the directory and
+file are created if missing), so that the controller passes the jump host from then on:
+
+```
+restrict,port-forwarding,command="/bin/false" ssh-ed25519 AAAA... virticle-controller
+```
+
+The key can forward connections and nothing else: no shell, no command, no terminal. Nothing else on the jump host
+changes. **Check**, `node prepare --check` and `node unprepare` use the login but write nothing.
+
+To take the key away, delete the line that ends in `virticle-controller` from that file on the jump host. Virticle
+does not do it when a node is removed, because it has no login for the jump host then. `node remove` says when no other
+node uses the jump host. A controller that has `VIRTICLE_JUMP_PASSWORD` set signs in to jump hosts with that password and
+needs no key there.
 
 ## Upgrade and unprepare
 
