@@ -622,11 +622,21 @@ type moveRun struct {
 	progress func(float64)
 
 	cancelled atomic.Bool
-	created   *libvirt.StorageVol // the new volume, until the move has succeeded
+	created   *madeFile // the new file, until the move has succeeded
+	oldID     string    // the identity of the old file when the move started ("" when unknown)
+}
+
+// madeFile is a file the move made, with the identity the node gave for it. After a failure it is removed only
+// while it is still that file (remove-id); otherwise it is left and named in the task's result.
+type madeFile struct {
+	Path, ID string
 }
 
 func (m *moveRun) run() error {
 	m.progress(0.01)
+	if ids, err := m.h.FileIDs(m.f.SrcPath); err == nil && len(ids) == 1 && ids[0].Regular {
+		m.oldID = ids[0].ID
+	}
 	// The new file has none of the change tracking that backups use.
 	dropBackupCheckpoints(m.h, m.dom)
 	var err error
@@ -641,29 +651,47 @@ func (m *moveRun) run() error {
 	return err
 }
 
-// createTarget creates the empty destination volume and returns its path.
+// createTarget creates the empty destination image and returns its path. The node makes it only where nothing
+// exists and reports its identity, so a file that takes the name later is never mistaken for it.
 func (m *moveRun) createTarget() (string, error) {
-	v, err := m.h.StorageVolCreateXML(m.f.DstPool, volumeXML(m.f.DstName, m.f.DstFormat, m.f.Capacity), 0)
-	if err != nil {
-		return "", fmt.Errorf("creating %s in pool %s: %w", m.f.DstName, m.req.Pool, err)
+	p := path.Join(m.f.DstTarget, m.f.DstName)
+	if !safePathRE.MatchString(p) {
+		return "", fmt.Errorf("unsupported path %s", p)
 	}
-	m.created = &v
-	vd, err := volDescOf(m.h, v)
+	id, err := m.h.ImageNew(p, m.f.DstFormat, m.f.Capacity, "", "")
 	if err != nil {
+		err = fmt.Errorf("creating %s in pool %s: %w", m.f.DstName, m.req.Pool, err)
+		if st, serr := m.h.Stat(p); serr == nil && len(st) == 1 && st[0].Exists {
+			// Another file took the name, or the answer was lost: either way it is not proven to be the move's.
+			err = withNote(err, p+" exists and was left as it is")
+		}
 		return "", err
 	}
-	return vd.Path, nil
+	m.created = &madeFile{Path: p, ID: id}
+	m.h.StoragePoolRefresh(m.f.DstPool, 0) // libvirt lists the new volume
+	return p, nil
 }
 
-// dropTarget removes the new volume again; the result is a note for the
-// error message when that fails.
+// dropTarget removes the new file again, only while it is still the file the move made; the result is a note for
+// the error message when it stays.
 func (m *moveRun) dropTarget() string {
 	if m.created == nil {
 		return ""
 	}
-	err := m.h.StorageVolDelete(*m.created, 0)
-	if err != nil {
-		return fmt.Sprintf(" The new volume %s/%s could not be removed (%v) and was left behind.", m.req.Pool, m.created.Name, err)
+	c := m.created
+	if c.ID == "" {
+		return fmt.Sprintf("the new file %s was left in place: its file system gives no identity that proves it is still the one the move made", c.Path)
+	}
+	ans, err := m.h.RemoveIfID(c.Path, c.ID)
+	m.h.StoragePoolRefresh(m.f.DstPool, 0)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("the new file %s could not be removed (%v) and was left in place", c.Path, err)
+	case ans == hostconn.InUseFile:
+		return fmt.Sprintf("the new file %s was left in place: a process on %s has it open", c.Path, m.h.Name)
+	case ans == hostconn.OtherFile:
+		m.created = nil
+		return fmt.Sprintf("another file has the name %s now; it was left as it is", c.Path)
 	}
 	m.created = nil
 	return ""
@@ -676,12 +704,27 @@ func (m *moveRun) finishFail(err error, notes ...string) error {
 	return withNote(err, notes...)
 }
 
+// deleteOld removes the old file, only while it is the file the VM used when the move started and no process holds
+// it open.
 func (m *moveRun) deleteOld() error {
 	if !m.req.DeleteOld {
 		return nil
 	}
-	if err := m.h.StorageVolDelete(m.f.SrcVol, 0); err != nil {
-		return fmt.Errorf("the disk was moved, but the old volume %s could not be deleted: %w", m.f.SrcPath, err)
+	kept := func(why string) error {
+		return fmt.Errorf("the disk was moved, but the old volume %s was kept: %s", m.f.SrcPath, why)
+	}
+	if m.oldID == "" {
+		return kept("its file system gives no identity that proves it is still the VM's old disk")
+	}
+	ans, err := m.h.RemoveIfID(m.f.SrcPath, m.oldID)
+	m.h.StoragePoolRefresh(m.f.SrcPool, 0)
+	switch {
+	case err != nil:
+		return kept(err.Error())
+	case ans == hostconn.InUseFile:
+		return kept("a process on " + m.h.Name + " has it open")
+	case ans == hostconn.OtherFile:
+		return kept("another file has its name now")
 	}
 	return nil
 }
@@ -779,12 +822,24 @@ func (m *moveRun) ensureSaved(newPath string) error {
 	return nil
 }
 
+// moveTempName is the private name the offline copy is written under before it takes its own name.
+func moveTempName(name string) string { return name + ".virticle-move-" + randHex()[:8] }
+
+// runOffline copies the volume with the storage API. libvirt writes the copy over whatever file has the name it is
+// given, so the copy is written under a new private name first, its identity taken, and then it is given its own
+// name by the node, which never replaces a file: a volume that took the name meanwhile stays as it is.
 func (m *moveRun) runOffline() error {
 	h, dom, f := m.h, m.dom, m.f
+	tmpName := moveTempName(f.DstName)
+	tmpPath := path.Join(f.DstTarget, tmpName)
+	finalPath := path.Join(f.DstTarget, f.DstName)
+	if !safePathRE.MatchString(tmpPath) || !safePathRE.MatchString(finalPath) {
+		return fmt.Errorf("unsupported path %s", finalPath)
+	}
 	// Progress: the size of the file that is being written.
 	stop := make(chan struct{})
 	defer close(stop)
-	if p := path.Join(f.DstTarget, f.DstName); safePathRE.MatchString(p) && f.Alloc > 0 {
+	if p := tmpPath; f.Alloc > 0 {
 		go func() {
 			t := time.NewTicker(2 * time.Second)
 			defer t.Stop()
@@ -806,26 +861,28 @@ func (m *moveRun) runOffline() error {
 	}
 	// The storage API cannot interrupt a volume copy, so a cancel request is
 	// honoured when the copy returns, before the definition is touched.
-	nv, err := h.StorageVolCreateXMLFrom(f.DstPool, volumeXML(f.DstName, f.DstFormat, f.Capacity), f.SrcVol, 0)
+	_, err := h.StorageVolCreateXMLFrom(f.DstPool, volumeXML(tmpName, f.DstFormat, f.Capacity), f.SrcVol, 0)
 	if err != nil {
-		// libvirt may have left a partial file behind. Not when it refused because the name exists: that file is
-		// someone else's (made since the plan), and it stays.
-		var lv libvirt.Error
-		taken := errors.As(err, &lv) && lv.Code == uint32(libvirt.ErrStorageVolExist) || strings.Contains(err.Error(), "already exists")
+		// libvirt removes a copy that failed. Whatever is left under the private name cannot be proven to be the
+		// move's, so it stays, and the result names it.
 		h.StoragePoolRefresh(f.DstPool, 0)
-		if v, lerr := h.StorageVolLookupByName(f.DstPool, f.DstName); lerr == nil && !taken {
-			m.created = &v
+		note := ""
+		if st, serr := h.Stat(tmpPath); serr != nil || len(st) != 1 || st[0].Exists {
+			note = "a partial copy may be left at " + tmpPath + "; it was not removed"
 		}
-		return m.finishFail(fmt.Errorf("copying the volume: %w", err), m.dropTarget())
+		return m.finishFail(fmt.Errorf("copying the volume: %w", err), note)
 	}
-	m.created = &nv
+	ids, err := h.FileIDs(tmpPath)
+	switch {
+	case err != nil:
+		return m.finishFail(fmt.Errorf("the copy %s cannot be identified: %w", tmpPath, err), "it was left in place")
+	case len(ids) != 1 || !ids[0].Regular:
+		return m.finishFail(fmt.Errorf("the copy %s is not where libvirt wrote it", tmpPath))
+	}
+	m.created = &madeFile{Path: tmpPath, ID: ids[0].ID}
 	m.progress(0.93)
 	if m.cancelled.Load() {
 		return m.finishFail(errMoveAbort, m.dropTarget())
-	}
-	vd, err := volDescOf(h, nv)
-	if err != nil {
-		return m.finishFail(err, m.dropTarget())
 	}
 	if state, _, _, _, _, err := h.DomainGetInfo(dom); err != nil || stateName(state) != "shutoff" {
 		return m.finishFail(errors.New("the VM was started while its disk was being copied; nothing was changed"), m.dropTarget())
@@ -839,10 +896,20 @@ func (m *moveRun) runOffline() error {
 	} else if _, d, ok := findMoveDisk(doc, f.Target); !ok || d.File != f.SrcPath {
 		return m.finishFail(errors.New("the disk definition changed while it was being copied; nothing was changed"), m.dropTarget())
 	}
-	edited, err := diskMoveXML(raw, f.Target, vd.Path, f.DstFormat)
+	edited, err := diskMoveXML(raw, f.Target, finalPath, f.DstFormat)
 	if err != nil {
 		return m.finishFail(err, m.dropTarget())
 	}
+	// The copy takes its name; the node never replaces a file that has it.
+	if err := h.Move(tmpPath, finalPath); err != nil {
+		h.StoragePoolRefresh(f.DstPool, 0)
+		if ids, ierr := h.FileIDs(tmpPath, finalPath); ierr == nil && len(ids) == 2 && !ids[0].Exists && ids[1].Exists && ids[1].ID == m.created.ID {
+			m.created.Path = finalPath // it moved, but the answer said otherwise
+		}
+		return m.finishFail(fmt.Errorf("giving the copy the name %s: %w", finalPath, err), m.dropTarget())
+	}
+	m.created.Path = finalPath
+	h.StoragePoolRefresh(f.DstPool, 0)
 	if _, err := h.DomainDefineXMLFlags(edited, libvirt.DomainDefineValidate); err != nil {
 		return m.finishFail(fmt.Errorf("updating the VM definition: %w", err), m.dropTarget())
 	}
