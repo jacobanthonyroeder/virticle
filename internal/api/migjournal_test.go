@@ -360,3 +360,17 @@ func TestLeftoverAlert(t *testing.T) {
 		t.Errorf("not cleared when the files are gone: %+v", cleared)
 	}
 }
+
+// A run that needs attention says how to settle it by hand: what to check on the target, then resume on the source.
+func TestAttentionAlertHelp(t *testing.T) {
+	a := leftoverAlert(alertLeftover{Run: 9, Name: "web", SrcName: "n1", DstName: "n2", State: store.MigAttention, Unsure: true, Waiting: true,
+		Note: "the connection to n2 was lost at the end of the migration"})
+	for _, w := range []string{"n1 keeps web paused until n2 answers", "on n2, run virsh list --all", "resume it on n1", "never resume that copy"} {
+		if !strings.Contains(a.Help, w) {
+			t.Errorf("help lacks %q: %s", w, a.Help)
+		}
+	}
+	if a := leftoverAlert(alertLeftover{Run: 9, Name: "web", SrcName: "n1", DstName: "n2", State: store.MigFailed}); a.Help != "" {
+		t.Errorf("a plain leftover has help: %s", a.Help)
+	}
+}

@@ -1240,6 +1240,7 @@ func (s *Server) leftoverOf(node int64, p string) string {
 type alertLeftover struct {
 	Run                    int64
 	Name, SrcName, DstName string
+	Waiting                bool // the source keeps the VM paused until the target answers (pendingConfirm)
 	Dst                    int64
 	State, Note            string
 	Unsure                 bool
@@ -1259,7 +1260,7 @@ func (s *Server) gatherLeftovers() []alertLeftover {
 		if migHeld(r.ID) {
 			continue
 		}
-		out = append(out, alertLeftover{Run: r.ID, Name: r.Name, SrcName: r.SrcName, DstName: r.DstName, Dst: r.Dst, State: r.State, Note: r.Note, Unsure: r.Unsure, Files: r.Files})
+		out = append(out, alertLeftover{Run: r.ID, Waiting: pendingConfirm(r.ID) != nil, Name: r.Name, SrcName: r.SrcName, DstName: r.DstName, Dst: r.Dst, State: r.State, Note: r.Note, Unsure: r.Unsure, Files: r.Files})
 	}
 	return out
 }
@@ -1287,6 +1288,7 @@ func leftoverAlert(l alertLeftover) Alert {
 		if len(lines) > 0 {
 			a.Message += " Kept on " + l.DstName + ": " + strings.Join(lines, "; ") + "."
 		}
+		a.Help = attentionHelp(l)
 		return a
 	}
 	a.Message = "On " + l.DstName + ": " + strings.Join(lines, "; ") + "."
@@ -1294,6 +1296,19 @@ func leftoverAlert(l alertLeftover) Alert {
 		a.Message = l.Note
 	}
 	return a
+}
+
+// attentionHelp is how an administrator settles a run that needs attention by hand (behind the alert's "?").
+func attentionHelp(l alertLeftover) string {
+	h := "Nothing is removed or resumed by itself: the VM must never run on both nodes. To settle it by hand: "
+	if l.Waiting {
+		h = l.SrcName + " keeps " + l.Name + " paused until " + l.DstName + " answers, so that it never runs on both nodes; " +
+			"then the controller settles it by itself. To settle it by hand before that: "
+	}
+	return h + "on " + l.DstName + ", run virsh list --all as root. " +
+		"If " + l.Name + " runs there, it moved: keep it, and stop the copy on " + l.SrcName + " (virsh destroy); never resume that copy, and leave its disks until the VM on " + l.DstName + " is checked. " +
+		"If it is not there, or only as a paused incoming copy (stop that one with virsh destroy), resume it on " + l.SrcName + " (Resume, or virsh resume). " +
+		"Then Remove the files here (only files proven to be the migration's go) or Keep them."
 }
 
 // --- HTTP ---

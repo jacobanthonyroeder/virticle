@@ -346,6 +346,8 @@ export interface Alert {
   since: number;
   /** The person whose action failed, for an alert about a task they started; empty for the scheduler and the rest. */
   user?: string;
+  /** How to resolve it by hand, shown behind a "?" by the title. */
+  help?: string;
 }
 /** A migration in the journal of files made on its target (GET /api/migration-leftovers). */
 export interface MigRun {
