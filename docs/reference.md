@@ -768,7 +768,9 @@ pruning it down to keep-last alone.
   `everyHours` (1 to 168), the five `keep*` fields, `dir` (the folder of the scheduled copies; empty or the default
   `backups` in the data directory), `zone`, `nextRun`. Fields left out of a PUT keep their values. A new `dir` must be a
   full path outside the data directory; the controller creates it and writes a test file there before it saves, and
-  refuses it with the reason otherwise.
+  refuses it with the reason otherwise. A PUT that switches the schedule on, or changes the folder while it is on,
+  also starts a copy at once; one that changes only the time or the keep rules does not. Pruning counts only the
+  files named for this host.
   Stored settings from before have only `daily`: daily at 03:30 with `keepDaily 7`. The old field `keep` is gone.
 
 ## Node access

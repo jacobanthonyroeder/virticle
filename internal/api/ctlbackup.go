@@ -255,19 +255,26 @@ func (s *Server) putCtlBackup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	was := cur.Daily
+	was, wasDir := cur.Daily, s.cbDir()
 	b, _ := json.Marshal(req)
 	if err := s.Store.SetWebSetting(cbSettingKey, string(b)); err != nil {
 		fail(w, err)
 		return
 	}
-	if req.Daily && !was {
-		go s.dailyBackupRun() // the first copy at once, so that "on" can be seen to work
+	if cbWriteAtOnce(was, wasDir, req.Daily, s.cbDir()) {
+		go s.dailyBackupRun() // a copy at once, so that "on" and a new folder can be seen to work
 	}
 	cbSched.Lock()
 	cbSched.changed = true // the loop plans the next run again with the new settings
 	cbSched.Unlock()
 	s.ctlBackupStatus(w, r)
+}
+
+// cbWriteAtOnce is whether saving the schedule writes a copy now: when it is switched on, and when it is on and
+// the folder changed. A changed time or retention does not: the next run follows the new settings. Copies in the
+// old folder are never touched; the new folder's retention counts only this host's files.
+func cbWriteAtOnce(wasOn bool, wasDir string, on bool, dir string) bool {
+	return on && (!wasOn || dir != wasDir)
 }
 
 type cbDownloadReq struct {
@@ -513,7 +520,7 @@ func (s *Server) writeDailyBackup() (int64, int, error) {
 		return 0, 0, err
 	}
 	// WriteFile has checked every file into the archive and only then given it its name: prune after that.
-	gone, err := ctlbackup.PrunePolicy(dir, s.cbSettings().Policy, time.Local, name)
+	gone, err := ctlbackup.PrunePolicyOf(dir, src.Host, s.cbSettings().Policy, time.Local, name)
 	return size, len(gone), err
 }
 
