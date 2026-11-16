@@ -176,12 +176,25 @@ func TestRuleSharedStorageSeenFromBothNodes(t *testing.T) {
 
 	src := map[string]poolDesc{"/nfs": {Name: "nfs", Type: "netfs", Server: "a"}, "/var/lib/libvirt/images": {Name: "default", Type: "dir"}}
 	dst := map[string]poolDesc{"/nfs": {Name: "nfs", Type: "netfs", Server: "b"}, "/var/lib/libvirt/images": {Name: "default", Type: "dir"}, "/local": {Name: "l", Type: "dir"}}
-	got := sharedReasons("n3", "n4", src, dst, []string{"/nfs", "/var/lib/libvirt/images", "/local", "/elsewhere", nvramDir})
+	got := sharedReasons("n3", "n4", src, dst, []string{"/nfs", "/var/lib/libvirt/images", "/local", "/elsewhere", nvramDir}, nil)
 	if got["/nfs"] == "" || got["/elsewhere"] == "" {
 		t.Errorf("network storage on both nodes, or no pool, must count as shared: %v", got)
 	}
 	if got["/var/lib/libvirt/images"] != "" || got["/local"] != "" || got[nvramDir] != "" {
 		t.Errorf("local storage counted as shared: %v", got)
+	}
+
+	// Two shares proven different (another export at the same place) are not shared; servers that cannot be told
+	// apart are.
+	src["/nfs"] = poolDesc{Name: "nfs", Type: "netfs", Server: "s", Export: "/srv/a"}
+	dst["/nfs"] = poolDesc{Name: "nfs", Type: "netfs", Server: "s", Export: "/srv/b"}
+	byExport := func(s, d poolDesc) bool { return s.Export != d.Export }
+	if got := sharedReasons("n3", "n4", src, dst, []string{"/nfs"}, byExport); got["/nfs"] != "" {
+		t.Errorf("different exports counted as shared: %v", got)
+	}
+	dst["/nfs"] = poolDesc{Name: "nfs", Type: "netfs", Server: "s2", Export: "/srv/a"}
+	if got := sharedReasons("n3", "n4", src, dst, []string{"/nfs"}, byExport); got["/nfs"] == "" {
+		t.Errorf("the same export of a server that may be the same: %v", got)
 	}
 }
 

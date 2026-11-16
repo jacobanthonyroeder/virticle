@@ -660,9 +660,14 @@ func nodeRefs(h *hostconn.Host) (map[string]string, error) {
 }
 
 // sharedDirs says, for each directory, whether its storage may be shared between the two nodes. A directory that
-// is an NFS pool on the target and also an NFS pool on the source counts as shared, whatever the servers are
-// called (keeping is the safe side). A directory that is no pool on the target and not the UEFI directory cannot
-// be judged and counts as shared too.
+// is an NFS pool on the target and also an NFS pool on the source counts as shared, unless the two are proven to be
+// different shares: different exports, or servers whose addresses (as each node resolves its own spelling) have
+// none in common. Server names that cannot be resolved count as the same (keeping is the safe side). A directory
+// that is no pool on the target and not the UEFI directory cannot be judged and counts as shared too.
+//
+// A different share is not trusted alone: the file rule still compares the identity of the file on the target with
+// the file of the same name on the source (the same file on a share has the same identity on every node), and the
+// journalled file was made exclusively, which fails where the source's file is visible.
 func sharedDirs(src, dst *hostconn.Host, dirs []string) (map[string]string, error) {
 	sp, err := poolDescs(src)
 	if err != nil {
@@ -672,10 +677,19 @@ func sharedDirs(src, dst *hostconn.Host, dirs []string) (map[string]string, erro
 	if err != nil {
 		return nil, fmt.Errorf("cannot list the pools of %s: %w", dst.Name, err)
 	}
-	return sharedReasons(src.Name, dst.Name, sp, dp, dirs), nil
+	distinct := func(s, d poolDesc) bool {
+		if path.Clean(s.Export) != path.Clean(d.Export) {
+			return true
+		}
+		a, b := resolveServerFn(src, s.Server), resolveServerFn(dst, d.Server)
+		return len(a) > 0 && len(b) > 0 && !intersects(a, b)
+	}
+	return sharedReasons(src.Name, dst.Name, sp, dp, dirs, distinct), nil
 }
 
-func sharedReasons(srcName, dstName string, sp, dp map[string]poolDesc, dirs []string) map[string]string {
+// sharedReasons is sharedDirs on the pool lists; distinct says whether two NFS pools are proven to be different
+// shares (nil: never).
+func sharedReasons(srcName, dstName string, sp, dp map[string]poolDesc, dirs []string, distinct func(s, d poolDesc) bool) map[string]string {
 	out := map[string]string{}
 	for _, d := range dirs {
 		t, ok := dp[d]
@@ -685,6 +699,9 @@ func sharedReasons(srcName, dstName string, sp, dp map[string]poolDesc, dirs []s
 			out[d] = "outside every storage pool of " + dstName
 		case t.Type == "netfs" || t.isNFS():
 			if s, ok := sp[d]; ok && (s.Type == "netfs" || s.isNFS()) {
+				if s.isNFS() && t.isNFS() && distinct != nil && distinct(s, t) {
+					continue // another share at the same place
+				}
 				out[d] = "on network storage (pool " + t.Name + ") that " + srcName + " mounts at the same place"
 			}
 		}
