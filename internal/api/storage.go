@@ -578,17 +578,21 @@ func (s *Server) volumeAction(w http.ResponseWriter, r *http.Request) {
 			if err := xml.Unmarshal([]byte(raw), &x); err != nil {
 				return err
 			}
-			nv, err := copyVolume(h, pool, volumeXML(req.Name, x.Target.Format.Type, x.Capacity), req.Name, vol, st)
+			_, id, err := copyVolume(h, pool, req.Name, x.Target.Format.Type, x.Capacity, vol, st)
 			switch {
 			case errors.Is(err, errCopyStopped):
 				return copyStopped("clone", err)
+			case err != nil && id.Path != "":
+				// Made, but libvirt does not list it: it is kept, it is a complete copy.
+				return fmt.Errorf("%w (the copy %s was kept)", err, id.Path)
 			case err != nil:
 				return err
 			case st.Stopped():
 				// The stop came too late to end the copy: the new volume is not kept.
-				if derr := h.StorageVolDelete(nv, 0); derr != nil {
-					return stoppedError(fmt.Sprintf("clone cancelled; the new volume %s could not be removed: %v", req.Name, derr))
+				if why := removeOwnFile(h, id); why != "" {
+					return stoppedError(fmt.Sprintf("clone cancelled; the new volume %s was kept: %s", req.Name, why))
 				}
+				refreshLive(h)
 				return stoppedErr("clone")
 			}
 			return nil

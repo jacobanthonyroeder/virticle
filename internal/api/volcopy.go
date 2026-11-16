@@ -19,41 +19,76 @@ import (
 // errCopyStopped is what copyVolume returns for a copy that a stop request ended. Nothing is left behind.
 var errCopyStopped = errors.New("volume copy stopped")
 
-// copyVolume is StorageVolCreateXMLFrom that st can stop. It returns errCopyStopped when the task was
-// stopped before the call or while it ran; the new volume is then gone. A copy that finished although the
-// task was stopped is returned as a success: the caller decides what to do with it.
-func copyVolume(h *hostconn.Host, pool libvirt.StoragePool, xmlDesc, name string, src libvirt.StorageVol, st *stopper) (libvirt.StorageVol, error) {
+// copyVolume is StorageVolCreateXMLFrom that st can stop, for a new volume name of the given format and capacity
+// in pool. It returns errCopyStopped when the task was stopped before the call or while it ran. A copy that
+// finished although the task was stopped is returned as a success: the caller decides what to do with it.
+//
+// libvirt writes the copy over a file that has the name but that it does not list (one made on another node of a
+// shared pool, or outside libvirt), so the copy is written under a new private name, its identity taken, and only
+// then given its name by the node, which never replaces a file. The identity returned proves later (removeOwnFile)
+// that a file under the name is still this copy.
+func copyVolume(h *hostconn.Host, pool libvirt.StoragePool, name, format string, capacity uint64, src libvirt.StorageVol, st *stopper) (libvirt.StorageVol, hostconn.FileID, error) {
+	var none hostconn.FileID
 	if st.Stopped() {
-		return libvirt.StorageVol{}, errCopyStopped
+		return libvirt.StorageVol{}, none, errCopyStopped
 	}
-	_, existed := h.StorageVolLookupByName(pool, name)
-	existedBefore := existed == nil // then the call fails by itself and nothing of ours may be deleted
+	dir, err := poolDirectory(h, pool)
+	if err != nil {
+		return libvirt.StorageVol{}, none, err
+	}
+	tmpName := moveTempName(name)
+	final, tmp := dir+"/"+name, dir+"/"+tmpName
+	if !safePathRE.MatchString(final) || !safePathRE.MatchString(tmp) {
+		return libvirt.StorageVol{}, none, fmt.Errorf("unsupported volume path %s", final)
+	}
+	if ids, err := h.FileIDs(final); err != nil {
+		return libvirt.StorageVol{}, none, err
+	} else if len(ids) == 1 && ids[0].Exists {
+		return libvirt.StorageVol{}, none, fmt.Errorf("%s exists already; nothing was overwritten", final)
+	}
 
 	finished := make(chan struct{})
-	if dir, err := poolDirectory(h, pool); err == nil && safePathRE.MatchString(dir+"/"+name) {
-		dest := dir + "/" + name
-		undo := st.onStop(func() { killCopy(h, dest, finished) })
-		defer undo()
-	}
-	vol, err := h.StorageVolCreateXMLFrom(pool, xmlDesc, src, 0)
+	undo := st.onStop(func() { killCopy(h, tmp, finished) })
+	_, err = h.StorageVolCreateXMLFrom(pool, volumeXML(tmpName, format, capacity), src, 0)
 	close(finished)
-	if err == nil {
-		return vol, nil
-	}
-	if !st.Stopped() {
-		return vol, err
-	}
-	if !existedBefore {
-		// libvirt removes what it wrote when the copy fails; make sure.
+	undo()
+	if err != nil {
+		// libvirt removes what it wrote when the copy fails. Anything left under the private name is not proven
+		// to be this copy: it stays, and the error names it.
 		h.StoragePoolRefresh(pool, 0)
-		if v, lerr := h.StorageVolLookupByName(pool, name); lerr == nil {
-			if derr := h.StorageVolDelete(v, 0); derr != nil {
-				log.Printf("stopped copy of %s: cannot delete the partial volume: %v", name, derr)
-				return vol, fmt.Errorf("%w: the partial volume %s could not be removed: %v", errCopyStopped, name, derr)
+		if st2, serr := h.Stat(tmp); serr != nil || len(st2) != 1 || st2[0].Exists {
+			log.Printf("copy of %s: %s may be left behind", name, tmp)
+			err = fmt.Errorf("%w (a partial copy may be left at %s; it was not removed)", err, tmp)
+			if st.Stopped() {
+				return libvirt.StorageVol{}, none, fmt.Errorf("%w: a partial copy may be left at %s; it was not removed", errCopyStopped, tmp)
 			}
 		}
+		if st.Stopped() {
+			return libvirt.StorageVol{}, none, errCopyStopped
+		}
+		return libvirt.StorageVol{}, none, err
 	}
-	return vol, errCopyStopped
+	ids, err := h.FileIDs(tmp)
+	if err != nil || len(ids) != 1 || !ids[0].Regular {
+		return libvirt.StorageVol{}, none, fmt.Errorf("the copy %s cannot be identified (%v); it was left in place", tmp, err)
+	}
+	id := ids[0]
+	if err := h.Move(tmp, final); err != nil {
+		why := removeOwnFile(h, id)
+		h.StoragePoolRefresh(pool, 0)
+		err = fmt.Errorf("giving the copy the name %s: %w", final, err)
+		if why != "" {
+			err = fmt.Errorf("%w (the copy %s was kept: %s)", err, tmp, why)
+		}
+		return libvirt.StorageVol{}, none, err
+	}
+	id.Path = final
+	h.StoragePoolRefresh(pool, 0)
+	vol, err := h.StorageVolLookupByName(pool, name)
+	if err != nil {
+		return libvirt.StorageVol{}, id, fmt.Errorf("the copy %s is not listed in its pool: %w", final, err)
+	}
+	return vol, id, nil
 }
 
 // copyStopped is the task's error for a copy that was stopped: "<what> cancelled", with the note of copyVolume
