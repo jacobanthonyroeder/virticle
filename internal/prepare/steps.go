@@ -92,7 +92,7 @@ func (r *Runner) Access() Row {
 		row.Status, row.Detail = Error, user+" is not root and sudo did not accept the password"
 		return row
 	}
-	row.Status, row.Detail = Error, user+" is not root and has no passwordless sudo; sign in as root, or give a user that may use sudo (a password works when sudo accepts it)"
+	row.Status, row.Detail = Error, user+" is not root and sudo asks for a password; sign in as root, or give the password of a user that may use sudo (with a key, give the password too)"
 	return row
 }
 

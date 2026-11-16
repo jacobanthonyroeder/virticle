@@ -561,6 +561,9 @@ func TestAdminWithoutSudoIsAnError(t *testing.T) {
 	if r := find(rows, "admin"); r.Status != Error || !strings.Contains(r.Detail, "bob") {
 		t.Errorf("admin: %+v", r)
 	}
+	if r := find(rows, "admin"); !strings.Contains(r.Detail, "give the password") {
+		t.Errorf("the message should say that a password is needed: %+v", r)
+	}
 	if r := find(rows, "do-packages"); r.Status != Skipped {
 		t.Errorf("packages: %+v", r)
 	}
