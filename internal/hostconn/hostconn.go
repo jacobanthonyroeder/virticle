@@ -40,7 +40,12 @@ type Target struct {
 	KeyPEM   []byte // optional private key held in memory (a one-time administrator key)
 	Agent    bool   // also offer the keys of the SSH agent in SSH_AUTH_SOCK
 	Jump     *Target
-	Timeout  time.Duration // per SSH connection attempt; default 15s
+	// JumpLogin is a credential for the jump host (Password, KeyPEM, Agent), tried when the controller's key is
+	// refused there. JumpInstallKey, the controller's public key, is then added to that account's authorized_keys
+	// (see dialJump). Used by the administrator's sign-in only.
+	JumpLogin      *Target
+	JumpInstallKey string
+	Timeout        time.Duration // per SSH connection attempt; default 15s
 }
 
 // Host is a live connection to one libvirt host.
@@ -134,9 +139,9 @@ var (
 func Dial(t Target, knownHosts string) (*Host, error) {
 	var jump *ssh.Client
 	if t.Jump != nil {
-		j, err := dialSSH(*t.Jump, knownHosts, nil)
+		j, _, err := dialJump(t, knownHosts)
 		if err != nil {
-			return nil, fmt.Errorf("jump host %s: %w", t.Jump.Addr, err)
+			return nil, err
 		}
 		jump = j
 	}
@@ -145,7 +150,7 @@ func Dial(t Target, knownHosts string) (*Host, error) {
 		if jump != nil {
 			jump.Close()
 		}
-		return nil, fmt.Errorf("ssh %s: %w", t.Addr, err)
+		return nil, &HopError{Addr: t.Addr, User: t.User, Err: err}
 	}
 	h := &Host{Name: t.Addr, ssh: client, jump: jump, stop: make(chan struct{})}
 	h.Libvirt = libvirt.NewWithDialer(sockDialer{client})

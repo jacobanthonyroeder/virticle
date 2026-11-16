@@ -22,6 +22,7 @@ import (
 
 	"virticle/internal/api"
 	"virticle/internal/cluster"
+	"virticle/internal/hostconn"
 	"virticle/internal/prepare"
 	"virticle/internal/store"
 )
@@ -156,15 +157,21 @@ func addNode(q addReq, in credIO) int {
 		}
 	probe:
 		for _, account := range accounts {
-			res, _ := mgr.TestConnect(store.Node{Addr: addr, User: account, Jump: q.jump}, 20*time.Second)
-			switch stage, detail := firstFailure(res); {
+			res, terr := mgr.TestConnect(store.Node{Addr: addr, User: account, Jump: q.jump}, 20*time.Second)
+			stage, detail := firstFailure(res)
+			if hostconn.JumpAuthRefused(terr) {
+				break probe // a new controller: the jump host does not know its key yet; the administrator's login follows
+			}
+			switch {
 			case res.OK && res.Privilege != "" && res.Privilege != "none":
 				fmt.Fprintf(out, "%s is prepared for this controller: it signs in as %s.\n", where, account)
 				user = account
 				break probe
 			case stage == "address":
 				return errorLine(1, "unknown host: %s", detail)
-			case stage == "reach" || stage == "jump":
+			case stage == "jump":
+				return errorLine(1, "jump host %s", detail)
+			case stage == "reach":
 				return errorLine(1, "cannot reach %s: %s", addr, detail)
 			}
 		}
@@ -179,9 +186,9 @@ func addNode(q addReq, in credIO) int {
 			if err != nil {
 				return errorLine(code, "%v", err)
 			}
-			conn, err := prepare.Dial(mgr, a)
+			conn, err := dialAdmin(mgr, a, pub, in)
 			if err != nil {
-				return errorLine(1, "could not sign in to %s as %s: %v", addr, adminUser, err)
+				return errorLine(1, "%v", err)
 			}
 			defer conn.Close()
 			r = &prepare.Runner{N: conn, SudoPassword: a.Password}
@@ -537,7 +544,23 @@ func nodeRemoveCommand(args []string) int {
 		return errorLine(1, "removing %s: %v", name, err)
 	}
 	fmt.Printf("Removed %s. Nothing was uninstalled from it. To take the controller's access away as well: virticle node unprepare %s\n", name, unprepareTarget(n))
+	if jumpHostFree(ns, n) {
+		fmt.Printf("No other node uses the jump host %s. If Virticle added the controller's key there, remove the line that ends in virticle-controller from its ~/.ssh/authorized_keys.\n", n.Jump)
+	}
 	return 0
+}
+
+// jumpHostFree says the node n was the last one that goes through its jump host.
+func jumpHostFree(ns []cluster.NodeStatus, n cluster.NodeStatus) bool {
+	if n.Jump == "" {
+		return false
+	}
+	for _, o := range ns {
+		if o.ID != n.ID && o.Jump == n.Jump {
+			return false
+		}
+	}
+	return true
 }
 
 // unprepareTarget is the host argument (and the jump option) for "node unprepare" of a node.
