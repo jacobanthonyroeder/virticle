@@ -28,7 +28,7 @@ type Alert struct {
 	Link     string `json:"link,omitempty"` // UI route of the affected object
 	Since    int64  `json:"since"`
 	// User is the person who ran the failed task of a failed-job alert; empty for everything the scheduler did and
-	// for alerts that no task caused. Alerts with a user are shown in the web UI only, never sent to destinations.
+	// for alerts that no task caused. The destinations get these alerts like any other.
 	User string `json:"user,omitempty"`
 }
 

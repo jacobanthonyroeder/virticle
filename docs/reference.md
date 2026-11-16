@@ -185,8 +185,11 @@ A destination of type **Webhook** receives a `POST` with `Content-Type: applicat
 - `alert.kind`: `node-down`, `pool-usage`, `host-memory`, `failed-job`, `vm-state`, `tls-expiry`,
   `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`, `guest-frozen`, `migration-leftover`. `severity` is `warning` or `critical`. `node` is
   the node id and `link` the page in the web UI (both may be missing); `since` and `time` are Unix seconds.
-  A `failed-job` alert of a task that a person started (not the scheduler) carries `user` and is shown in the web UI
-  only; destinations receive the failed-job alerts of scheduled runs.
+  A `failed-job` alert of a task that a person started (not the scheduler) carries `user`; destinations receive it
+  like every other alert. The same `id` is sent again with `event` `raise` when the user changes (a scheduled run's
+  failure replaced by a person's, or the reverse); one `clear` follows when the job succeeds.
+  The open alerts are kept in the database (`web_settings`, key `alert_state`; no schema change), so a restart of
+  the controller sends nothing again, and sends the `clear` of an alert that ended while it was down.
 - One alert per request, always; the webhook is never summarised. Any 2xx answer is success. Other answers are
   retried after 5 s, 30 s and 2 min, except 401, 403, 404, 410 and other 4xx (not 408, 429), which are not.
   On 429 the `Retry-After` header is honoured.
@@ -546,7 +549,7 @@ agent command per guest at a time, so the freeze goes on, and when it takes effe
 (logged). A Windows guest freezes through VSS: the agent prepares the snapshot and then waits up to 60 seconds for VSS,
 which can take more than 45 seconds on a busy host; VSS holds writes for at most 10 seconds, so its first thaw can report
 that error; the retry succeeds. When every thaw try fails (after backup-begin, or after a late freeze), the guest is
-recorded in the controller's memory and raises the critical alert `guest-frozen`. Each alert pass (once a minute) asks the
+recorded (in the database, so a restart keeps it) and raises the critical alert `guest-frozen`. The alert appears within seconds. Each alert pass (once a minute) asks the
 agent for `guest-fsfreeze-status`, thaws a guest it reports frozen (5 second limit), and clears the alert when the agent
 reports `thawed` or the VM is gone or not running; a guest whose backup is running is left alone. A restart of the
 controller forgets the record. The request field `quiesce` of the backup call is
