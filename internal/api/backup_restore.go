@@ -680,6 +680,9 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 	if p.old != nil {
 		oldGone = true
 		if err := p.removeOld(); err != nil {
+			if _, lerr := dst.DomainLookupByUUID(p.old.UUID); lerr == nil {
+				oldGone = false // refused before anything was removed: the VM is there as it was
+			}
 			return "", err
 		}
 	}
