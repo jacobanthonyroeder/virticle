@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/digitalocean/go-libvirt"
+
 	"virticle/internal/domxml"
 )
 
@@ -90,6 +92,36 @@ func TestLocalTimeClockKeptByRestore(t *testing.T) {
 	}
 	if clock(out) != clock(x) {
 		t.Errorf("clock changed:\n%s\n%s", clock(x), clock(out))
+	}
+}
+
+// A start asks for a sync twice (the start call and the node's "started" event); only the first waits for the
+// agent, and it takes over the person's name and the stricter limit of the later claims.
+func TestClockClaims(t *testing.T) {
+	key := "n/test-clock-claims"
+	defer releaseClockSync(key)
+	if !claimClockSync(key, clockClaim{"system", "start", guestClockSkew}) {
+		t.Fatal("first claim refused")
+	}
+	if claimClockSync(key, clockClaim{"alice", "start", guestClockSkew}) {
+		t.Fatal("second claim for the same VM accepted")
+	}
+	if c := clockClaimOf(key); c.user != "alice" || c.why != "start" || c.minSkew != guestClockSkew {
+		t.Errorf("after the person's claim: %+v", c)
+	}
+	claimClockSync(key, clockClaim{"system", "resume", 0})
+	if c := clockClaimOf(key); c.user != "alice" || c.why != "resume" || c.minSkew != 0 {
+		t.Errorf("after a resume: %+v", c)
+	}
+	releaseClockSync(key)
+	if !claimClockSync(key, clockClaim{"bob", "start", guestClockSkew}) {
+		t.Error("a claim after the release is refused")
+	}
+}
+
+func TestStartedRunning(t *testing.T) {
+	if !startedRunning(libvirt.DomainRunning) || startedRunning(libvirt.DomainPaused) || startedRunning(libvirt.DomainShutoff) {
+		t.Error("only a running domain gets its clock synced after a start")
 	}
 }
 
