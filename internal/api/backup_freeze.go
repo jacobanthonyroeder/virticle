@@ -1,9 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/digitalocean/go-libvirt"
@@ -112,21 +114,44 @@ func withFrozenGuest(quiesce *bool, agent bool, g guestFreezer, begin func() err
 		}
 		return out, begin()
 	}
+	t0 := time.Now()
 	err := begin()
+	took := time.Since(t0)
 	out := freezeOutcome{Frozen: true, Text: frozenText}
-	if out.ThawErr = thawWithRetries(g); out.ThawErr != nil {
+	lapsed := false
+	out.ThawErr = thawRetrying(g, func(e error) { lapsed = lapsed || holdLapsed(e) })
+	if out.ThawErr != nil {
 		log.Printf("backup: the guest file systems could not be thawed: %v", out.ThawErr)
+	}
+	if lapsed && out.ThawErr == nil {
+		// Windows ended the freeze by itself before the thaw, maybe while backup-begin ran: the image may be of a
+		// moment after it, so it is not called frozen.
+		out.Frozen = false
+		out.Text = frozenNo + fmt.Sprintf("VSS in the guest ended the freeze after 10 seconds, before the thaw; starting the backup took %s", waitText(took))
+		log.Printf("backup: VSS ended the guest's freeze before the thaw; backup-begin took %s", took.Round(time.Millisecond))
 	}
 	return out, err
 }
 
-func thawWithRetries(g guestFreezer) (err error) {
+// holdLapsed reports a thaw error of the Windows agent that says VSS let writes go on before the thaw: VSS holds
+// them for at most 10 seconds (qga/vss-win32/requester.cpp, requester_thaw).
+func holdLapsed(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "fsfreeze is limited up to 10 seconds")
+}
+
+func thawWithRetries(g guestFreezer) error { return thawRetrying(g, nil) }
+
+// thawRetrying thaws with retries; seen gets each failed try's error.
+func thawRetrying(g guestFreezer, seen func(error)) (err error) {
 	for i := 0; i < thawTries; i++ {
 		if i > 0 {
 			time.Sleep(thawPause)
 		}
 		if err = g.Thaw(); err == nil {
 			return nil
+		}
+		if seen != nil {
+			seen(err)
 		}
 	}
 	return err
@@ -137,8 +162,74 @@ func thawProblem(vm string, err error) string {
 	return fmt.Sprintf("the guest file systems of %s could not be thawed (%v); the guest may be frozen. Thaw it now with: virsh domfsthaw %s", vm, err, vm)
 }
 
-// freezeReason shortens an error to a clause for the task text.
+// freezeHinted is a freeze error with a clause that says what in the guest to look at.
+type freezeHinted struct {
+	err  error
+	hint string
+}
+
+func (e *freezeHinted) Error() string { return e.err.Error() + "; " + e.hint }
+func (e *freezeHinted) Unwrap() error { return e.err }
+
+// withGuestHint adds the hint for a freeze error, when there is one.
+func withGuestHint(err error, windows bool) error {
+	if err == nil {
+		return nil
+	}
+	if h := freezeHint(err, windows); h != "" {
+		return &freezeHinted{err, h}
+	}
+	return err
+}
+
+// Hints for Windows guests. The agent freezes through VSS with its own provider ("QEMU Guest Agent VSS
+// Provider", registered when the agent from the virtio-win guest tools is installed). The texts are the agent's
+// own (qga/vss-win32/requester.cpp) and VSS's error codes.
+const (
+	hintVSSMissing  = "the guest agent's VSS support is missing in the guest: install the QEMU guest agent from the virtio-win guest tools"
+	hintVSSProvider = "the QEMU Guest Agent VSS Provider in the guest is not registered or not running: reinstall the QEMU guest agent from the virtio-win guest tools"
+	hintVSSWriter   = "a VSS writer in the guest failed or timed out: see vssadmin list writers and the Application event log (VSS) in the guest"
+	hintVSSBusy     = "another shadow copy was being made in the guest (a Windows backup or restore point)"
+	hintVSSSlow     = "VSS in the guest did not finish: see vssadmin list writers and the Application event log (VSS, QEMU-GA) in the guest"
+)
+
+// freezeHint names the likely cause in the guest of a freeze that failed, or "" when the error says nothing more
+// than it does itself.
+func freezeHint(err error, windows bool) string {
+	s := strings.ToLower(err.Error())
+	var late *freezeLate
+	var nt *freezeNotTried
+	switch {
+	case strings.Contains(s, "0x80042316"): // VSS_E_SNAPSHOT_SET_IN_PROGRESS
+		return hintVSSBusy
+	case strings.Contains(s, "0x80042304"), strings.Contains(s, "0x8004230f"), // VSS_E_PROVIDER_NOT_REGISTERED, VSS_E_UNEXPECTED_PROVIDER_ERROR
+		strings.Contains(s, "error in vss provider"), strings.Contains(s, "to snapshot set"):
+		return hintVSSProvider
+	case strings.Contains(s, "0x800423f"), strings.Contains(s, "writer"): // VSS_E_WRITERERROR_*; "failed to gather writer metadata/status"
+		return hintVSSWriter
+	case strings.Contains(s, "frozen event"), strings.Contains(s, "failed to prepare for backup"), strings.Contains(s, "failed to do snapshot set"):
+		return hintVSSSlow
+	case strings.Contains(s, "vss"):
+		return hintVSSMissing
+	case windows && errors.As(err, &late):
+		return hintVSSSlow
+	case windows && errors.As(err, &nt) && strings.Contains(s, "cannot freeze"):
+		// The agent turns the freeze commands off when its VSS part (qga-vss.dll) does not load.
+		return hintVSSMissing
+	}
+	return ""
+}
+
+// freezeReason shortens an error to a clause for the task text; a hint follows the shortened error.
 func freezeReason(err error) string {
+	var fh *freezeHinted
+	if errors.As(err, &fh) {
+		return shortReason(fh.err) + "; " + fh.hint
+	}
+	return shortReason(err)
+}
+
+func shortReason(err error) string {
 	s := err.Error()
 	for i, c := range s {
 		if c == '\n' {
@@ -159,18 +250,55 @@ type agentFreezer struct {
 }
 
 func (a agentFreezer) Freeze() error {
-	raw, err := agentCmdT(a.h, a.dom, "guest-info", nil, freezeInfoWait)
-	if err != nil {
-		return &freezeNotTried{fmt.Errorf("the guest agent does not answer (%v)", err)}
+	family := ""
+	if x, err := a.h.DomainGetXMLDesc(a.dom, 0); err == nil {
+		family, _, _ = guessOS(x)
 	}
-	if _, can, perr := parseAgentInfo(raw); perr != nil || !can {
-		return &freezeNotTried{errors.New("the guest agent cannot freeze file systems")}
+	return withGuestHint(a.freeze(), family == "windows")
+}
+
+func (a agentFreezer) freeze() error {
+	err := freezeReady(
+		func() (json.RawMessage, error) { return agentCmdT(a.h, a.dom, "guest-info", nil, freezeInfoWait) },
+		(&agentView{h: a.h, dom: a.dom}).status,
+		func() error { return thawWithRetries(a) })
+	if err != nil {
+		return err
 	}
 	// The freeze is libvirt's own (it sends guest-fsfreeze-freeze and waits for the agent as long as it takes).
 	return freezeWithin(freezeWait, func() error {
 		_, err := a.h.DomainFsfreeze(a.dom, nil, 0)
 		return err
 	}, func() { lateThaw(a, a.h.Name, cluster.FormatUUID(a.dom.UUID), a.dom.Name) })
+}
+
+// freezeReady checks that the agent answers and can freeze. An agent whose file systems are frozen already
+// lists guest-fsfreeze-freeze as disabled (in its frozen state it allows only guest-ping, guest-info, guest-sync,
+// guest-fsfreeze-status and guest-fsfreeze-thaw). That is a freeze nobody thawed: one that took effect after an
+// earlier backup or another program had given up on it. It is thawed and the check is made again; a Windows
+// guest's VSS has let writes go on after 10 seconds anyway, so the old freeze is worth nothing for this backup.
+// When the thaw fails, the error is not a *freezeNotTried: the caller then thaws once more and raises the alert.
+func freezeReady(info func() (json.RawMessage, error), status func() (string, error), thaw func() error) error {
+	for try := 0; ; try++ {
+		raw, err := info()
+		if err != nil {
+			return &freezeNotTried{fmt.Errorf("the guest agent does not answer (%v)", err)}
+		}
+		if _, can, perr := parseAgentInfo(raw); perr == nil && can {
+			return nil
+		}
+		cannot := &freezeNotTried{errors.New("the guest agent cannot freeze file systems")}
+		if try > 0 {
+			return cannot
+		}
+		if st, serr := status(); serr != nil || st != "frozen" {
+			return cannot
+		}
+		log.Printf("backup: the guest file systems were frozen already by an earlier freeze; thawing them first")
+		if err := thaw(); err != nil {
+			return fmt.Errorf("the guest file systems were frozen already, by an earlier freeze, and could not be thawed (%v)", err)
+		}
+	}
 }
 
 // lateThaw thaws a guest whose freeze took effect after the backup stopped waiting for it. The task has ended by
@@ -204,13 +332,19 @@ func freezeWithin(d time.Duration, freeze func() error, thaw func()) error {
 
 // waitText says a wait in words for the task note: "2 minutes", "45 seconds".
 func waitText(d time.Duration) string {
+	if d < time.Second/2 {
+		return "under 1 second"
+	}
 	if d >= time.Minute && d%time.Minute == 0 {
 		if d == time.Minute {
 			return "1 minute"
 		}
 		return fmt.Sprintf("%d minutes", d/time.Minute)
 	}
-	return fmt.Sprintf("%d seconds", (d+time.Second/2)/time.Second)
+	if s := (d + time.Second/2) / time.Second; s != 1 {
+		return fmt.Sprintf("%d seconds", s)
+	}
+	return "1 second"
 }
 
 func (a agentFreezer) Thaw() error {
