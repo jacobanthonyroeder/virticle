@@ -2,9 +2,10 @@
 
 ## Quick start
 
-**One machine** (controller and node in one), Debian or Ubuntu with the [package repository](#install-from-the-package-repository) added:
+**One machine** (controller and node in one) with the [package repository](#install-from-the-package-repository) added:
 
-    sudo apt install virticle
+    sudo apt install virticle      # Debian, Ubuntu
+    sudo dnf install virticle      # Fedora, Rocky Linux, AlmaLinux, RHEL
     sudo virticle setup
 
 Setup asks for the web address and port (Enter keeps the defaults), the administrator's name and password, and
@@ -84,7 +85,7 @@ Linux amd64 and arm64.
 
 **Debian, Ubuntu**
 
-1. Add the signing key:
+1. Add the signing key (a minimal install may lack `curl`: `sudo apt install curl`):
 
        sudo install -d -m 0755 /etc/apt/keyrings
        sudo curl -fsSL https://jacobanthonyroeder.github.io/virticle/virticle.gpg -o /etc/apt/keyrings/virticle.gpg
@@ -104,14 +105,15 @@ Linux amd64 and arm64.
 
        sudo curl -fsSL https://jacobanthonyroeder.github.io/virticle/virticle.repo -o /etc/yum.repos.d/virticle.repo
 
-2. Install. `dnf` shows the key's fingerprint and asks you to accept it once:
+2. Install. `dnf` shows the key's fingerprint and asks you to accept it twice (once for the repository
+   data, once for the packages; it is the same key):
 
        sudo dnf install virticle
 
 **Check the key.** The fingerprint of the signing key is
 `FDA7274A068F719EAB676033C306C6E8F14D3778`. For Debian and Ubuntu, `gpg --show-keys
-/etc/apt/keyrings/virticle.gpg` prints it. For dnf, compare it with the one
-`dnf` shows before you accept. The same fingerprint is on
+/etc/apt/keyrings/virticle.gpg` prints it (`gpg` comes with `sudo apt install gnupg`; a minimal install lacks it). For dnf, compare it with the one
+`dnf` shows before you accept it (both times). The same fingerprint is on
 <https://jacobanthonyroeder.github.io/virticle/>.
 
 **Then run the setup.** The package never opens the firewall. Run

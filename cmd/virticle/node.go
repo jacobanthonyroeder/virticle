@@ -42,7 +42,8 @@ const nodeUsage = `usage:
 node add signs in to the host as the administrator (root, or a user that may use sudo) and prepares it, the
 way Nodes > Add node does in the web interface. The credential is used for this run only: your SSH agent,
 --identity FILE, or a password, asked for on a terminal; scripts give --password-file FILE or the
-environment variable VIRTICLE_NODE_PASSWORD. A host that this controller's key already gets into needs no
+environment variable VIRTICLE_NODE_PASSWORD. With a key and a password together, the key signs in and the
+password is for sudo. A host that this controller's key already gets into needs no
 credential. The running controller shows the node at once; it needs no restart. When the controller is
 stopped, the commands work on its data directory and it finds the node at its next start.
 These commands need the controller's data directory: run them as root (sudo) or as the controller's account.
