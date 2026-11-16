@@ -248,8 +248,8 @@ Good to know:
 | More | **Edit XML**, and **Delete VM** (shut the VM down first; its disks are deleted too unless you untick the box). |
 
 Sync guest clock is under **Power**. A guest whose hardware clock runs in local time (Windows) gets its clock synced by
-itself after a start from Virticle and after a restore that starts it, once its guest agent answers. A VM that the node
-starts at boot is not synced.
+itself after every start (also a clone, a restore, a failover, or a start by the node at boot), once its guest agent
+answers.
 
 **Guest setup on clone.** When you open **Guest setup** in the clone dialog, Virticle looks into the source's disk
 (a few seconds) and says how the settings reach the clone:
@@ -398,7 +398,9 @@ backup per day for a week, one per week for a month and one per month for half a
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
 the files (databases and journals included). The task says "guest file systems frozen" or "not frozen:" with the reason (no
 guest agent, agent not answering, no freeze within 2 minutes). If the freeze fails the backup is made anyway; a freeze that
-takes effect after the 2 minutes is thawed at once. Scheduled backups freeze the guest the same way.
+takes effect after the 2 minutes is thawed at once, and a guest that an earlier freeze left frozen is thawed and frozen
+anew. Scheduled backups freeze the guest the same way. A Windows guest needs the QEMU guest agent from the virtio-win guest
+tools, which brings the VSS provider; when VSS fails, the reason says what to check in the guest.
 A shut-off VM has nothing to freeze. If Virticle cannot thaw the guest afterwards, the task fails and says how to thaw it by hand.
 A guest that may still be frozen, also after a late freeze, raises the critical alert **NAME may be frozen**. Virticle tries
 the thaw again every minute; the alert clears when the guest agent reports the file systems thawed or the VM stops.
