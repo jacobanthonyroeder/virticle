@@ -48,6 +48,12 @@ Running setup again changes nothing that is done and says so ("Already set up", 
 | `--identity FILE` | The administrator's private key. |
 | `--password-file FILE` | The administrator's password: the first line of FILE. `VIRTICLE_NODE_PASSWORD` works too. |
 | `--password-stdin` | The administrator's password: one line on standard input. |
+| `--jump-identity FILE` | A private key for the jump host, used only when it does not accept the controller's key. |
+| `--jump-password-file FILE` | A password for the jump host (the first line of FILE), used the same way. `VIRTICLE_JUMP_PASSWORD` works too; a terminal asks. |
+
+When a jump host refuses the controller's key and the login works, `node add` and `node prepare` add the key to that
+account's `~/.ssh/authorized_keys` with the options `restrict,port-forwarding,command="/bin/false"`. See
+[install-node.md](install-node.md#through-a-jump-host).
 
 The administrator is root, or a user that may use sudo (`ann@host`). Without a key file or password, your SSH agent is
 used, and a terminal asks for the password. A host that this controller's key already gets into needs no credential.
@@ -91,7 +97,7 @@ whose defaults stay.
 | Variable | Meaning |
 | --- | --- |
 | `VIRTICLE_LISTEN` | Default for `-listen`. |
-| `VIRTICLE_JUMP_PASSWORD` | Password for node jump hosts. |
+| `VIRTICLE_JUMP_PASSWORD` | Password for node jump hosts. The controller then signs in to them with it. In `node add` and `node prepare` it is the login for a jump host that does not accept the controller's key. |
 | `VIRTICLE_ADMIN_PASSWORD` | For scripts: the first administrator's password for `virticle setup` (instead of `--admin-password-file`). |
 | `VIRTICLE_NODE_PASSWORD` | For scripts: the host administrator's password for `virticle node add`, `prepare` and `unprepare` (instead of `--password-file`). |
 | `VIRTICLE_UPGRADE_LISTEN` | Set by the container image to `0.0.0.0:8080`: a data volume from 0.2.0 (users, no stored web settings) keeps answering there, as before. Packages and binaries do not set it. |

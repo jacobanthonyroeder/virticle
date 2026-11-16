@@ -128,6 +128,14 @@ names the service account;
 .B \-\-jump
 .I user@host
 reaches the host through a jump host;
+.B \-\-jump\-identity
+.I file
+and
+.B \-\-jump\-password\-file
+.I file
+give a login for the jump host, used when it does not accept the controller's
+key (a terminal asks); Virticle then adds the controller's key to that account's
+authorized_keys, restricted to forwarding;
 .B \-\-take\-over
 takes over a host that another Virticle controller manages (a terminal asks
 instead).
@@ -238,7 +246,8 @@ For scripts: the host administrator's password for node add, prepare and
 unprepare.
 .TP
 .B VIRTICLE_JUMP_PASSWORD
-Password for node jump hosts.
+Password for node jump hosts. In node add and prepare: the login for a jump
+host that does not accept the controller's key.
 .TP
 .B VIRTICLE_LISTEN
 Default for \-listen.

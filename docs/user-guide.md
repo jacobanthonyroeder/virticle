@@ -114,6 +114,11 @@ To add another host:
    another Virticle controller manages makes the check stop with **Take over
    node**: see [controller-backup.md](controller-backup.md#c-there-is-no-backup-and-the-controller-is-lost).
 
+4. A node behind a jump host: enter it under **Advanced > Jump host**. When the jump host does not accept the
+   controller's key yet (a new controller), the check stops at **Jump host**. Press **Back**, give a login for the jump
+   host (the "?" says what is written there) and run again. Virticle then adds the controller's key to that account,
+   limited to forwarding. See [install-node.md](install-node.md#through-a-jump-host).
+
 ![Add node dialog](img/add-node.png)
 
 The same from a shell on the controller's machine: `sudo virticle node add root@host` (without a host: this machine).
