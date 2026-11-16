@@ -257,10 +257,13 @@ earlier versions no longer exist.
   when the guest agent runs.
 - **Clock** (Windows): `localtime` (the hardware clock in local time, as Windows expects), `hypervclock` instead of
   `kvmclock`. QEMU fills that clock with the node's local time, UTC on most nodes, and what the guest writes into it
-  lasts only until the VM is powered off. So after a start from Virticle (start, restore with start) the guest clock is
+  lasts only until the VM is powered off. So after every start the node reports (the libvirt event `started` of a
+  running VM: start, restore, clone or new VM with start, failover, rolling update, `virsh start`) the guest clock is
   synced as soon as the agent answers (up to 5 minutes), when it is more than 2 seconds off: a Windows guest in another
-  time zone would otherwise run hours off until Windows corrects itself. A VM started by the node at boot (autostart) is
-  not synced.
+  time zone would otherwise run hours off until Windows corrects itself. When a node's connection comes up (node boot
+  with autostart VMs, controller restart) its running VMs with such a clock are checked once the same way. A VM started
+  paused is skipped. One sync per VM waits at a time; the task names the person when the start came from them, else
+  `system`.
 - **Serial console**: added to every new VM; the Console card on the Overview adds one to a VM that has none.
 - **Firmware** (Linux): UEFI, with the UEFI variables in a qcow2 file so the VM can take internal snapshots. A node without UEFI firmware gets BIOS. Windows always gets UEFI.
 
@@ -552,9 +555,25 @@ the guest's file systems with libvirt's `DomainFsfreeze` (the guest agent's `gue
 not answer `guest-info` within 5 seconds is not asked to freeze. The backup waits up to 2 minutes for the freeze; after that
 it is made without ("not frozen: the guest did not freeze within 2 minutes"). libvirt cannot cancel a freeze and runs one
 agent command per guest at a time, so the freeze goes on, and when it takes effect later Virticle thaws the guest at once
-(logged). A Windows guest freezes through VSS: the agent prepares the snapshot and then waits up to 60 seconds for VSS,
-which can take more than 45 seconds on a busy host; VSS holds writes for at most 10 seconds, so its first thaw can report
-that error; the retry succeeds. When every thaw try fails (after backup-begin, or after a late freeze), the guest is
+(logged). An agent whose file systems are frozen already (a freeze that nobody thawed) lists `guest-fsfreeze-freeze` as
+disabled in `guest-info`; Virticle then asks `guest-fsfreeze-status`, thaws a guest that reports `frozen` (logged) and
+freezes it anew. A Windows guest freezes through VSS with the agent's own VSS provider (service "QEMU Guest Agent VSS
+Provider", installed with the agent from the virtio-win guest tools): the agent prepares the snapshot and then waits up to
+60 seconds for VSS, which can take more than 45 seconds on a busy host. VSS holds writes for at most 10 seconds; when the
+thaw reports that VSS ended the freeze by itself ("fsfreeze is limited up to 10 seconds"), the backup is not called frozen
+("not frozen: VSS in the guest ended the freeze after 10 seconds"). The VSS errors of the agent get a clause that says what
+to check in the guest:
+
+| Agent error | Clause |
+| --- | --- |
+| `0x80042304`, `0x8004230f`, "error in VSS provider", "failed to add ... to snapshot set" | the VSS provider is not registered or not running |
+| `0x80042316` | another shadow copy was being made (Windows backup, restore point) |
+| `0x800423f*`, "writer" | a VSS writer failed or timed out (`vssadmin list writers`) |
+| "Frozen event", "failed to prepare for backup", "failed to do snapshot set" | VSS did not finish (writers, Application event log) |
+| other errors that name VSS; a Windows agent that cannot freeze at all | the agent's VSS support is missing |
+| no freeze within 2 minutes (Windows guest) | VSS did not finish |
+
+When every thaw try fails (after backup-begin, or after a late freeze), the guest is
 recorded (in the database, so a restart keeps it) and raises the critical alert `guest-frozen`. The alert appears within seconds. Each alert pass (once a minute) asks the
 agent for `guest-fsfreeze-status`, thaws a guest it reports frozen (5 second limit), and clears the alert when the agent
 reports `thawed` or the VM is gone or not running; a guest whose backup is running is left alone. A restart of the
@@ -1102,6 +1121,6 @@ The update log is `/var/lib/virticle-update/update.log` on the node. dnf: `check
 - Guest setup on clone written into the disk was not tried on SUSE, Ubuntu or a guest installed from a real ISO. NixOS
   and other systems are refused; Windows goes its own way (an answer file).
   Packages are installed at the clone's first start; a failed install shows only inside the guest.
-- The clock sync after a start (guests with a local-time hardware clock) needs the guest agent, and does not cover VMs the
-  node starts at boot.
+- The clock sync after a start (guests with a local-time hardware clock) needs the guest agent; until it answers, the
+  guest runs off by the difference between its time zone and the node's.
 - Not verified end to end: ACME issuance, arm64. See [ROADMAP.md](../ROADMAP.md).
