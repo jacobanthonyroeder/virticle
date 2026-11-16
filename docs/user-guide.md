@@ -55,7 +55,7 @@ How to do the everyday things in the web UI. To install, see
   (operators and administrators). A new alert shows too: an error stays until closed, a warning goes after 10 seconds.
   At most four show; the rest are counted and **N more** opens the alerts. Nothing is replayed after the page was closed:
   the alert bell and the Tasks list still hold it. A failed task also becomes an alert, with your name on it; it clears
-  when the same action succeeds on the same target. These alerts are not sent to e-mail or webhooks.
+  when the same action succeeds on the same target. Like every alert, it goes to the destinations under **Settings > Alerts**; the message names you and the task.
 - **Status** is always a dot and the state name, for example green Running, amber Paused, red Offline, grey Shutoff.
 - **Help**: a small **?** after a label or a line. Point at it (or tab to it) and the explanation shows in a box.
 - **Sub pages**: some tabs hold several separate areas. They show a short list of sub pages at the left of the
@@ -982,6 +982,11 @@ clears, for warnings and critical alerts. **Send test message** checks a destina
 words what the service answered. A destination that cannot be reached shows a red dot and **Failing:** with the
 reason; Virticle tries a message again after 5 seconds, 30 seconds and 2 minutes, then gives up on that message.
 More than 5 alerts raised in one minute arrive as one summary message.
+
+Each alert is sent once when it is raised and once when it clears; the next check and a restart of Virticle do not send
+it again. When a person's failed task replaces a scheduled run's alert for the same job (or the other way round), the
+destination gets the changed alert and, in the end, one clear. A failed task of a person clears when the same action
+succeeds on the same target, or after 24 hours.
 
 | Service | Where to get the URL |
 | --- | --- |

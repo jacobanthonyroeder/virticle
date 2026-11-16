@@ -82,12 +82,7 @@ var alertPoke = make(chan struct{}, 1)
 
 // pokeAlerts asks the alert loop for a pass now instead of at the next tick. A task that failed calls it, so the
 // person who is watching is told within seconds. It never blocks.
-func (s *Server) pokeAlerts() {
-	select {
-	case alertPoke <- struct{}{}:
-	default:
-	}
-}
+func (s *Server) pokeAlerts() { pokeAlertsNow() }
 
 // pokeAlertsOnFail is pokeAlerts for the place where a task ends: it pokes only when the task failed.
 func (s *Server) pokeAlertsOnFail(err error) {
@@ -106,6 +101,7 @@ func alertPokeDelay(last, now time.Time) time.Duration {
 
 func (s *Server) runAlerts(ctx context.Context, every, first time.Duration) {
 	tr := newAlertTracker(alertConfig{PoolWarn: s.Alerts.PoolWarn, PoolCrit: s.Alerts.PoolCrit, Mem: s.Alerts.Mem, CertDays: s.Alerts.CertDays})
+	saved := restoreAlertState(s.Store, tr, time.Now())
 	wait := first
 	var last time.Time
 	for {
@@ -134,6 +130,7 @@ func (s *Server) runAlerts(ctx context.Context, every, first time.Duration) {
 		s.reconcileFailovers()
 		raised, cleared, all := tr.step(s.gatherAlertInput(time.Now()), time.Now())
 		last = time.Now()
+		saveAlertState(s.Store, tr, &saved)
 		alertHub.Lock()
 		alertHub.list = all
 		alertHub.Unlock()
