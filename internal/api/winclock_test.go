@@ -8,28 +8,97 @@ import (
 
 func TestRTCPlan(t *testing.T) {
 	for _, c := range []struct {
-		offset             string
-		pending, universal bool
-		step               rtcStep
+		offset, sw string
+		universal  bool
+		step       rtcStep
 	}{
-		// a new Windows VM keeps what it has until Virticle shuts it down
-		{"localtime", true, false, rtcKeep},
-		{"localtime", true, true, rtcKeep},
+		// a VM with a waiting switch keeps what it has until Virticle shuts it down
+		{"localtime", "utc", false, rtcKeep},
+		{"localtime", "utc", true, rtcKeep},
+		{"utc", "localtime", true, rtcKeep},
+		{"utc", "localtime", false, rtcKeep},
 		// an existing VM on local time is left alone; a stray value is removed
-		{"localtime", false, false, rtcKeep},
-		{"localtime", false, true, rtcRemove},
+		{"localtime", "", false, rtcKeep},
+		{"localtime", "", true, rtcRemove},
 		// a UTC clock needs the value
-		{"utc", false, true, rtcKeep},
-		{"utc", false, false, rtcSet},
-		{"utc", true, false, rtcSet},
+		{"utc", "", true, rtcKeep},
+		{"utc", "", false, rtcSet},
 		// other offsets are not this code's business
-		{"variable", false, true, rtcKeep},
-		{"timezone", true, false, rtcKeep},
-		{"", false, true, rtcKeep},
+		{"variable", "", true, rtcKeep},
+		{"", "", true, rtcKeep},
 	} {
-		if step := rtcPlan(c.offset, c.pending, c.universal); step != c.step {
-			t.Errorf("rtcPlan(%q, pending %v, value %v) = %v; want %v", c.offset, c.pending, c.universal, step, c.step)
+		if step := rtcPlan(c.offset, c.sw, c.universal); step != c.step {
+			t.Errorf("rtcPlan(%q, switch %q, value %v) = %v; want %v", c.offset, c.sw, c.universal, step, c.step)
 		}
+	}
+}
+
+// The checkbox shows where the VM is going; a switch waits only while the saved offset differs from it.
+func TestClockSetting(t *testing.T) {
+	for _, c := range []struct {
+		offset, sw string
+		on         bool
+		pending    string
+	}{
+		{"localtime", "", false, ""},
+		{"localtime", "utc", true, "utc"},
+		{"utc", "", true, ""},
+		{"utc", "localtime", false, "localtime"},
+		{"utc", "utc", true, ""}, // a clone with guest setup: utc already, the inherited switch has nothing to do
+		{"localtime", "localtime", false, ""},
+	} {
+		if on, p := clockSetting(c.offset, c.sw); on != c.on || p != c.pending {
+			t.Errorf("clockSetting(%q, %q) = %v, %q; want %v, %q", c.offset, c.sw, on, p, c.on, c.pending)
+		}
+	}
+	for _, c := range []struct {
+		offset string
+		on     bool
+		sw     string
+	}{
+		{"localtime", true, "utc"}, {"localtime", false, ""}, {"utc", false, "localtime"}, {"utc", true, ""},
+	} {
+		if sw := switchFor(c.offset, c.on); sw != c.sw {
+			t.Errorf("switchFor(%q, %v) = %q; want %q", c.offset, c.on, sw, c.sw)
+		}
+		// turning the setting back cancels the switch
+		if on, p := clockSetting(c.offset, switchFor(c.offset, c.on)); on != c.on || (p != "") != (c.sw != "") {
+			t.Errorf("after switchFor(%q, %v): setting %v, pending %q", c.offset, c.on, on, p)
+		}
+	}
+}
+
+func TestCreateUTCClock(t *testing.T) {
+	off, on := false, true
+	for _, c := range []struct {
+		q    createVMRequest
+		want bool
+	}{
+		{createVMRequest{OSType: "windows"}, true}, // old clients send nothing: on
+		{createVMRequest{OSType: "windows", UTCClock: &on}, true},
+		{createVMRequest{OSType: "windows", UTCClock: &off}, false},
+		{createVMRequest{OSType: "linux", UTCClock: &on}, false},
+		{createVMRequest{}, false},
+	} {
+		if got := c.q.utcClock(); got != c.want {
+			t.Errorf("%+v: utcClock %v", c.q, got)
+		}
+	}
+}
+
+// A Windows VM made by Virticle has no libosinfo metadata: its Hyper-V enlightenments say Windows, whatever its
+// clock offset.
+func TestGuestFamilyVirticleWindows(t *testing.T) {
+	win := build(t, createVMRequest{Name: "w", VCPUs: 1, MemoryMiB: 256, Pool: "default", OSType: "windows"})
+	lin := build(t, createVMRequest{Name: "l", VCPUs: 1, MemoryMiB: 256, Pool: "default"})
+	if g := guestFamily("", templateMark{}, win); g != "windows" {
+		t.Errorf("local-time Windows VM: %s", g)
+	}
+	if g := guestFamily("", templateMark{}, strings.Replace(win, "offset='localtime'", "offset='utc'", 1)); g != "windows" {
+		t.Errorf("UTC Windows VM: %s", g)
+	}
+	if g := guestFamily("", templateMark{}, lin); g != "linux" {
+		t.Errorf("Linux VM: %s", g)
 	}
 }
 
@@ -48,16 +117,22 @@ func TestParseRTCQuery(t *testing.T) {
 	}
 }
 
-func TestUTCPendingMetadata(t *testing.T) {
-	meta, err := metaSetChild("<meta><clock sync='off'/></meta>", "utcclock", utcPendingEl)
-	if err != nil || !metaHasUTCPending(meta) || !strings.Contains(meta, "sync='off'") {
-		t.Fatalf("set: %q %v", meta, err)
+func TestClockSwitchMetadata(t *testing.T) {
+	for _, target := range []string{"utc", "localtime"} {
+		meta, err := metaSetChild("<meta><clock sync='off'/></meta>", "utcclock", clockSwitchEl(target))
+		if err != nil || metaClockSwitch(meta) != target || !strings.Contains(meta, "sync='off'") {
+			t.Fatalf("set %s: %q %v", target, meta, err)
+		}
+		meta, err = metaSetChild(meta, "utcclock", "")
+		if err != nil || metaClockSwitch(meta) != "" || !strings.Contains(meta, "sync='off'") {
+			t.Fatalf("clear: %q %v", meta, err)
+		}
 	}
-	meta, err = metaSetChild(meta, "utcclock", "")
-	if err != nil || metaHasUTCPending(meta) || !strings.Contains(meta, "sync='off'") {
-		t.Fatalf("clear: %q %v", meta, err)
+	// libvirt hands the children back with the namespace prefix
+	if metaClockSwitch(`<virticle:meta xmlns:virticle="https://virticle.invalid/ns/1"><virticle:utcclock/></virticle:meta>`) != "utc" {
+		t.Error("prefixed mark not read")
 	}
-	if metaHasUTCPending("") || metaHasUTCPending("<meta><clock sync='off'/></meta>") {
+	if metaClockSwitch("") != "" || metaClockSwitch("<meta><clock sync='off'/></meta>") != "" {
 		t.Error("no mark read as a mark")
 	}
 }

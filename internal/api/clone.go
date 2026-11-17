@@ -81,7 +81,7 @@ func guestFamily(requested string, mark templateMark, domXML string) string {
 		return requested
 	case mark.Sealed != "":
 		return mark.Sealed
-	case strings.Contains(domXML, "microsoft.com/win"):
+	case strings.Contains(domXML, "microsoft.com/win"), windowsDef(domXML): // libosinfo id, or Hyper-V enlightenments
 		return "windows"
 	}
 	return "linux"
@@ -180,6 +180,8 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// The app metadata is not inherited, but a hardware clock switch that waits is (winclock.go).
+	srcSwitch := clockSwitch(h, src)
 	if q.Linked && !mark.Template {
 		fail(w, badRequest("linked clones need a template as their source: convert the source to a template first, so its disks can no longer change"))
 		return
@@ -424,6 +426,11 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 		}
 		defined = &dom
 		uuid = cluster.FormatUUID(dom.UUID)
+		if srcSwitch != "" {
+			if err := setClockSwitch(h, dom, srcSwitch); err != nil {
+				return rollback(err)
+			}
+		}
 		nvramNote = useQcow2Nvram(h, dom)
 		progress(0.98)
 		if q.Start {

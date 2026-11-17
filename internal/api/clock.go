@@ -171,10 +171,7 @@ func localTimeClock(domXML string) bool { return domxml.ClockOffset(domXML) == "
 
 // startClockCheck reports whether a start can leave the guest's clock wrong: a local-time hardware clock, or a
 // Windows guest.
-func startClockCheck(domXML string) bool {
-	family, _, _ := guessOS(domXML)
-	return localTimeClock(domXML) || family == "windows"
-}
+func startClockCheck(domXML string) bool { return localTimeClock(domXML) || windowsDef(domXML) }
 
 // syncClockWhenAgent waits up to wait for the agent and syncs the guest's
 // clock when it is off by more than minSkew (0: always). boot says the guest
@@ -297,8 +294,11 @@ type clockInfo struct {
 	Guest       string `json:"guest,omitempty"`
 	SkewMs      *int64 `json:"skewMs,omitempty"`
 	GuestStatus string `json:"guestStatus,omitempty"`
-	// UTCPending: a new Windows VM whose saved offset becomes utc at its next shutdown by Virticle.
-	UTCPending bool `json:"utcPending,omitempty"`
+	// Windows guests only: UTC is the "UTC hardware clock" setting (where the VM is going), Pending the switch
+	// ("utc" or "localtime") that waits for the next shutdown from Virticle (winclock.go).
+	Windows bool   `json:"windows"`
+	UTC     bool   `json:"utc"`
+	Pending string `json:"pending,omitempty"`
 }
 
 func (s *Server) vmClock(w http.ResponseWriter, r *http.Request) {
@@ -307,9 +307,12 @@ func (s *Server) vmClock(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	out := clockInfo{Sync: clockSyncOn(h, dom), UTCPending: utcPending(h, dom)}
+	out := clockInfo{Sync: clockSyncOn(h, dom)}
 	if raw, err := h.DomainGetXMLDesc(dom, libvirt.DomainXMLInactive); err == nil {
 		out.Saved = domxml.ClockOffset(raw)
+		if out.Windows = windowsDef(raw); out.Windows {
+			out.UTC, out.Pending = clockSetting(out.Saved, clockSwitch(h, dom))
+		}
 	}
 	out.Offset = out.Saved
 	st, _, _, _, _, err := h.DomainGetInfo(dom)
@@ -350,18 +353,34 @@ func (s *Server) hwClock(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Offset string `json:"offset"`
 		Sync   *bool  `json:"sync"`
+		// UTC is the "UTC hardware clock" setting of a Windows guest. For a Windows guest an offset means the same.
+		UTC *bool `json:"utc"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		fail(w, err)
 		return
 	}
-	if req.Offset == "" && req.Sync == nil {
+	if req.Offset == "" && req.Sync == nil && req.UTC == nil {
 		fail(w, badRequest("nothing to change"))
 		return
 	}
 	if req.Offset != "" && req.Offset != "utc" && req.Offset != "localtime" {
 		fail(w, badRequest(`offset must be "utc" or "localtime"`))
 		return
+	}
+	saved, err := c.h.DomainGetXMLDesc(c.dom, libvirt.DomainXMLInactive)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	win := windowsDef(saved)
+	if req.UTC != nil && !win {
+		fail(w, badRequest("the UTC hardware clock setting is for Windows guests; set the offset instead"))
+		return
+	}
+	if win && req.UTC == nil && req.Offset != "" {
+		on := req.Offset == "utc"
+		req.UTC = &on
 	}
 	res := hwResult{Applied: "live+config"}
 	err = s.task(r, "change clock", c.dom.Name, c.h.Name, func(func(float64)) error {
@@ -370,12 +389,21 @@ func (s *Server) hwClock(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		if win && req.UTC != nil {
+			// The value in the guest and the clock's content can only change over together at a power-off: the
+			// switch waits for the next shutdown from Virticle (winclock.go).
+			sw := switchFor(domxml.ClockOffset(saved), *req.UTC)
+			if err := setClockSwitch(c.h, c.dom, sw); err != nil {
+				return err
+			}
+			res.Applied = "config"
+			if sw != "" {
+				res.addNote(switchWaitNote)
+			}
+			return taskDone("%s", joinFacts(utcSettingNote(*req.UTC, sw != ""), clockChangeNote("", req.Sync, hwResult{})))
+		}
 		if req.Offset == "" {
 			return taskDone("%s", clockChangeNote("", req.Sync, res))
-		}
-		// An offset chosen by hand ends the wait of a new Windows VM for its UTC clock.
-		if err := setUTCPending(c.h, c.dom, false); err != nil {
-			return err
 		}
 		raw, err := c.h.DomainGetXMLDesc(c.dom, libvirt.DomainXMLInactive)
 		if err != nil {

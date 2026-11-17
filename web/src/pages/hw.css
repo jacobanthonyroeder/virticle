@@ -16,6 +16,8 @@
 .card > .chead { margin-bottom: 10px; }
 
 .hwdl { margin: 0; }
+.hwdl dd.hwclock { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hwdl dd.hwclock .check { margin: 0; }
 .hwt { width: 100%; }
 .hwt th { text-align: left; padding: 4px 10px 6px 0; color: var(--muted); font-weight: 500; }
 .hwt td { padding: 6px 10px 6px 0; vertical-align: middle; }
