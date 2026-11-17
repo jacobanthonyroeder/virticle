@@ -255,15 +255,52 @@ earlier versions no longer exist.
 - **Clock** (Linux): `rtc` catch-up, `pit` delay, `hpet` off, `kvmclock` on.
   The guest clock is synced after resume, snapshot revert and live migration
   when the guest agent runs.
-- **Clock** (Windows): `localtime` (the hardware clock in local time, as Windows expects), `hypervclock` instead of
-  `kvmclock`. QEMU fills that clock with the node's local time, UTC on most nodes, and what the guest writes into it
-  lasts only until the VM is powered off. So after every start the node reports (the libvirt event `started` of a
-  running VM: start, restore, clone or new VM with start, failover, rolling update, `virsh start`) the guest clock is
-  synced as soon as the agent answers (up to 5 minutes), when it is more than 2 seconds off: a Windows guest in another
-  time zone would otherwise run hours off until Windows corrects itself. When a node's connection comes up (node boot
-  with autostart VMs, controller restart) its running VMs with such a clock are checked once the same way. A VM started
-  paused is skipped. One sync per VM waits at a time; the task names the person when the start came from them, else
-  `system`.
+- **Clock** (Windows): `hypervclock` instead of `kvmclock`, and a hardware clock in UTC once the guest knows it.
+  Windows reads the hardware clock as local time unless the registry value `RealTimeIsUniversal` (REG_DWORD 1 under
+  `HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation`) says it is UTC. It reads the value only when it boots;
+  until then it also writes local time into the clock whenever its time is set (a sync included). With `localtime`,
+  QEMU fills the clock with the node's local time (UTC on most nodes) at every power-on, so a guest in another zone
+  starts off by the difference. With `utc` and the value, every boot is right, a restart inside the guest too.
+
+  The setting **UTC hardware clock** (a checkbox for Windows guests: New VM, and Edit Settings > Firmware and TPM) is
+  the saved offset plus a switch that waits in Virticle's metadata: `<utcclock/>` (to UTC) or
+  `<utcclock to="localtime"/>`. The switch is made at the next **Shutdown (graceful)** from Virticle (with or without a
+  timeout) while the guest agent answers: Virticle sets or removes the value with `reg.exe` through the agent's
+  `guest-exec`, shuts the guest down, and saves the definition with the new offset once the guest has shut down by
+  itself. With a timeout the shutdown task says so; without one the outcome is a task of its own, **change clock**
+  (the guest is watched for 10 minutes). When the shutdown ends in a force off, the definition is left as it is and
+  the switch keeps waiting, because the value may not have reached the guest's disk. When the guest does not shut
+  down, the value is put back and the switch keeps waiting. Without the agent the switch keeps waiting. A reboot, a
+  force off or a shutdown from inside the guest do not switch. A restore (to the original VM or as a new one) keeps the switch that waited when the
+  backup was made.
+  While a switch waits, Edit Settings shows `● Pending` next to the box.
+
+  | How the VM is made | Hardware clock |
+  | --- | --- |
+  | New VM, box on (the default; also an import, an existing disk) | `localtime` and the switch to UTC: UTC from the start after the first shutdown from Virticle. A guest whose agent never runs stays on `localtime`. API: `utcClock` in the create request, absent means on. |
+  | New VM, box off | `localtime`, no switch. The clock is synced after each start. |
+  | Clone with Windows guest setup of a sealed template | `utc`. The answer file sets the value in the specialize pass, before the first logon. |
+  | Other clones | The source's offset and its waiting switch. |
+  | Restores | The backup's offset and the switch that waited when it was made. |
+  | VMs made by an older Virticle | Unchanged. They show the box off (local time) and nothing changes for them. |
+
+  Turning the box on or off later records the switch (or cancels the one that waits); it is made at the next shutdown
+  from Virticle as above, also while the agent is running. Writing the value at once was tried on Windows 11 26H2 and
+  is wrong both ways: Windows reads the value only at boot and keeps writing the clock the old way until then, so a
+  restart from inside the guest came up one hour ahead (value set) or one hour behind (value removed) for a guest one
+  hour from the node. At a power-off the value and the clock change over together.
+
+  After every start the node reports (the libvirt event `started` of a running VM: start, restore, clone or new VM with
+  start, failover, rolling update, `virsh start`) Virticle waits for the agent (up to 5 minutes). For a Windows guest it
+  first makes the value match the saved definition when no switch waits: set for `utc`, removed for `localtime` (an
+  older VM has none, and nothing changes). A guest that matches costs one `reg query`; a change is a task "change clock". Then the
+  guest clock is synced when it is more than 2 seconds off, for every guest on `localtime` and every Windows guest: a
+  guest in another time zone would otherwise run hours off until Windows corrects itself. When a node's connection
+  comes up (node boot with autostart VMs, controller restart) its running VMs are checked once the same way. A VM
+  started paused is skipped. One check per VM waits at a time; the task names the person when the start came from
+  them, else `system`. API: `GET /api/nodes/{node}/vms/{uuid}/clock` returns `windows`, `utc` (the setting) and
+  `pending` (`utc` or `localtime` while a switch waits); `PUT .../clock` takes `{"utc": true|false}` for a Windows
+  guest (an `offset` means the same there) and `offset` for other guests, where it changes the definition at once.
 - **Serial console**: added to every new VM; the Console card on the Overview adds one to a VM that has none.
 - **Firmware** (Linux): UEFI, with the UEFI variables in a qcow2 file so the VM can take internal snapshots. A node without UEFI firmware gets BIOS. Windows always gets UEFI.
 
@@ -602,7 +639,8 @@ disabled in `guest-info`; Virticle then asks `guest-fsfreeze-status`, thaws a gu
 freezes it anew. A Windows guest freezes through VSS with the agent's own VSS provider (service "QEMU Guest Agent VSS
 Provider", installed with the agent from the virtio-win guest tools): the agent prepares the snapshot and then waits up to
 60 seconds for VSS, which can take more than 45 seconds on a busy host. VSS holds writes for at most 10 seconds; when the
-thaw reports that VSS ended the freeze by itself ("fsfreeze is limited up to 10 seconds"), the backup is not called frozen
+thaw reports that VSS ended the freeze by itself ("couldn't hold writes: fsfreeze is limited up to 10 seconds: Windows
+error 0x80042314"; the agent still says `frozen` until that thaw, and a second thaw succeeds), the backup is not called frozen
 ("not frozen: VSS in the guest ended the freeze after 10 seconds"). The VSS errors of the agent get a clause that says what
 to check in the guest:
 
@@ -610,6 +648,7 @@ to check in the guest:
 | --- | --- |
 | `0x80042304`, `0x8004230f`, "error in VSS provider", "failed to add ... to snapshot set" | the VSS provider is not registered or not running |
 | `0x80042316` | another shadow copy was being made (Windows backup, restore point) |
+| `0x80042302`, "failed to initialize for backup" | the Volume Shadow Copy service is disabled or does not start |
 | `0x800423f*`, "writer" | a VSS writer failed or timed out (`vssadmin list writers`) |
 | "Frozen event", "failed to prepare for backup", "failed to do snapshot set" | VSS did not finish (writers, Application event log) |
 | other errors that name VSS; a Windows agent that cannot freeze at all | the agent's VSS support is missing |
@@ -1164,5 +1203,6 @@ The update log is `/var/lib/virticle-update/update.log` on the node. dnf: `check
   and other systems are refused; Windows goes its own way (an answer file).
   Packages are installed at the clone's first start; a failed install shows only inside the guest.
 - The clock sync after a start (guests with a local-time hardware clock) needs the guest agent; until it answers, the
-  guest runs off by the difference between its time zone and the node's.
+  guest runs off by the difference between its time zone and the node's. A Windows guest that is not switched to a UTC
+  clock (no agent, never shut down from Virticle, an older VM) keeps this.
 - Not verified end to end: ACME issuance, arm64. See [ROADMAP.md](../ROADMAP.md).

@@ -10,7 +10,7 @@ import Select from "../Select";
 import { ErrorBox, Field, Modal, NodePicker, PageTitle, StateBadge, useAction, useConfirm } from "../ui";
 import { powerConfirm, powerLabel } from "../power";
 import { BulkBar } from "./Bulk";
-import { emptyFw, FirmwareFields, fwPayload, FwValues, limitToCaps, OsTypeField, useDiskFirmware, useFwCaps } from "./Firmware";
+import { emptyFw, FirmwareFields, fwPayload, FwValues, limitToCaps, OsTypeField, useDiskFirmware, useFwCaps, UTCClockField } from "./Firmware";
 import DialogAdvanced from "./DialogAdvanced";
 import { TagChips } from "./Tags";
 import { Meter, pct, useAllStats, VMPoint } from "../charts";
@@ -350,6 +350,7 @@ function CreateVM({ nodes, preset, onClose }: { nodes: NodeStatus[]; preset?: { 
             }
           }}
         />
+        <UTCClockField value={fw} onChange={setFw} />
         <Field label="Install from" group>
           <div className="segmented">
             {(
