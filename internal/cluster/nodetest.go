@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -69,6 +70,10 @@ func testPlan(cfg store.Node) [][2]string {
 // dialStage says which step a Dial error belongs to.
 func dialStage(err error) string {
 	m := err.Error()
+	var hop *hostconn.HopError
+	if errors.As(err, &hop) && !hop.Jump && hop.AuthRefused() {
+		return "ssh"
+	}
 	switch {
 	case strings.HasPrefix(m, "jump host "):
 		return "jump"
@@ -139,6 +144,10 @@ func (s *stepper) dialFailed(stage string, err error, keyKnown bool) {
 		s.add(p[0], StepOK, passed[p[0]])
 	}
 	msg := err.Error()
+	var hop *hostconn.HopError
+	if errors.As(err, &hop) && !hop.Jump {
+		msg = "ssh " + hop.Addr + ": " + hop.Err.Error() // the raw text: the "ssh" step below reads it
+	}
 	switch stage {
 	case "hostkey":
 		msg = "changed: the host presents a different key than the one on record; forget the host key if the node was reinstalled"

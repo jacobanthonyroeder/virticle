@@ -11,6 +11,7 @@ package api
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -485,8 +486,8 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 	// far; the backup is only read. From the moment the disks are moved into place (commit) it changes nothing.
 	wd.stop = st.Stopped
 	defer st.onStop(func() { wd.remove() })()
-	var moved []string
-	nvramPlaced := false
+	var moved []hostconn.FileID      // the disks this restore put into the pool, with their identity
+	var nvramPlaced *hostconn.FileID // the UEFI variable store it made
 	var defined *libvirt.Domain
 	oldGone, kept := false, false
 	defer func() {
@@ -499,19 +500,21 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 		}
 		var left []string
 		if defined != nil {
-			f := libvirt.DomainUndefineNvram | libvirt.DomainUndefineManagedSave | libvirt.DomainUndefineSnapshotsMetadata | libvirt.DomainUndefineTpm
+			// The UEFI variable store is removed below, by its identity, not by libvirt by name.
+			f := libvirt.DomainUndefineKeepNvram | libvirt.DomainUndefineManagedSave | libvirt.DomainUndefineSnapshotsMetadata | libvirt.DomainUndefineTpm
 			if uerr := dst.DomainUndefineFlags(*defined, f); uerr != nil {
 				left = append(left, "VM definition "+p.name+": "+uerr.Error())
 			}
 		}
+		// Only what this restore made, and only while it is still that file and nothing holds it open.
 		for _, f := range moved {
-			if rerr := dst.Remove(f); rerr != nil {
-				left = append(left, f+" ("+rerr.Error()+")")
+			if why := removeOwnFile(dst, f); why != "" {
+				left = append(left, f.Path+" ("+why+")")
 			}
 		}
-		if nvramPlaced {
-			if rerr := dst.Remove(p.nvram); rerr != nil {
-				left = append(left, p.nvram+" ("+rerr.Error()+")")
+		if nvramPlaced != nil {
+			if why := removeOwnFile(dst, *nvramPlaced); why != "" {
+				left = append(left, nvramPlaced.Path+" ("+why+")")
 			}
 		}
 		if rerr := wd.remove(); rerr != nil {
@@ -677,22 +680,42 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 	if p.old != nil {
 		oldGone = true
 		if err := p.removeOld(); err != nil {
+			if _, lerr := dst.DomainLookupByUUID(p.old.UUID); lerr == nil {
+				oldGone = false // refused before anything was removed: the VM is there as it was
+			}
 			return "", err
 		}
 	}
 	progress(0.88)
 
+	// The name may have been taken since the plan (another restore, a clone, a migration): never define over it.
+	if why := restoreNameTaken(dst, p.name, xmlText); why != "" {
+		return "", errors.New(why)
+	}
 	for _, d := range p.man.Disks {
 		f := p.pd.Dir + "/" + p.vols[d.Target]
-		moved = append(moved, f)
+		// The identity of the staged file, which is this restore's own (in its work directory); the move keeps it.
+		// A file is recorded as the restore's only once the move, which never replaces anything, has put it there.
+		ids, ierr := dst.FileIDs(staged[d.Target])
+		if ierr != nil || len(ids) != 1 || !ids[0].Regular {
+			return "", fmt.Errorf("cannot identify the staged copy of %s: %v", f, ierr)
+		}
 		if merr := dst.Move(staged[d.Target], f); merr != nil {
 			return "", fmt.Errorf("moving %s into the pool: %s", f, impFirstLine(merr.Error()))
 		}
+		id := ids[0]
+		id.Path = f
+		moved = append(moved, id)
 	}
 	if nvramStage != "" {
-		nvramPlaced = true
 		if cerr := dst.Copy(nvramStage, p.nvram); cerr != nil {
 			return "", fmt.Errorf("placing the UEFI variables at %s: %s", p.nvram, impFirstLine(cerr.Error()))
+		}
+		// The copy was made exclusively just now; its identity proves it later.
+		if ids, ierr := dst.FileIDs(p.nvram); ierr == nil && len(ids) == 1 && ids[0].Exists {
+			nvramPlaced = &ids[0]
+		} else {
+			nvramPlaced = &hostconn.FileID{Path: p.nvram, Exists: true}
 		}
 	}
 	dst.StoragePoolRefresh(p.pool, 0)
@@ -725,9 +748,21 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 // removeOld undefines the VM this restore replaces and deletes its disks.
 func (p *restorePlan) removeOld() error { return removeVMAndDisks(p.dst, *p.old) }
 
-// removeVMAndDisks undefines a (shut-off) VM with its UEFI variables, snapshot and checkpoint
-// records and TPM state, then deletes its disks: pool volumes through libvirt, plain files directly.
+// removeVMAndDisks undefines a shut-off VM with its UEFI variables, snapshot and checkpoint records and TPM state,
+// then deletes its disks, by the rules of a normal delete (vmDelete): writable disks that are pool volumes, not
+// shareable ones, and the cloud-init seed; a disk that linked clones are built on stops it. The state is checked
+// again here, at the moment of removal, not only when the work was planned: a VM started meanwhile, or one being
+// copied to its standby node, is left alone. Each disk is removed only while it is the file it was when the VM
+// was looked at, and while no process (QEMU) holds it open; what stays is named in the error.
 func removeVMAndDisks(dst *hostconn.Host, dom libvirt.Domain) error {
+	if st, _, err := dst.DomainGetState(dom, 0); err != nil {
+		return fmt.Errorf("cannot check the existing VM %s: %w", dom.Name, err)
+	} else if stateName(uint8(st)) != "shutoff" {
+		return fmt.Errorf("the existing VM %s is not shut off any more; it was not removed", dom.Name)
+	}
+	if replRunning(cluster.FormatUUID(dom.UUID)) {
+		return fmt.Errorf("the existing VM %s is being copied to its standby node; it was not removed", dom.Name)
+	}
 	x, err := dst.DomainGetXMLDesc(dom, libvirt.DomainXMLInactive)
 	if err != nil {
 		return err
@@ -736,39 +771,108 @@ func removeVMAndDisks(dst *hostconn.Host, dom libvirt.Domain) error {
 	if err := xml.Unmarshal([]byte(x), &dx); err != nil {
 		return err
 	}
+	var paths []string
+	for _, f := range ownDiskFiles(&dx, dom.Name) {
+		if _, err := lookupVolByPath(dst, f); err != nil {
+			continue // not a pool volume: a normal delete leaves it too
+		}
+		paths = append(paths, f)
+	}
+	if deps, err := dependentVolumes(dst, paths, paths); err != nil {
+		return fmt.Errorf("cannot check what is built on the disks of %s: %w", dom.Name, err)
+	} else if len(deps) > 0 {
+		return fmt.Errorf("the existing VM %s was not removed: %s", dom.Name, dependentsError(deps).Error())
+	}
+	ids, err := dst.FileIDs(paths...)
+	if err != nil {
+		return fmt.Errorf("cannot identify the disks of %s: %w", dom.Name, err)
+	}
 	f := libvirt.DomainUndefineManagedSave | libvirt.DomainUndefineSnapshotsMetadata | libvirt.DomainUndefineNvram |
 		libvirt.DomainUndefineCheckpointsMetadata | libvirt.DomainUndefineTpm
 	if err := dst.DomainUndefineFlags(dom, f); err != nil {
 		return fmt.Errorf("removing the existing VM: %w", err)
 	}
 	var left []string
-	for _, f := range diskPaths(&dx) {
-		vol, err := lookupVolByPath(dst, f)
-		if err == nil {
-			err = dst.StorageVolDelete(vol, 0)
+	for _, id := range ids {
+		if !id.Exists {
+			continue
 		}
-		if err != nil {
-			// Not a pool volume (or already gone): remove the plain file if it is one of ours.
-			if rerr := dst.Remove(f); rerr != nil {
-				left = append(left, f+" ("+rerr.Error()+")")
-			}
+		if why := removeOwnFile(dst, id); why != "" {
+			left = append(left, id.Path+" ("+why+")")
 		}
 	}
-	// The cloud-init seed of the VM goes with it, as in a normal delete (vmDelete): the CD-ROM named after the VM, when
-	// it is a volume of a storage pool. Other media are never touched.
-	for _, k := range dx.Devices.Disks {
-		if k.Device == "cdrom" && k.Source.File != "" && path.Base(k.Source.File) == seedVolumeName(dom.Name) {
-			if vol, err := lookupVolByPath(dst, k.Source.File); err == nil {
-				if err := dst.StorageVolDelete(vol, 0); err != nil {
-					left = append(left, k.Source.File+" ("+err.Error()+")")
-				}
-			}
-		}
-	}
+	refreshLive(dst) // libvirt forgets the removed volumes
 	if len(left) > 0 {
-		return fmt.Errorf("the existing VM was removed but its disks could not be deleted: %s", strings.Join(left, ", "))
+		return fmt.Errorf("the existing VM was removed but these of its disks were kept: %s", strings.Join(left, ", "))
 	}
 	return nil
+}
+
+// ownDiskFiles are the files of a VM's definition that go with it when it is deleted: its writable, not shareable
+// disks, and its cloud-init seed (the CD-ROM named after it). Read-only and shareable disks are shared images.
+func ownDiskFiles(dx *domainXML, name string) []string {
+	var out []string
+	for _, k := range dx.Devices.Disks {
+		f := k.Source.File
+		if f == "" {
+			continue
+		}
+		if k.Device == "disk" && k.ReadOnly == nil && k.Shareable == nil || k.Device == "cdrom" && path.Base(f) == seedVolumeName(name) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// restoreNameTaken says why the VM must not be defined now: a VM with its name, or with the UUID the definition
+// carries, exists on the node (defining would change that VM instead). "" when neither does.
+func restoreNameTaken(h *hostconn.Host, name, def string) string {
+	if _, err := h.DomainLookupByName(name); err == nil {
+		return "a VM named " + name + " appeared on " + h.Name + " meanwhile; nothing was replaced"
+	} else if !isNoDomain(err) {
+		return "cannot check whether a VM named " + name + " exists on " + h.Name + ": " + err.Error()
+	}
+	var x struct {
+		UUID string `xml:"uuid"`
+	}
+	if xml.Unmarshal([]byte(def), &x) == nil && strings.TrimSpace(x.UUID) != "" {
+		u, err := parseUUID(strings.TrimSpace(x.UUID))
+		if err != nil {
+			return "the definition has an invalid UUID"
+		}
+		if d, err := h.DomainLookupByUUID(u); err == nil {
+			return "the VM " + d.Name + " with the UUID of the restored VM appeared on " + h.Name + " meanwhile; nothing was replaced"
+		} else if !isNoDomain(err) {
+			return "cannot check the UUID of the restored VM on " + h.Name + ": " + err.Error()
+		}
+	}
+	return ""
+}
+
+// removeOwnFile removes the file id names, only while it is still that file and no process holds it open. The
+// answer is "" when it is gone, or why it stays.
+func removeOwnFile(h *hostconn.Host, id hostconn.FileID) string {
+	if !id.Regular || id.ID == "" {
+		return "its file system gives no identity that proves it is still the same file"
+	}
+	ans, err := h.RemoveIfID(id.Path, id.ID)
+	return keptBecause(h.Name, ans, err)
+}
+
+// keptBecause reads the answer of remove-id: "" when the file is gone (removed, or nothing was there), otherwise
+// why it stays.
+func keptBecause(node, ans string, err error) string {
+	switch {
+	case err != nil:
+		return err.Error()
+	case ans == hostconn.RemovedFile, ans == hostconn.MissingFile:
+		return ""
+	case ans == hostconn.InUseFile:
+		return "a process on " + node + " has it open"
+	case ans == hostconn.OtherFile:
+		return "another file has its name now"
+	}
+	return "unexpected answer " + ans
 }
 
 // restorePlacement removes what a backup remembers of where the VM was placed (replication, replica, old-copy and

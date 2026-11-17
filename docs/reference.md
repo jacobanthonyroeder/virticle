@@ -9,7 +9,7 @@
 | `virticle setup` | Run once on the controller's machine after installing, as root (`sudo virticle setup`). Chooses the web address and port, opens the port in the firewall, starts the service, creates the first administrator and adds this machine as a node. Ends with a summary and the address to open. Options below. See [install.md](install.md#setup). |
 | `virticle node add [user@]host[:port]` | Prepares the host when it needs it and adds it as a node, as **Nodes > Add node** does. Without a host: this machine (as root). Options below. See [install-node.md](install-node.md). |
 | `virticle node list [--json]` | The nodes, one line each: name, address, state. A node that runs an older Virticle node command reads `Virticle update needed:` and the command that updates it. |
-| `virticle node remove NAME` | Removes a node from the controller, as **Remove node** does (NAME: its host name, address or id). Nothing is uninstalled from it. On a terminal it asks first; `--yes` asks nothing. |
+| `virticle node remove NAME` | Removes a node from the controller, as **Remove node** does (NAME: its host name, address or id). Nothing is uninstalled from it and its VMs keep running. Refused while a task or a migration runs on the node. On a terminal it asks first; `--yes` asks nothing. |
 | `virticle status` | The controller's version, web address, service, administrator and every node with its state. For each problem it prints the command that fixes it. Exit code 1 when something needs attention. |
 | `virticle node prepare\|unprepare` | Prepares a host as a node without adding it (what `node add` runs first), or takes the controller's access away again. See [install-node.md](install-node.md#prepare-options). |
 | `virticle backup [-o FILE\|DIR] [--encrypt] [--passphrase-file FILE] [--keep-last\|--keep-hourly\|--keep-daily\|--keep-weekly\|--keep-monthly N]` | Writes the controller's own data (database, SSH key, certificates) to one file, while the controller runs. With `-o DIR` and `--keep-*` flags it then deletes the older backups in DIR that the [retention rules](#retention) do not keep; without them it deletes nothing. Takes `-data`. |
@@ -48,6 +48,12 @@ Running setup again changes nothing that is done and says so ("Already set up", 
 | `--identity FILE` | The administrator's private key. |
 | `--password-file FILE` | The administrator's password: the first line of FILE. `VIRTICLE_NODE_PASSWORD` works too. |
 | `--password-stdin` | The administrator's password: one line on standard input. |
+| `--jump-identity FILE` | A private key for the jump host, used only when it does not accept the controller's key. |
+| `--jump-password-file FILE` | A password for the jump host (the first line of FILE), used the same way. `VIRTICLE_JUMP_PASSWORD` works too; a terminal asks. |
+
+When a jump host refuses the controller's key and the login works, `node add` and `node prepare` add the key to that
+account's `~/.ssh/authorized_keys` with the options `restrict,port-forwarding,command="/bin/false"`. See
+[install-node.md](install-node.md#through-a-jump-host).
 
 The administrator is root, or a user that may use sudo (`ann@host`). Without a key file or password, your SSH agent is
 used, and a terminal asks for the password. A host that this controller's key already gets into needs no credential.
@@ -91,7 +97,7 @@ whose defaults stay.
 | Variable | Meaning |
 | --- | --- |
 | `VIRTICLE_LISTEN` | Default for `-listen`. |
-| `VIRTICLE_JUMP_PASSWORD` | Password for node jump hosts. |
+| `VIRTICLE_JUMP_PASSWORD` | Password for node jump hosts. The controller then signs in to them with it. In `node add` and `node prepare` it is the login for a jump host that does not accept the controller's key. |
 | `VIRTICLE_ADMIN_PASSWORD` | For scripts: the first administrator's password for `virticle setup` (instead of `--admin-password-file`). |
 | `VIRTICLE_NODE_PASSWORD` | For scripts: the host administrator's password for `virticle node add`, `prepare` and `unprepare` (instead of `--password-file`). |
 | `VIRTICLE_UPGRADE_LISTEN` | Set by the container image to `0.0.0.0:8080`: a data volume from 0.2.0 (users, no stored web settings) keeps answering there, as before. Packages and binaries do not set it. |
@@ -185,8 +191,11 @@ A destination of type **Webhook** receives a `POST` with `Content-Type: applicat
 - `alert.kind`: `node-down`, `pool-usage`, `host-memory`, `failed-job`, `vm-state`, `tls-expiry`,
   `scheduler-conflict`, `net-link`, `net-bond`, `net-drift`, `storage-unavailable`, `rolling-update`, `replica-age`, `stale-copy`, `guest-frozen`, `migration-leftover`. `severity` is `warning` or `critical`. `node` is
   the node id and `link` the page in the web UI (both may be missing); `since` and `time` are Unix seconds.
-  A `failed-job` alert of a task that a person started (not the scheduler) carries `user` and is shown in the web UI
-  only; destinations receive the failed-job alerts of scheduled runs.
+  A `failed-job` alert of a task that a person started (not the scheduler) carries `user`; destinations receive it
+  like every other alert. The same `id` is sent again with `event` `raise` when the user changes (a scheduled run's
+  failure replaced by a person's, or the reverse); one `clear` follows when the job succeeds.
+  The open alerts are kept in the database (`web_settings`, key `alert_state`; no schema change), so a restart of
+  the controller sends nothing again, and sends the `clear` of an alert that ended while it was down.
 - One alert per request, always; the webhook is never summarised. Any 2xx answer is success. Other answers are
   retried after 5 s, 30 s and 2 min, except 401, 403, 404, 410 and other 4xx (not 408, 429), which are not.
   On 429 the `Retry-After` header is honoured.
@@ -248,10 +257,13 @@ earlier versions no longer exist.
   when the guest agent runs.
 - **Clock** (Windows): `localtime` (the hardware clock in local time, as Windows expects), `hypervclock` instead of
   `kvmclock`. QEMU fills that clock with the node's local time, UTC on most nodes, and what the guest writes into it
-  lasts only until the VM is powered off. So after a start from Virticle (start, restore with start) the guest clock is
+  lasts only until the VM is powered off. So after every start the node reports (the libvirt event `started` of a
+  running VM: start, restore, clone or new VM with start, failover, rolling update, `virsh start`) the guest clock is
   synced as soon as the agent answers (up to 5 minutes), when it is more than 2 seconds off: a Windows guest in another
-  time zone would otherwise run hours off until Windows corrects itself. A VM started by the node at boot (autostart) is
-  not synced.
+  time zone would otherwise run hours off until Windows corrects itself. When a node's connection comes up (node boot
+  with autostart VMs, controller restart) its running VMs with such a clock are checked once the same way. A VM started
+  paused is skipped. One sync per VM waits at a time; the task names the person when the start came from them, else
+  `system`.
 - **Serial console**: added to every new VM; the Console card on the Overview adds one to a VM that has none.
 - **Firmware** (Linux): UEFI, with the UEFI variables in a qcow2 file so the VM can take internal snapshots. A node without UEFI firmware gets BIOS. Windows always gets UEFI.
 
@@ -281,7 +293,9 @@ answers with the file's identity. Only then is the file recorded as the run's.
 The handle survives writes, renames, relabelling, a reboot and a remount, and changes when the file is deleted and
 made again under the same name. Device numbers are not used: an NFS mount or an LVM volume can get another one after a
 reboot. On NFS both nodes see the same handle for the same file, so the source's own file seen through a share is
-recognised.
+recognised. Checked in the lab (Linux 6.12 clients, an NFS server on XFS): two clients, mounting with NFS 3, 4.1 or 4.2,
+saw the same handle for a file; a file deleted and made again under the same name (even with the same inode number) got
+another one; the handle was the same after the server restarted and after a remount.
 
 **The journal.** Before the first file is made the run is written to the database (`mig_runs`): VM uuid and name,
 source, target, state. Each file it made follows (`mig_files`): path, identity, size, state, the reason it is kept.
@@ -303,7 +317,13 @@ counts as "no".
   and `qemu-img`'s), UEFI stores, snapshot files. No volume in an active pool is built on it. No other journal entry and
   no running migration claims it.
 - It is not on storage the source also uses: not an NFS pool that the source mounts at the same place, not outside every
-  pool (the UEFI directory excepted), and not the same file as the source's file of that name.
+  pool (the UEFI directory excepted), and not the same file as the source's file of that name. An NFS pool at the same
+  place counts as another share only when that is proven: another export, or servers whose addresses have none in
+  common. Then the identity check above still applies.
+- The storage answers. An NFS pool whose share does not answer (the probe of [Shared storage (NFS)](#shared-storage-nfs)) is not touched: the
+  attempt keeps everything with the reason "the storage ... does not answer". Each node call of a cleanup has a time
+  limit (1 minute to look, 3 minutes to remove), so a share that stops answering in the middle never holds up the
+  controller; a removal that ran out of time is looked at again on the next attempt.
 - The VM is on the source and only there: defined, its disk files present; not defined or running on the target, not an
   unfinished incoming copy there. A VM found on the target, or on neither node, or with missing disks puts the run into
   `attention`.
@@ -313,11 +333,29 @@ counts as "no".
 The removal is atomic on the node (`remove-id`): the file is renamed to a private name, its identity is checked on what
 was renamed, and it is removed, or renamed back. A file that a process (QEMU) holds a lock on is renamed back too.
 
+| File system | Private name | Way back |
+| --- | --- | --- |
+| With `RENAME_NOREPLACE` (ext4, XFS, btrfs) | `NAME.virticle-rm.XXXXXX` next to it, made without replacing anything | Rename without replacing |
+| Without it (NFS 3, 4.1, 4.2: the Linux client answers EINVAL) | A new directory `NAME.virticle-rm.XXXXXX` (mkdir fails where the name exists), the file renamed into it | Hard link, then the private copy is dropped |
+
+Neither way back replaces a file that took the name meanwhile: the file then stays under the private name and the
+error names it. When the node command is stopped by a signal in between, it puts the file back. On NFS 3 a lock that
+another node holds on a file is not visible (the lab showed it with NLM); on NFS 4 it is.
+
 **The end of a live migration.** When the target's answer to the last step is lost (the connection broke), the target
 may run the VM already. The source is then told nothing until the target says where the VM is: the task asks for up to 3
-minutes; after that the VM stays paused on the source and the cleanup asks again when the target is online. Running
-there: the source copy is stopped and the run needs attention. Not there: the source resumes the VM. In both cases
-nothing is removed by itself.
+minutes; after that the VM stays paused on the source, with no time limit, and the cleanup asks again when the target is
+online. Running there: the source copy is stopped and the run needs attention. Not there: the source resumes the VM. In
+both cases nothing is removed by itself.
+
+To settle it by hand while the target does not answer to the controller (the "?" of the alert says the same):
+
+1. On the target, as root: `virsh list --all`.
+2. The VM runs there: it moved. Keep it. Stop the paused copy on the source (`virsh destroy NAME`), never resume it, and
+   leave its disks until the VM on the target is checked.
+3. The VM is not there, or only as a paused incoming copy: stop that copy on the target (`virsh destroy NAME`), then
+   resume the VM on the source (**Resume**, or `virsh resume NAME`).
+4. Then **Remove** or **Keep** the files in the alert.
 
 **After a successful migration** the source files are removed only when the VM is defined on the target with every
 file of its definition there, it is no longer defined on the source, nothing on the source refers to the file, and the
@@ -328,8 +366,24 @@ run). An attempt that removes something or keeps a file for a new reason runs as
 operation trace holds the node calls and its Result lists what was removed and what was kept, with the reason.
 
 **Alert** `migration-leftover`, one per run, id `migleft:<run>`: "Files of a failed migration of NAME are left on NODE"
-(warning, with paths, sizes and reasons), or "The migration of NAME needs attention" (critical, says where the VM is).
-It clears when the entry is gone.
+(warning, with paths, sizes and reasons), or "The migration of NAME needs attention" (critical, says where the VM is;
+`help` says how to settle it by hand, shown behind a "?"). It clears when the entry is gone.
+
+## Files made by disk move, clone, restore and import
+
+The same proof as for migrations: a file is removed after a failure only while it is still the file the operation
+made, and while no process holds it open (`remove-id`). What stays is named in the task's result.
+
+| Operation | Making the new file | After a failure |
+| --- | --- | --- |
+| Disk move, running VM | The empty target image by the node, exclusively, with its identity | Removed by identity; another file under the name is left as it is |
+| Disk move, shut-off VM | libvirt copies to `NAME.virticle-move-XXXXXXXX`; the node then gives the copy its name without replacing anything | The private copy is removed by identity; a volume that took the name meanwhile stays |
+| Disk move, old volume | Deleted after the move by identity: kept when another file has its name or a process has it open | |
+| Clone, full copy; volume clone | As the shut-off disk move; a name that exists on disk, listed by libvirt or not, is refused | Removed by identity |
+| Clone, linked; cloud-init seed | The image by the node, exclusively | Removed by identity |
+| Restore | Each disk is moved into the pool by the node without replacing anything, and recorded only then; the UEFI store is copied exclusively | Only those files are removed, by identity. A VM that took the name or UUID meanwhile is never defined over |
+| Restore over an existing VM | The VM is checked again when it is removed: still shut off, not being replicated. It loses what a normal delete removes (writable, not shareable pool volumes and its cloud-init seed), and nothing when linked clones are built on its disks; each by identity | |
+| OVA import | Each disk is converted and moved into place exclusively | The disks made so far are removed by identity |
 
 **API.**
 
@@ -543,10 +597,26 @@ the guest's file systems with libvirt's `DomainFsfreeze` (the guest agent's `gue
 not answer `guest-info` within 5 seconds is not asked to freeze. The backup waits up to 2 minutes for the freeze; after that
 it is made without ("not frozen: the guest did not freeze within 2 minutes"). libvirt cannot cancel a freeze and runs one
 agent command per guest at a time, so the freeze goes on, and when it takes effect later Virticle thaws the guest at once
-(logged). A Windows guest freezes through VSS: the agent prepares the snapshot and then waits up to 60 seconds for VSS,
-which can take more than 45 seconds on a busy host; VSS holds writes for at most 10 seconds, so its first thaw can report
-that error; the retry succeeds. When every thaw try fails (after backup-begin, or after a late freeze), the guest is
-recorded in the controller's memory and raises the critical alert `guest-frozen`. Each alert pass (once a minute) asks the
+(logged). An agent whose file systems are frozen already (a freeze that nobody thawed) lists `guest-fsfreeze-freeze` as
+disabled in `guest-info`; Virticle then asks `guest-fsfreeze-status`, thaws a guest that reports `frozen` (logged) and
+freezes it anew. A Windows guest freezes through VSS with the agent's own VSS provider (service "QEMU Guest Agent VSS
+Provider", installed with the agent from the virtio-win guest tools): the agent prepares the snapshot and then waits up to
+60 seconds for VSS, which can take more than 45 seconds on a busy host. VSS holds writes for at most 10 seconds; when the
+thaw reports that VSS ended the freeze by itself ("fsfreeze is limited up to 10 seconds"), the backup is not called frozen
+("not frozen: VSS in the guest ended the freeze after 10 seconds"). The VSS errors of the agent get a clause that says what
+to check in the guest:
+
+| Agent error | Clause |
+| --- | --- |
+| `0x80042304`, `0x8004230f`, "error in VSS provider", "failed to add ... to snapshot set" | the VSS provider is not registered or not running |
+| `0x80042316` | another shadow copy was being made (Windows backup, restore point) |
+| `0x800423f*`, "writer" | a VSS writer failed or timed out (`vssadmin list writers`) |
+| "Frozen event", "failed to prepare for backup", "failed to do snapshot set" | VSS did not finish (writers, Application event log) |
+| other errors that name VSS; a Windows agent that cannot freeze at all | the agent's VSS support is missing |
+| no freeze within 2 minutes (Windows guest) | VSS did not finish |
+
+When every thaw try fails (after backup-begin, or after a late freeze), the guest is
+recorded (in the database, so a restart keeps it) and raises the critical alert `guest-frozen`. The alert appears within seconds. Each alert pass (once a minute) asks the
 agent for `guest-fsfreeze-status`, thaws a guest it reports frozen (5 second limit), and clears the alert when the agent
 reports `thawed` or the VM is gone or not running; a guest whose backup is running is left alone. A restart of the
 controller forgets the record. The request field `quiesce` of the backup call is
@@ -765,7 +835,9 @@ pruning it down to keep-last alone.
   `everyHours` (1 to 168), the five `keep*` fields, `dir` (the folder of the scheduled copies; empty or the default
   `backups` in the data directory), `zone`, `nextRun`. Fields left out of a PUT keep their values. A new `dir` must be a
   full path outside the data directory; the controller creates it and writes a test file there before it saves, and
-  refuses it with the reason otherwise.
+  refuses it with the reason otherwise. A PUT that switches the schedule on, or changes the folder while it is on,
+  also starts a copy at once; one that changes only the time or the keep rules does not. Pruning counts only the
+  files named for this host.
   Stored settings from before have only `daily`: daily at 03:30 with `keepDaily 7`. The old field `keep` is gone.
 
 ## Node access
@@ -1017,6 +1089,8 @@ Facts
   small test volume to check that a disk made by root can be used by the VM user.
 - A node that boots while the server is away has the pool stopped; the controller starts a stopped autostart NFS
   pool when the server answers on port 2049 and the node has been up for less than an hour.
+- `node prepare` writes `/etc/modules-load.d/virticle.conf` (the KVM module, only when it was not loaded) and never
+  changes the boot loader or kernel command line; see [install-node.md](install-node.md#kernel-modules-and-kernel-command-line).
 - `node prepare` writes `/etc/systemd/system/virtqemud.service.d/10-virticle-storage.conf` (Wants and After
   `virtstoraged.service`) on nodes with separate libvirt daemons, so the NFS pools are mounted before VMs
   autostart. Without it a VM on NFS fails to autostart with "no such file".
@@ -1089,6 +1163,6 @@ The update log is `/var/lib/virticle-update/update.log` on the node. dnf: `check
 - Guest setup on clone written into the disk was not tried on SUSE, Ubuntu or a guest installed from a real ISO. NixOS
   and other systems are refused; Windows goes its own way (an answer file).
   Packages are installed at the clone's first start; a failed install shows only inside the guest.
-- The clock sync after a start (guests with a local-time hardware clock) needs the guest agent, and does not cover VMs the
-  node starts at boot.
+- The clock sync after a start (guests with a local-time hardware clock) needs the guest agent; until it answers, the
+  guest runs off by the difference between its time zone and the node's.
 - Not verified end to end: ACME issuance, arm64. See [ROADMAP.md](../ROADMAP.md).

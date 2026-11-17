@@ -527,6 +527,16 @@ func nodeRefs(h *hostconn.Host) (map[string]string, error) {
 			refs[p] = by
 		}
 	}
+	// The pools first: a share that does not answer would make the look at the VMs' images below wait for it.
+	pools, err := poolsByPathOpt(h, false)
+	if err != nil {
+		return nil, fmt.Errorf("cannot list the storage pools: %w", err)
+	}
+	for dir, pl := range pools {
+		if pl.down {
+			return nil, fmt.Errorf("the storage %s (%s) does not answer", pl.pool.Name, dir)
+		}
+	}
 	doms, _, err := h.ConnectListAllDomains(1, 0)
 	if err != nil {
 		return nil, fmt.Errorf("cannot list the VMs: %w", err)
@@ -623,14 +633,7 @@ func nodeRefs(h *hostconn.Host) (map[string]string, error) {
 			}
 		}
 	}
-	pools, err := poolsByPathOpt(h, false)
-	if err != nil {
-		return nil, fmt.Errorf("cannot list the storage pools: %w", err)
-	}
-	for dir, pl := range pools {
-		if pl.down {
-			return nil, fmt.Errorf("the storage %s (%s) does not answer", pl.pool.Name, dir)
-		}
+	for _, pl := range pools {
 		if !pl.active {
 			continue
 		}
@@ -657,9 +660,14 @@ func nodeRefs(h *hostconn.Host) (map[string]string, error) {
 }
 
 // sharedDirs says, for each directory, whether its storage may be shared between the two nodes. A directory that
-// is an NFS pool on the target and also an NFS pool on the source counts as shared, whatever the servers are
-// called (keeping is the safe side). A directory that is no pool on the target and not the UEFI directory cannot
-// be judged and counts as shared too.
+// is an NFS pool on the target and also an NFS pool on the source counts as shared, unless the two are proven to be
+// different shares: different exports, or servers whose addresses (as each node resolves its own spelling) have
+// none in common. Server names that cannot be resolved count as the same (keeping is the safe side). A directory
+// that is no pool on the target and not the UEFI directory cannot be judged and counts as shared too.
+//
+// A different share is not trusted alone: the file rule still compares the identity of the file on the target with
+// the file of the same name on the source (the same file on a share has the same identity on every node), and the
+// journalled file was made exclusively, which fails where the source's file is visible.
 func sharedDirs(src, dst *hostconn.Host, dirs []string) (map[string]string, error) {
 	sp, err := poolDescs(src)
 	if err != nil {
@@ -669,10 +677,19 @@ func sharedDirs(src, dst *hostconn.Host, dirs []string) (map[string]string, erro
 	if err != nil {
 		return nil, fmt.Errorf("cannot list the pools of %s: %w", dst.Name, err)
 	}
-	return sharedReasons(src.Name, dst.Name, sp, dp, dirs), nil
+	distinct := func(s, d poolDesc) bool {
+		if path.Clean(s.Export) != path.Clean(d.Export) {
+			return true
+		}
+		a, b := resolveServerFn(src, s.Server), resolveServerFn(dst, d.Server)
+		return len(a) > 0 && len(b) > 0 && !intersects(a, b)
+	}
+	return sharedReasons(src.Name, dst.Name, sp, dp, dirs, distinct), nil
 }
 
-func sharedReasons(srcName, dstName string, sp, dp map[string]poolDesc, dirs []string) map[string]string {
+// sharedReasons is sharedDirs on the pool lists; distinct says whether two NFS pools are proven to be different
+// shares (nil: never).
+func sharedReasons(srcName, dstName string, sp, dp map[string]poolDesc, dirs []string, distinct func(s, d poolDesc) bool) map[string]string {
 	out := map[string]string{}
 	for _, d := range dirs {
 		t, ok := dp[d]
@@ -682,6 +699,9 @@ func sharedReasons(srcName, dstName string, sp, dp map[string]poolDesc, dirs []s
 			out[d] = "outside every storage pool of " + dstName
 		case t.Type == "netfs" || t.isNFS():
 			if s, ok := sp[d]; ok && (s.Type == "netfs" || s.isNFS()) {
+				if s.isNFS() && t.isNFS() && distinct != nil && distinct(s, t) {
+					continue // another share at the same place
+				}
 				out[d] = "on network storage (pool " + t.Name + ") that " + srcName + " mounts at the same place"
 			}
 		}
@@ -750,9 +770,20 @@ func (s *Server) gatherFacts(run store.MigRun, src, dst *hostconn.Host) runFacts
 		return f
 	}
 
-	// The target.
+	var dl []string
+	for d := range dirs {
+		dl = append(dl, d)
+	}
+	sort.Strings(dl)
+
+	// The target. A share that does not answer is not touched: every program that touches a dead hard mount waits
+	// for the server, so the attempt ends here, and the node calls that follow have a time limit as well.
+	if why := downStorage(dst, dl); why != "" {
+		f.TargetErr = why
+		return f
+	}
 	revalidateNFSDirs(dst, paths)
-	ids, err := dst.FileIDs(paths...)
+	ids, err := fileIDsLimited(dst, paths)
 	if err != nil {
 		f.TargetErr = err.Error()
 		return f
@@ -780,11 +811,10 @@ func (s *Server) gatherFacts(run store.MigRun, src, dst *hostconn.Host) runFacts
 	}
 
 	// The source.
-	var dl []string
-	for d := range dirs {
-		dl = append(dl, d)
+	if why := downStorage(src, dl); why != "" {
+		f.SourceErr = why
+		return f
 	}
-	sort.Strings(dl)
 	shared, err := sharedDirs(src, dst, dl)
 	if err != nil {
 		f.SourceErr = err.Error()
@@ -798,7 +828,7 @@ func (s *Server) gatherFacts(run store.MigRun, src, dst *hostconn.Host) runFacts
 		}
 	}
 	revalidateNFSDirs(src, paths)
-	sids, err := src.FileIDs(paths...)
+	sids, err := fileIDsLimited(src, paths)
 	if err != nil {
 		f.SourceErr = err.Error()
 		return f
@@ -847,6 +877,38 @@ func (s *Server) gatherFacts(run store.MigRun, src, dst *hostconn.Host) runFacts
 		}
 	}
 	return f
+}
+
+// Time limits of the node calls of a cleanup. A share whose server stopped answering makes them wait (a hard
+// mount), and the probe before them can be a few seconds old.
+const (
+	cleanLookLimit   = time.Minute     // file-id: it only looks
+	cleanRemoveLimit = 3 * time.Minute // remove-id: unlinking a large file on a share can take a while
+)
+
+func fileIDsLimited(h *hostconn.Host, paths []string) ([]hostconn.FileID, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cleanLookLimit)
+	defer cancel()
+	return h.FileIDsCtx(ctx, paths...)
+}
+
+// downStorage says which of the directories is an NFS pool of h whose share does not answer now (or "" for none).
+// A node whose pools cannot be listed is reported the same way: nothing is touched there.
+func downStorage(h *hostconn.Host, dirs []string) string {
+	pools, err := poolsByPathOpt(h, false)
+	if err != nil {
+		return "cannot list the storage pools: " + err.Error()
+	}
+	return downIn(pools, dirs)
+}
+
+func downIn(pools map[string]dstPool, dirs []string) string {
+	for _, d := range dirs {
+		if pl, ok := pools[path.Clean(d)]; ok && pl.down {
+			return "the storage " + pl.pool.Name + " (" + d + ") does not answer"
+		}
+	}
+	return ""
 }
 
 func parseUUID(s string) (libvirt.UUID, error) {
@@ -1025,8 +1087,13 @@ func (s *Server) cleanMigRun(id int64, mode string, src, dst *hostconn.Host, dry
 			res.changed = true
 			continue
 		case fileRemove:
-			ans, err := dst.RemoveIfID(jf.Path, jf.Ident)
+			ctx, cancel := context.WithTimeout(context.Background(), cleanRemoveLimit)
+			ans, err := dst.RemoveIfIDCtx(ctx, jf.Path, jf.Ident)
+			cancel()
 			switch {
+			case err != nil && errors.Is(err, context.DeadlineExceeded):
+				// Not known whether it went: the entry stays, and the next attempt looks again.
+				action, reason = fileKeep, "removing it did not finish within "+cleanRemoveLimit.String()+"; looked at again later"
 			case err != nil:
 				action, reason = fileKeep, "removing it failed: "+err.Error()
 			case ans == hostconn.RemovedFile:
@@ -1190,6 +1257,7 @@ func (s *Server) leftoverOf(node int64, p string) string {
 type alertLeftover struct {
 	Run                    int64
 	Name, SrcName, DstName string
+	Waiting                bool // the source keeps the VM paused until the target answers (pendingConfirm)
 	Dst                    int64
 	State, Note            string
 	Unsure                 bool
@@ -1209,7 +1277,7 @@ func (s *Server) gatherLeftovers() []alertLeftover {
 		if migHeld(r.ID) {
 			continue
 		}
-		out = append(out, alertLeftover{Run: r.ID, Name: r.Name, SrcName: r.SrcName, DstName: r.DstName, Dst: r.Dst, State: r.State, Note: r.Note, Unsure: r.Unsure, Files: r.Files})
+		out = append(out, alertLeftover{Run: r.ID, Waiting: pendingConfirm(r.ID) != nil, Name: r.Name, SrcName: r.SrcName, DstName: r.DstName, Dst: r.Dst, State: r.State, Note: r.Note, Unsure: r.Unsure, Files: r.Files})
 	}
 	return out
 }
@@ -1237,6 +1305,7 @@ func leftoverAlert(l alertLeftover) Alert {
 		if len(lines) > 0 {
 			a.Message += " Kept on " + l.DstName + ": " + strings.Join(lines, "; ") + "."
 		}
+		a.Help = attentionHelp(l)
 		return a
 	}
 	a.Message = "On " + l.DstName + ": " + strings.Join(lines, "; ") + "."
@@ -1244,6 +1313,19 @@ func leftoverAlert(l alertLeftover) Alert {
 		a.Message = l.Note
 	}
 	return a
+}
+
+// attentionHelp is how an administrator settles a run that needs attention by hand (behind the alert's "?").
+func attentionHelp(l alertLeftover) string {
+	h := "Nothing is removed or resumed by itself: the VM must never run on both nodes. To settle it by hand: "
+	if l.Waiting {
+		h = l.SrcName + " keeps " + l.Name + " paused until " + l.DstName + " answers, so that it never runs on both nodes; " +
+			"then the controller settles it by itself. To settle it by hand before that: "
+	}
+	return h + "on " + l.DstName + ", run virsh list --all as root. " +
+		"If " + l.Name + " runs there, it moved: keep it, and stop the copy on " + l.SrcName + " (virsh destroy); never resume that copy, and leave its disks until the VM on " + l.DstName + " is checked. " +
+		"If it is not there, or only as a paused incoming copy (stop that one with virsh destroy), resume it on " + l.SrcName + " (Resume, or virsh resume). " +
+		"Then Remove the files here (only files proven to be the migration's go) or Keep them."
 }
 
 // --- HTTP ---

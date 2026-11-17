@@ -55,7 +55,7 @@ How to do the everyday things in the web UI. To install, see
   (operators and administrators). A new alert shows too: an error stays until closed, a warning goes after 10 seconds.
   At most four show; the rest are counted and **N more** opens the alerts. Nothing is replayed after the page was closed:
   the alert bell and the Tasks list still hold it. A failed task also becomes an alert, with your name on it; it clears
-  when the same action succeeds on the same target. These alerts are not sent to e-mail or webhooks.
+  when the same action succeeds on the same target. Like every alert, it goes to the destinations under **Settings > Alerts**; the message names you and the task.
 - **Status** is always a dot and the state name, for example green Running, amber Paused, red Offline, grey Shutoff.
 - **Help**: a small **?** after a label or a line. Point at it (or tab to it) and the explanation shows in a box.
 - **Sub pages**: some tabs hold several separate areas. They show a short list of sub pages at the left of the
@@ -113,6 +113,11 @@ To add another host:
    for Root). A node prepared by version 0.2.0 uses `virticle`. A host that
    another Virticle controller manages makes the check stop with **Take over
    node**: see [controller-backup.md](controller-backup.md#c-there-is-no-backup-and-the-controller-is-lost).
+
+4. A node behind a jump host: enter it under **Advanced > Jump host**. When the jump host does not accept the
+   controller's key yet (a new controller), the check stops at **Jump host**. Press **Back**, give a login for the jump
+   host (the "?" says what is written there) and run again. Virticle then adds the controller's key to that account,
+   limited to forwarding. See [install-node.md](install-node.md#through-a-jump-host).
 
 ![Add node dialog](img/add-node.png)
 
@@ -248,8 +253,8 @@ Good to know:
 | More | **Edit XML**, and **Delete VM** (shut the VM down first; its disks are deleted too unless you untick the box). |
 
 Sync guest clock is under **Power**. A guest whose hardware clock runs in local time (Windows) gets its clock synced by
-itself after a start from Virticle and after a restore that starts it, once its guest agent answers. A VM that the node
-starts at boot is not synced.
+itself after every start (also a clone, a restore, a failover, or a start by the node at boot), once its guest agent
+answers.
 
 **Guest setup on clone.** When you open **Guest setup** in the clone dialog, Virticle looks into the source's disk
 (a few seconds) and says how the settings reach the clone:
@@ -302,7 +307,9 @@ Details: [reference](reference.md#guest-setup-on-clone).
   at the next start.
 - **Passthrough** lists the host's PCI devices. A device shares its IOMMU
   group with others; the dialog shows what moves together. The host needs
-  IOMMU enabled in firmware and on the kernel command line. A graphics card
+  IOMMU enabled in firmware and on the kernel command line. A node without it
+  says which arguments to add (the help mark says where they go); Virticle does not
+  change the boot loader. A graphics card
   that the host itself is using cannot be attached.
 - **Speed limit**: in the network interfaces list, **Edit** a card and enter a
   **Speed limit (Mbit/s)**; empty means no limit. It limits both directions and
@@ -396,7 +403,9 @@ backup per day for a week, one per week for a month and one per month for half a
 for the instant the backup starts and thaws them right after, so the backup is as consistent as a clean shutdown would leave
 the files (databases and journals included). The task says "guest file systems frozen" or "not frozen:" with the reason (no
 guest agent, agent not answering, no freeze within 2 minutes). If the freeze fails the backup is made anyway; a freeze that
-takes effect after the 2 minutes is thawed at once. Scheduled backups freeze the guest the same way.
+takes effect after the 2 minutes is thawed at once, and a guest that an earlier freeze left frozen is thawed and frozen
+anew. Scheduled backups freeze the guest the same way. A Windows guest needs the QEMU guest agent from the virtio-win guest
+tools, which brings the VSS provider; when VSS fails, the reason says what to check in the guest.
 A shut-off VM has nothing to freeze. If Virticle cannot thaw the guest afterwards, the task fails and says how to thaw it by hand.
 A guest that may still be frozen, also after a late freeze, raises the critical alert **NAME may be frozen**. Virticle tries
 the thaw again every minute; the alert clears when the guest agent reports the file systems thawed or the VM stops.
@@ -647,6 +656,7 @@ The VM stays on the source. The copies made on the target are removed, and nothi
 | The target is offline, or cannot be checked | The copies stay. The alert **Files of a failed migration of NAME are left on NODE** lists them. They are removed when the node is back, and the alert clears. |
 | A copy was replaced by another file of the same name, or something uses it | That file stays. The alert says why. |
 | The connection to the target broke at the very end | The VM may run on the target already. Nothing is removed on either node. The alert **The migration of NAME needs attention** says where the VM runs. |
+| The target's NFS share does not answer | Nothing is touched there. The copies stay until the share answers again. |
 | The controller restarted during the migration | The copies are found again after the restart and removed by the same rule. |
 
 An administrator can act on the alert:
@@ -654,6 +664,14 @@ An administrator can act on the alert:
 - **Remove** checks again and removes what is proven to be the migration's own copies. A window lists what was removed
   and what was kept, and why.
 - **Keep** leaves the files as ordinary volumes. The controller no longer removes them.
+
+When the connection broke at the very end and the target does not answer, the VM stays paused on the source until it
+does, so it never runs on both nodes. The "?" of the alert says how to settle it by hand: check on the target whether
+the VM runs there, then either stop the paused copy on the source, or resume it there. Details:
+[reference](reference.md#failed-migrations).
+
+Disk move, clone, restore and import follow the same rule for the files they make: after a failure only their own new
+files go, and a file that took the name meanwhile stays. The task result names what was kept.
 
 After a successful migration the source files go only when the VM is confirmed on the target with its disks. The rule
 is in [reference.md](reference.md#failed-migrations).
@@ -980,6 +998,11 @@ clears, for warnings and critical alerts. **Send test message** checks a destina
 words what the service answered. A destination that cannot be reached shows a red dot and **Failing:** with the
 reason; Virticle tries a message again after 5 seconds, 30 seconds and 2 minutes, then gives up on that message.
 More than 5 alerts raised in one minute arrive as one summary message.
+
+Each alert is sent once when it is raised and once when it clears; the next check and a restart of Virticle do not send
+it again. When a person's failed task replaces a scheduled run's alert for the same job (or the other way round), the
+destination gets the changed alert and, in the end, one clear. A failed task of a person clears when the same action
+succeeds on the same target, or after 24 hours.
 
 | Service | Where to get the URL |
 | --- | --- |

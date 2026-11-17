@@ -11,6 +11,7 @@ interface Row {
   title: string;
   status: "ok" | "warning" | "error" | "info" | "skipped";
   detail?: string;
+  help?: string;
 }
 interface Job {
   rows: Row[];
@@ -20,12 +21,22 @@ interface Job {
   user: string;
   addr: string;
   jump?: string;
+  jumpLogin?: boolean; // the jump host does not accept the controller's key: a login for it is needed
 }
+
+// What the jump host login does, behind the "?" of its fields.
+const JUMP_HELP = (
+  <>
+    Used for this run only and not stored. The jump host does not accept the controller's key. Unless this is a Check, the key is added to the
+    authorized_keys of this account with the options <span className="mono">restrict,port-forwarding,command="/bin/false"</span>: it can forward
+    connections and nothing else. To take it away, delete the line that ends in virticle-controller.
+  </>
+);
 
 const STATUS: Record<Row["status"], CheckStatus> = { ok: "ok", warning: "warning", error: "error", info: "info", skipped: "pending" };
 
 export function rowItems(rows: Row[]): CheckItem[] {
-  return rows.map((r) => ({ key: r.id, status: STATUS[r.status], title: r.title, detail: r.detail }));
+  return rows.map((r) => ({ key: r.id, status: STATUS[r.status], title: r.title, detail: r.detail, help: r.help }));
 }
 
 /**
@@ -53,6 +64,9 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
   const [adminUser, setAdminUser] = useState("root");
   const [cred, setCred] = useState("password");
   const [secret, setSecret] = useState("");
+  const [jumpCred, setJumpCred] = useState("password");
+  const [jumpSecret, setJumpSecret] = useState("");
+  const [jumpAsked, setJumpAsked] = useState(false); // the jump host refused the controller's key: its login is asked for
   const [allowRoot, setAllowRoot] = useState(false);
   const [direct, setDirect] = useState(false);
   const [sshUser, setSshUser] = useState("virticle-node");
@@ -81,6 +95,8 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
       adminUser,
       password: cred === "password" ? secret : "",
       privateKey: cred === "key" ? secret : "",
+      jumpPassword: jumpAsked && jumpCred === "password" ? jumpSecret : "",
+      jumpPrivateKey: jumpAsked && jumpCred === "key" ? jumpSecret : "",
       checkOnly,
       allowRoot,
       takeOver: takeOverNow,
@@ -120,6 +136,7 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
     if (job?.done && job.ok && !job.checkOnly && !autoDone.current) {
       autoDone.current = true;
       setSecret(""); // prepared: the credential is gone from the page
+      setJumpSecret("");
       register();
     }
   });
@@ -138,7 +155,19 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
         <ErrorBox error={act.error || reg.error} />
         <footer>
           {!running && (
-            <button type="button" onClick={() => { setTask(undefined); setJob(undefined); setTakeOver(false); autoDone.current = false; }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (job?.jumpLogin) {
+                  setJumpAsked(true);
+                  setAdvOpen(true);
+                }
+                setTask(undefined);
+                setJob(undefined);
+                setTakeOver(false);
+                autoDone.current = false;
+              }}
+            >
               Back
             </button>
           )}
@@ -217,6 +246,33 @@ export default function PrepareNode({ addr: addr0, jump: jump0, mode = "add", no
           <Field label="Jump host (optional)" hint="user@address of a host to connect through.">
             <input value={jump} onChange={(e) => setJump(e.target.value)} />
           </Field>
+          {jump.trim() && jumpAsked && (
+            <>
+              <Field label="Jump host credential">
+                <Select
+                  label="Jump host credential"
+                  value={jumpCred}
+                  onChange={(v) => {
+                    setJumpCred(v);
+                    setJumpSecret("");
+                  }}
+                  options={[
+                    { value: "password", label: "Password" },
+                    { value: "key", label: "Private key" },
+                  ]}
+                />
+              </Field>
+              {jumpCred === "password" ? (
+                <Field label="Jump host password" help={JUMP_HELP}>
+                  <input type="password" value={jumpSecret} onChange={(e) => setJumpSecret(e.target.value)} required autoComplete="new-password" />
+                </Field>
+              ) : (
+                <Field label="Jump host private key" hint="Without a passphrase." help={JUMP_HELP}>
+                  <textarea className="mono" rows={5} value={jumpSecret} onChange={(e) => setJumpSecret(e.target.value)} required spellCheck={false} autoComplete="off" />
+                </Field>
+              )}
+            </>
+          )}
           {adding && (
             <p>
               <button type="button" className="link" onClick={() => setDirect(!direct)}>

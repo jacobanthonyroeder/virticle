@@ -55,7 +55,40 @@ func TestFileIDNamesTheFileNotTheName(t *testing.T) {
 	n.denied("outside the pools", "", "file-id", n.abs("outside/x"))
 }
 
-func TestRemoveIDRemovesOnlyThatFile(t *testing.T) {
+func TestRemoveIDRemovesOnlyThatFile(t *testing.T) { testRemoveID(t) }
+
+// Without RENAME_NOREPLACE (the Linux NFS client answers EINVAL) the file is moved into a new private directory.
+func TestRemoveIDWithoutNoReplace(t *testing.T) {
+	old := renameNoReplace
+	renameNoReplace = func(int, string, int, string) error { return unix.EINVAL }
+	defer func() { renameNoReplace = old }()
+	testRemoveID(t)
+
+	// The way back never replaces a file that took the name while the file was aside.
+	n := newNode(t)
+	a := n.put("pools/default/c.img", "mine")
+	d, err := os.Open(n.pool(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	as, err := asideOpen(int(d.Fd()), "c.img")
+	if err != nil || as.sub == "" {
+		t.Fatalf("aside: %v %+v", err, as)
+	}
+	n.put("pools/default/c.img", "someone else's")
+	if err := as.putBack(); err == nil {
+		t.Fatal("put back over a file that took the name")
+	}
+	if b, _ := os.ReadFile(a); string(b) != "someone else's" {
+		t.Errorf("the other file was replaced: %q", b)
+	}
+	if b, _ := os.ReadFile(n.pool(as.where())); string(b) != "mine" {
+		t.Errorf("the file aside is gone: %q", b)
+	}
+}
+
+func testRemoveID(t *testing.T) {
 	n := newNode(t)
 	a := n.put("pools/default/a.img", "mine")
 	id := n.idOf(a)

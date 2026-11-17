@@ -423,7 +423,7 @@ func TestPrepareFirewalldRowsAndStepOrder(t *testing.T) {
 			ids = append(ids, r.ID)
 		}
 	}
-	if ids[0] != "do-packages" || ids[1] != "do-firewall" {
+	if ids[1] != "do-packages" || ids[2] != "do-firewall" {
 		t.Errorf("the firewall step comes right after the packages: %v", ids)
 	}
 	all := strings.Join(n.log, "\n")

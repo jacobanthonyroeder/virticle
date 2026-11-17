@@ -148,8 +148,9 @@ type domainXML struct {
 				Dev string `xml:"dev,attr"`
 				Bus string `xml:"bus,attr"`
 			} `xml:"target"`
-			ReadOnly *struct{} `xml:"readonly"`
-			Boot     struct {
+			ReadOnly  *struct{} `xml:"readonly"`
+			Shareable *struct{} `xml:"shareable"`
+			Boot      struct {
 				Order int `xml:"order,attr"`
 			} `xml:"boot"`
 		} `xml:"disk"`

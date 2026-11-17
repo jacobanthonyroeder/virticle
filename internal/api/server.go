@@ -87,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 	s.startSnapshotScheduler()
 	s.notifier() // moves the webhook of earlier versions before anything reads the destinations
 	s.startAlerts()
+	s.startClockWatch()
 	s.resumeRolling()
 	s.startMigAuto()
 	s.startWorkSweep()

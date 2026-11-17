@@ -25,6 +25,7 @@ On this page:
 - [The two ways to reach a node](#the-two-ways-to-reach-a-node)
 - [The controller host as a node](#the-controller-host-as-a-node)
 - [What prepare does](#what-prepare-does)
+- [Kernel modules and kernel command line](#kernel-modules-and-kernel-command-line)
 - [Prepare options](#prepare-options)
 - [Upgrade and unprepare](#upgrade-and-unprepare)
 - [Supported systems and packages](#supported-systems-and-packages)
@@ -80,9 +81,12 @@ record. It is separate from the controller's own key.
 Prepare runs these steps in order:
 
 1. **Checks the host.** This part only reads. `--check`, or the **Check** button in the dialog, stops here. It looks at:
-   - CPU virtualisation flags (`vmx` or `svm`) and `/dev/kvm`
+   - CPU virtualisation flags (`vmx` or `svm`) and `/dev/kvm`. A missing `/dev/kvm` is not an error when the KVM
+     module is just not loaded: the row says that prepare loads it (step 2)
    - nested virtualisation (information, when the host is itself a VM)
-   - IOMMU on or off (information, needed for device passthrough)
+   - IOMMU on or off (information, needed for device passthrough). When it is off, the row names the exact kernel
+     arguments to add for this node (`intel_iommu=on iommu=pt` or `amd_iommu=on iommu=pt`, without those already on
+     the command line) and, behind the help mark (second line on the command line), where they go
    - distribution against the list below, and the architecture
    - free space under `/var/lib/libvirt/images`
    - SELinux or AppArmor, and time sync
@@ -98,8 +102,12 @@ Prepare runs these steps in order:
      [controller-backup.md](controller-backup.md#c-there-is-no-backup-and-the-controller-is-lost))
    - how many VMs exist (existing VMs are left alone)
 
-   Prepare never reboots the host. If a reboot or kernel parameter is needed (for IOMMU), a row says so.
-2. **Installs packages** (see the lists below, including the guest disk tools) and enables libvirt. It starts the `default` network (and turns on its autostart, which Debian leaves off, so VMs on it start after a reboot) and defines the
+   Prepare never reboots the host and never changes the boot loader or the kernel command line. When an argument is
+   needed, a row names it and where it goes (see [Kernel modules and kernel command line](#kernel-modules-and-kernel-command-line)).
+2. **Loads the KVM module when it is missing.** When the CPU has `vmx` or `svm` and `/dev/kvm` is missing, prepare
+   runs `modprobe kvm_intel` (or `kvm_amd`) and writes the file `/etc/modules-load.d/virticle.conf`, so that the
+   module loads at boot. If the module cannot be loaded, prepare stops at this step and says why (see below).
+3. **Installs packages** (see the lists below, including the guest disk tools) and enables libvirt. It starts the `default` network (and turns on its autostart, which Debian leaves off, so VMs on it start after a reboot) and defines the
    `default` pool when they are missing. Existing networks and pools are not changed.
    **Opens the migration ports in the firewall.** When firewalld is active, it defines the service `virticle-node`
    (TCP `49152` to `49215`) and adds it to the default zone, permanent and running. When ufw is active, it adds
@@ -111,7 +119,7 @@ Prepare runs these steps in order:
    installed (`nfs-common`, `nfs-utils`); on SELinux hosts `virt_use_nfs` is turned on; on nodes with separate libvirt
    daemons `virtstoraged` is ordered before `virtqemud`, so VMs on NFS start at boot; and the owner of the `swtpm` CA
    files is put right so TPM guests start.
-3. **Service account only: sets up the account.** Default name `virticle-node`, a system user, home
+4. **Service account only: sets up the account.** Default name `virticle-node`, a system user, home
    `/var/lib/virticle-node`, shell `/bin/sh`, no password, in the groups `libvirt` and `kvm`. It asks nothing:
    - No such account: it is created.
    - The account exists and prepare made it: prepare checks the groups, the shell and the home directory and repairs
@@ -120,11 +128,11 @@ Prepare runs these steps in order:
      (`--user OTHERNAME`), or `--use-existing-user` if you manage that account yourself.
    - A node prepared by 0.2.0 has the account `virticle` with the comment "virticle service account". Prepare keeps
      using it, so no second account appears.
-4. **Installs the controller's public key** for that account (or for root) with restrictions. It also installs the node
+5. **Installs the controller's public key** for that account (or for root) with restrictions. It also installs the node
    command and, for a Service account, the sudo rule.
-5. **Creates the node key** of the account. Nodes use it to copy files to each other (see
+6. **Creates the node key** of the account. Nodes use it to copy files to each other (see
    [How nodes exchange files](#how-nodes-exchange-files)).
-6. **Tests the connection** with the same steps as **Test connection** on the node page.
+7. **Tests the connection** with the same steps as **Test connection** on the node page.
 
 Running prepare again changes nothing and says so.
 
@@ -138,16 +146,59 @@ What is on the node afterwards:
 | Node command | `/usr/local/libexec/virticle-node`, `root:root 0755` | Yes | Yes |
 | Node key | `~/.ssh/virticle_peer_ed25519`, the account's own key for copies between nodes | Yes | Yes |
 | Start guard | `/etc/libvirt/hooks/qemu.d/virticle-guard`, a libvirt hook that keeps the old copy of a failed-over VM off | Yes | Yes |
+| Module list | `/etc/modules-load.d/virticle.conf`, only on a node where prepare had to load the KVM module | Yes | Yes |
 
 The sudoers file names one account, so a host has one Service account. Preparing it for another account replaces the
 rule.
+
+## Kernel modules and kernel command line
+
+The rule: Virticle may load kernel modules through a file of its own. It never edits the boot loader and never
+reboots.
+
+**Modules.** The only module prepare loads is the KVM module of the CPU: `kvm_intel` (flag `vmx`) or `kvm_amd`
+(flag `svm`). Prepare loads it when it is neither loaded nor built into the kernel and lists it in
+`/etc/modules-load.d/virticle.conf`. That file is Virticle's. Prepare writes it whole, with a header that says so, and
+never touches another file in `/etc/modules-load.d` or `/etc/modprobe.d`. A module that the system loads by itself
+(the usual case) is not listed. No module options are set. The other modules Virticle's features use (`tun`,
+`vhost_net`, `vfio-pci`, `bridge`) are loaded by the kernel or libvirt when needed, so they are not listed (checked on
+Debian 13 and Rocky 10).
+
+Prepare stops at the step **Kernel modules** with an error, and changes nothing else, when:
+
+| Cause | The text names |
+| --- | --- |
+| A file in `/etc/modprobe.d` has `blacklist kvm_intel` (a blacklisted module is not loaded at boot, not even from `modules-load.d`) or `install kvm_intel ...` | The file, and to remove the line |
+| The firmware has virtualisation off | The kernel's line (`kvm: disabled by bios`), and to turn on Intel VT-x or AMD SVM |
+| The running kernel has no such module | To install the module package of the running kernel |
+| The kernel command line has `module_blacklist=` or `initcall_blacklist=` with a KVM module | The argument to remove (only that part of a list), and where it goes |
+
+The check (`--check`, the **Check** button) already shows the first and the last cause as an error row, and shows the
+load as an info row.
+
+**Kernel command line.** The only argument Virticle asks for is for device passthrough, and passthrough is optional,
+so the IOMMU row is information, not an error. It names the arguments for this node's CPU, minus those already on the
+command line: `intel_iommu=on iommu=pt` on an Intel CPU, `amd_iommu=on iommu=pt` on an AMD CPU. An argument that
+turns the IOMMU off (`intel_iommu=off`, `amd_iommu=off`, `iommu=off`) is named as one to remove. When the arguments
+are there and the node still has no IOMMU groups, the row says to turn on VT-d (Intel) or the IOMMU (AMD-Vi) in the
+firmware. The passthrough dialog and the attach refusal say the same.
+
+Where the arguments go depends on the system, and the help mark (second line on the command line) says it:
+
+| System | Where |
+| --- | --- |
+| GRUB on Debian or Ubuntu | `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then `update-grub` and a reboot |
+| GRUB on Rocky, RHEL, AlmaLinux or Fedora | `grubby --update-kernel=ALL --args="..."` and a reboot |
+| systemd-boot | `/etc/kernel/cmdline`, refresh the boot entries and reboot |
+| Anything else | "the kernel command line" |
 
 ## Prepare options
 
 ```
 virticle node prepare [--check] [--minimal] [--root] [--user NAME] [--use-existing-user[=NAME]] [--confirm]
                       [--from ADDR] [--take-over] [--jump user@host]
-                      [--identity FILE] [--password-file FILE] [--password-stdin] [--data DIR] [[user@]host[:port]]
+                      [--identity FILE] [--password-file FILE] [--password-stdin]
+                      [--jump-identity FILE] [--jump-password-file FILE] [--data DIR] [[user@]host[:port]]
 ```
 
 Without a host, prepare works on the machine it runs on and must run as root (`sudo virticle node prepare`); no
@@ -164,7 +215,8 @@ sign-in is needed. `sudo virticle node add` does this and adds the node; `node a
 | `--confirm` | Only with `--use-existing-user`: add the groups and the sudo rule. |
 | `--from ADDR` | Adds `from="ADDR"` to the key, so it works only from the controller's address. |
 | `--take-over` | The node trusts another Virticle controller's key (prepare then stops and asks): remove that key. See [controller-backup.md](controller-backup.md#c-there-is-no-backup-and-the-controller-is-lost). |
-| `--jump user@host` | Reaches the node through a jump host. |
+| `--jump user@host` | Reaches the node through a jump host. See [Through a jump host](#through-a-jump-host). |
+| `--jump-identity FILE`, `--jump-password-file FILE` | A login for the jump host, used only when it does not accept the controller's key. `VIRTICLE_JUMP_PASSWORD` works too; a terminal asks. |
 | `--identity FILE`, `--password-file FILE`, `--password-stdin` | How you sign in to another host as administrator. Default: your SSH agent; without one, a terminal asks for the password. For scripts: `--password-file` (the first line of the file), `VIRTICLE_NODE_PASSWORD`, or `--password-stdin`. |
 | `--data DIR` | The controller's data directory (its key, `known_hosts`, instance id). Default `/var/lib/virticle` on an installed machine, else `data`. |
 
@@ -174,6 +226,42 @@ address and SSH user, `virticle-node` or `root`). The other options are for the 
 `--data`.
 
 The host key of the node is recorded in the controller's `known_hosts` the first time it is seen.
+
+### Through a jump host
+
+A jump host is a machine the controller connects through to reach a node (`--jump user@host`, or **Advanced > Jump
+host** in the dialog). The controller signs in to the jump host with its own key, now and whenever it connects to the
+node later. A new controller has a new key that the jump host does not know yet. The error then names the jump host:
+
+```
+jump host user@jump: the controller's key is not accepted
+```
+
+Give a login for the jump host, in the same ways as the administrator's:
+
+| Where | How |
+| --- | --- |
+| Web dialog | Press **Back**. **Jump host credential** and the password or private key appear under **Advanced**. |
+| Terminal | A question: `Password for user@jump`. |
+| Scripts | `--jump-password-file FILE` (the first line), `--jump-identity FILE` or `VIRTICLE_JUMP_PASSWORD`. Never on the command line. |
+
+The login is used for this run only, is not stored, and is used only when the controller's key is refused. Your SSH agent
+is tried as well. The run then goes on to the node.
+
+When the login was needed, Virticle adds one line to the jump host account's `~/.ssh/authorized_keys` (the directory and
+file are created if missing), so that the controller passes the jump host from then on:
+
+```
+restrict,port-forwarding,command="/bin/false" ssh-ed25519 AAAA... virticle-controller
+```
+
+The key can forward connections and nothing else: no shell, no command, no terminal. Nothing else on the jump host
+changes. **Check**, `node prepare --check` and `node unprepare` use the login but write nothing.
+
+To take the key away, delete the line that ends in `virticle-controller` from that file on the jump host. Virticle
+does not do it when a node is removed, because it has no login for the jump host then. `node remove` says when no other
+node uses the jump host. A controller that has `VIRTICLE_JUMP_PASSWORD` set signs in to jump hosts with that password and
+needs no key there.
 
 ## Upgrade and unprepare
 
@@ -187,8 +275,9 @@ package updates on the nodes.
 **Nodes prepared by 0.2.0.** They have the account `virticle` (made by prepare, with the comment "virticle service
 account"). Preparing them again keeps that account. It does not make `virticle-node`.
 
-**Unprepare.** `virticle node unprepare admin@host` removes the account, key, node command, sudo rule and the
-firewall service `virticle-node` (or the ufw rule with that comment). It leaves packages, VMs, pools and networks alone.
+**Unprepare.** `virticle node unprepare admin@host` removes the account, key, node command, sudo rule, the start
+guard, `/etc/modules-load.d/virticle.conf` (only when it carries Virticle's header) and the
+firewall service `virticle-node` (or the ufw rule with that comment). A module that is loaded stays loaded until the next reboot. It leaves packages, VMs, pools and networks alone.
 
 - Without `--user` it removes the account that prepare made: `virticle-node`, or `virticle` on a node that 0.2.0
   prepared.
@@ -229,7 +318,14 @@ in Virticle uses it.
 
 ## Preparing by hand
 
-If you cannot use `virticle node prepare`, do the same steps yourself. Run these as root on the node. Debian family:
+If you cannot use `virticle node prepare`, do the same steps yourself. Run these as root on the node. If `/dev/kvm`
+is missing, load the KVM module and keep it (use `kvm_amd` on an AMD CPU):
+
+```sh
+modprobe kvm_intel && echo kvm_intel > /etc/modules-load.d/virticle.conf
+```
+
+Debian family:
 
 ```sh
 apt-get update

@@ -96,7 +96,11 @@ controller must be able to write there. An installed controller may write below
 `/var/lib/virticle`, `/mnt`, `/media` and `/srv`; the folder must be writable by the
 account `virticle`. `/mnt`, `/media` and `/srv` belong to root, so make the folder first:
 `sudo install -d -o virticle -g virticle /mnt/backup/virticle`. A folder inside the data directory other than the default is
-refused. Backups already in the old folder stay there and are no longer thinned out.
+refused. Saving a new folder writes a copy there at once, as switching the schedule on does, so you see that
+it works. Copies already in the old folder stay there and are no longer thinned out. Thinning out in a folder counts
+and removes only the files of this server's host name: copies of other controllers in a shared folder are left alone
+(a copy made under an earlier host name is no longer thinned out either). Changing only the time or the keep rules
+writes no extra copy; the next run follows them.
 
 While [backup encryption](user-guide.md#encrypted-backups) is off, these files are
 not encrypted; only the controller's account can read them. While it is on, each copy

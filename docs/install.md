@@ -2,9 +2,10 @@
 
 ## Quick start
 
-**One machine** (controller and node in one), Debian or Ubuntu with the [package repository](#install-from-the-package-repository) added:
+**One machine** (controller and node in one) with the [package repository](#install-from-the-package-repository) added:
 
-    sudo apt install virticle
+    sudo apt install virticle      # Debian, Ubuntu
+    sudo dnf install virticle      # Fedora, Rocky Linux, AlmaLinux, RHEL
     sudo virticle setup
 
 Setup asks for the web address and port (Enter keeps the defaults), the administrator's name and password, and
@@ -84,7 +85,7 @@ Linux amd64 and arm64.
 
 **Debian, Ubuntu**
 
-1. Add the signing key:
+1. Add the signing key (a minimal install may lack `curl`: `sudo apt install curl`):
 
        sudo install -d -m 0755 /etc/apt/keyrings
        sudo curl -fsSL https://jacobanthonyroeder.github.io/virticle/virticle.gpg -o /etc/apt/keyrings/virticle.gpg
@@ -104,14 +105,15 @@ Linux amd64 and arm64.
 
        sudo curl -fsSL https://jacobanthonyroeder.github.io/virticle/virticle.repo -o /etc/yum.repos.d/virticle.repo
 
-2. Install. `dnf` shows the key's fingerprint and asks you to accept it once:
+2. Install. `dnf` shows the key's fingerprint and asks you to accept it twice (once for the repository
+   data, once for the packages; it is the same key):
 
        sudo dnf install virticle
 
 **Check the key.** The fingerprint of the signing key is
 `FDA7274A068F719EAB676033C306C6E8F14D3778`. For Debian and Ubuntu, `gpg --show-keys
-/etc/apt/keyrings/virticle.gpg` prints it. For dnf, compare it with the one
-`dnf` shows before you accept. The same fingerprint is on
+/etc/apt/keyrings/virticle.gpg` prints it (`gpg` comes with `sudo apt install gnupg`; a minimal install lacks it). For dnf, compare it with the one
+`dnf` shows before you accept it (both times). The same fingerprint is on
 <https://jacobanthonyroeder.github.io/virticle/>.
 
 **Then run the setup.** The package never opens the firewall. Run
@@ -196,8 +198,8 @@ questions. Enter takes the answer in brackets:
     Open TCP port 8463 in firewalld for the web interface? [Y/n]
 
 The password needs at least 10 characters and is not shown. The node question
-comes only when the machine can run VMs (hardware virtualisation, `/dev/kvm`,
-not a container) and is not a node yet. Yes runs what `sudo virticle node add`
+comes only when the machine can run VMs (hardware virtualisation, not a
+container; a missing KVM module is loaded by the node step) and is not a node yet. Yes runs what `sudo virticle node add`
 runs (see [install-node.md](install-node.md)): it installs libvirt and QEMU and
 the node command, which takes a few minutes the first time.
 
@@ -365,6 +367,26 @@ change, the controller copies the database to
 file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
+
+### From 0.6.0 to 0.6.1
+
+1. **Upgrade the controller** as above. The database schema (8) and the node command protocol (23) do not change, so
+   no node is marked **Virticle update needed** and no database copy is made.
+2. **Nodes with VMs or pools on NFS: prepare them once more** (**Settings > Prepare this node** on the node, or
+   `virticle node prepare admin@host`). The node command of 0.6.1 removes a file on NFS in a safer way; a node that
+   keeps the 0.6.0 node command works as before.
+
+What changes by itself:
+
+| What | After the upgrade |
+| --- | --- |
+| A user's failed task | Its alert goes to the notification destinations. Alerts that are open at the upgrade may be sent once more. |
+| A backup of a Windows guest whose freeze Windows released after 10 seconds | Reads **not frozen**. Before, it read frozen. |
+| Guest clock | Synced after every start the node reports and when a node connects, for guests with a local-time hardware clock. |
+| Restore with **Replace** | Refused when linked clones depend on the old VM's disks; read-only and shareable disks of the old VM are not deleted. |
+| Controller backups in the folder | Thinning out counts only the copies made under this host name. |
+| Remove node | Refused while a task or a migration runs on the node. |
+| `virticle setup` and `node prepare` | A missing `/dev/kvm` on a capable CPU no longer stops them: the KVM module is loaded and kept in `/etc/modules-load.d/virticle.conf`. The boot loader is never changed; needed kernel arguments are named. |
 
 ### From 0.5.x to 0.6.0
 

@@ -21,6 +21,7 @@ import (
 	"golang.org/x/term"
 
 	"virticle/internal/cluster"
+	"virticle/internal/hostconn"
 	"virticle/internal/prepare"
 	"virticle/internal/store"
 )
@@ -41,7 +42,8 @@ const nodeUsage = `usage:
 node add signs in to the host as the administrator (root, or a user that may use sudo) and prepares it, the
 way Nodes > Add node does in the web interface. The credential is used for this run only: your SSH agent,
 --identity FILE, or a password, asked for on a terminal; scripts give --password-file FILE or the
-environment variable VIRTICLE_NODE_PASSWORD. A host that this controller's key already gets into needs no
+environment variable VIRTICLE_NODE_PASSWORD. With a key and a password together, the key signs in and the
+password is for sudo. A host that this controller's key already gets into needs no
 credential. The running controller shows the node at once; it needs no restart. When the controller is
 stopped, the commands work on its data directory and it finds the node at its next start.
 These commands need the controller's data directory: run them as root (sudo) or as the controller's account.
@@ -50,6 +52,9 @@ Options of node add:
   --root                the controller signs in as root (no service account; a service account is safer)
   --user NAME           the name of the service account (default virticle-node)
   --jump user@host      reach the host through a jump host
+  --jump-identity FILE  a private key for the jump host, if it does not accept the controller's key
+  --jump-password-file FILE  a password for the jump host (first line of FILE; VIRTICLE_JUMP_PASSWORD works too, a terminal asks).
+                        The controller's key is then added to that account's authorized_keys, for forwarding only
   --take-over           the host is managed by another Virticle controller: take it over (asked on a terminal)
   --identity FILE       the administrator's private key file
   --password-file FILE  the administrator's password: the first line of FILE
@@ -61,7 +66,8 @@ Prepare only (node add runs it first; it does not add the node):
   sudo virticle node prepare [--check] [--minimal] [--root] [--user NAME] [--from ADDR] [--take-over]
   virticle node prepare   [--check] [--minimal] [--root] [--user NAME] [--use-existing-user[=NAME]] [--confirm]
                           [--from ADDR] [--take-over] [--jump user@host] [--identity FILE]
-                          [--password-file FILE] [--password-stdin] [--data DIR] [user@]host[:port]
+                          [--password-file FILE] [--password-stdin] [--jump-identity FILE] [--jump-password-file FILE]
+                          [--data DIR] [user@]host[:port]
   virticle node unprepare [--user NAME] [--root] [--jump user@host] [--identity FILE]
                           [--password-file FILE] [--password-stdin] [--data DIR] [user@]host[:port]
 
@@ -152,15 +158,25 @@ func nodeCommand(args []string) int {
 type credFlags struct {
 	identity, passwordFile string
 	pwStdin                bool
+	// The login on the jump host, for a jump host that does not accept the controller's key yet.
+	jumpIdentity, jumpPasswordFile string
 }
 
 func (c *credFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&c.identity, "identity", "", "administrator's private key file (the SSH agent is used as well)")
 	fs.StringVar(&c.passwordFile, "password-file", "", "read the administrator's password from the first line of this file")
 	fs.BoolVar(&c.pwStdin, "password-stdin", false, "read the administrator's password from standard input")
+	fs.StringVar(&c.jumpIdentity, "jump-identity", "", "private key file for the jump host, when it does not accept the controller's key")
+	fs.StringVar(&c.jumpPasswordFile, "jump-password-file", "", "password for the jump host (first line of this file), when it does not accept the controller's key")
 }
 
-func (c credFlags) given() bool { return c.identity != "" || c.passwordFile != "" || c.pwStdin }
+func (c credFlags) given() bool {
+	return c.identity != "" || c.passwordFile != "" || c.pwStdin || c.jumpIdentity != "" || c.jumpPasswordFile != ""
+}
+
+// jumpPasswordEnv holds the password of the jump host: for the running controller (every connection) and for the
+// commands (a login on a jump host that does not accept the controller's key yet).
+const jumpPasswordEnv = "VIRTICLE_JUMP_PASSWORD"
 
 // nodePasswordEnv holds the administrator's password for scripts.
 const nodePasswordEnv = "VIRTICLE_NODE_PASSWORD"
@@ -236,10 +252,66 @@ func adminLogin(adminUser, addr, jump string, c credFlags, in credIO) (prepare.A
 		}
 		a.Password = strings.TrimRight(line, "\r\n")
 	}
+	if jump != "" {
+		if c.jumpIdentity != "" {
+			b, err := os.ReadFile(c.jumpIdentity)
+			if err != nil {
+				return a, 1, fmt.Errorf("--jump-identity: %v", err)
+			}
+			a.JumpKeyPEM = b
+		}
+		switch {
+		case c.jumpPasswordFile != "":
+			pw, err := firstLineOf(c.jumpPasswordFile)
+			if err != nil {
+				return a, 1, fmt.Errorf("--jump-password-file: %v", err)
+			}
+			a.JumpPassword = pw
+		default:
+			a.JumpPassword = in.getenv(jumpPasswordEnv)
+		}
+		a.JumpAgent = in.agent
+	}
 	if a.Password == "" && len(a.KeyPEM) == 0 && !a.Agent {
 		return a, 2, fmt.Errorf("no way to sign in to %s as %s: no SSH agent, no --identity FILE, no password (--password-file FILE or %s), and no terminal to ask for it", addr, adminUser, nodePasswordEnv)
 	}
 	return a, 0, nil
+}
+
+// dialAdmin signs in as the administrator, through the jump host when there is one. The jump host is passed with the
+// controller's key; when it does not accept that key, the login for the jump host is used (the flags, the environment,
+// the SSH agent, or on a terminal a password that is asked for) and the controller's key is added there, so that the
+// controller passes it from then on (controllerKey, empty: not added, for a run that changes nothing). The error says
+// which hop failed.
+func dialAdmin(mgr *cluster.Manager, a prepare.Admin, controllerKey string, in credIO) (*hostconn.Conn, error) {
+	a.ControllerKey = controllerKey
+	conn, err := prepare.Dial(mgr, a)
+	if err != nil && hostconn.JumpAuthRefused(err) && in.tty && a.JumpPassword == "" && len(a.JumpKeyPEM) == 0 {
+		u, h, _ := strings.Cut(a.Jump, "@")
+		if pw, perr := in.readPassword(fmt.Sprintf("The jump host does not accept the controller's key. Password for %s@%s: ", u, h)); perr == nil && pw != "" {
+			a.JumpPassword = pw
+			conn, err = prepare.Dial(mgr, a)
+		}
+	}
+	if err != nil {
+		return nil, signInError(err, a)
+	}
+	if conn.JumpKeyAdded {
+		fmt.Fprintf(os.Stderr, "Added the controller's key to %s (~/.ssh/authorized_keys, for forwarding only)\n", a.Jump)
+	}
+	return conn, nil
+}
+
+// signInError says which hop failed and, for a jump host that does not accept the controller's key, what to give.
+func signInError(err error, a prepare.Admin) error {
+	if hostconn.JumpAuthRefused(err) && a.JumpPassword == "" && len(a.JumpKeyPEM) == 0 {
+		return fmt.Errorf("%v. Give a login for it: --jump-identity FILE, --jump-password-file FILE or the environment variable %s", err, jumpPasswordEnv)
+	}
+	var h *hostconn.HopError
+	if errors.As(err, &h) {
+		return err
+	}
+	return fmt.Errorf("could not sign in to %s as %s: %v", a.Addr, a.User, err)
 }
 
 // controllerKey makes sure the controller's key pair exists in data and returns the key file and the public key.
@@ -386,9 +458,13 @@ func nodePrepareCommand(verb string, args []string) int {
 		if err != nil {
 			return errorLine(code, "%v", err)
 		}
-		conn, err := prepare.Dial(mgr, a)
+		key := pub
+		if *check || unprepare {
+			key = "" // changes nothing on the jump host
+		}
+		conn, err := dialAdmin(mgr, a, key, realCredIO())
 		if err != nil {
-			return errorLine(1, "could not sign in to %s as %s: %v", addr, adminUser, err)
+			return errorLine(1, "%v", err)
 		}
 		defer conn.Close()
 		r = &prepare.Runner{N: conn, SudoPassword: a.Password}
@@ -458,6 +534,9 @@ func printRow(r prepare.Row) {
 		fmt.Printf("%-8s %s: %s\n", word, r.Title, r.Detail)
 	} else {
 		fmt.Printf("%-8s %s\n", word, r.Title)
+	}
+	if r.Help != "" && r.Status != prepare.Skipped {
+		fmt.Printf("         %s\n", r.Help)
 	}
 }
 

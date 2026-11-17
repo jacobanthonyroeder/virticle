@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -230,8 +232,108 @@ func TestFreezeWithin(t *testing.T) {
 	}
 }
 
+// The Windows agent's VSS errors (qga/vss-win32/requester.cpp, as libvirt passes them on) get a clause that says
+// what to look at in the guest; Linux errors and unknown ones stay as they are.
+func TestFreezeHint(t *testing.T) {
+	agentErr := func(s string) error {
+		return errors.New("internal error: unable to execute QEMU agent command 'guest-fsfreeze-freeze': " + s)
+	}
+	cases := []struct {
+		err     error
+		windows bool
+		want    string
+	}{
+		{agentErr(`failed to add C:\ to snapshot set: Windows error 0x80042304`), true, hintVSSProvider},
+		{agentErr("unexpected error in VSS provider: Windows error 0x8004230f"), true, hintVSSProvider},
+		{agentErr("failed to do snapshot set: Windows error 0x80042316"), true, hintVSSBusy},
+		{agentErr("failed to gather writer metadata: Windows error 0x800423f2"), true, hintVSSWriter},
+		{agentErr("timeout when try to receive Frozen event from VSS provider: Windows error 0x80004005"), true, hintVSSSlow},
+		{agentErr("couldn't receive Frozen event from VSS provider: Windows error 0x6"), false, hintVSSSlow},
+		{agentErr("failed to load requester_freeze from qga-vss.dll"), true, hintVSSMissing},
+		{&freezeLate{errors.New("the guest did not freeze within 2 minutes")}, true, hintVSSSlow},
+		{&freezeLate{errors.New("the guest did not freeze within 2 minutes")}, false, ""},
+		{&freezeNotTried{errors.New("the guest agent cannot freeze file systems")}, true, hintVSSMissing},
+		{&freezeNotTried{errors.New("the guest agent cannot freeze file systems")}, false, ""},
+		{&freezeNotTried{errors.New("the guest agent does not answer (timeout)")}, true, ""},
+		{agentErr("failed to freeze /: Device or resource busy"), false, ""},
+	}
+	for _, c := range cases {
+		if got := freezeHint(c.err, c.windows); got != c.want {
+			t.Errorf("freezeHint(%q, %v) = %q, want %q", c.err, c.windows, got, c.want)
+		}
+	}
+	// The hint keeps the kind of the error and follows the shortened message in the task text.
+	late := withGuestHint(&freezeLate{errors.New("the guest did not freeze within 2 minutes")}, true)
+	var fl *freezeLate
+	if !errors.As(late, &fl) {
+		t.Error("a hinted late freeze is no longer a late freeze")
+	}
+	if got := freezeReason(late); got != "the guest did not freeze within 2 minutes; "+hintVSSSlow {
+		t.Errorf("reason %q", got)
+	}
+	if withGuestHint(nil, true) != nil {
+		t.Error("no error, no hint")
+	}
+}
+
+// When the Windows agent's thaw says VSS let writes go on after 10 seconds, the backup is not called frozen.
+func TestFreezeLapsedOnWindows(t *testing.T) {
+	thawPause = time.Millisecond
+	lapse := errors.New("internal error: unable to execute QEMU agent command 'guest-fsfreeze-thaw': couldn't hold writes: fsfreeze is limited up to 10 seconds: Windows error 0x8004231f")
+	f := &fakeFreezer{thawErrs: []error{lapse, nil}}
+	out, err := withFrozenGuest(nil, true, f, func() error { return nil })
+	if err != nil || out.ThawErr != nil {
+		t.Fatalf("err=%v thawErr=%v", err, out.ThawErr)
+	}
+	if out.Frozen || !strings.HasPrefix(out.Text, frozenNo+"VSS in the guest ended the freeze after 10 seconds") {
+		t.Errorf("outcome %+v", out)
+	}
+	// Any other thaw error that a retry clears leaves the backup frozen.
+	f = &fakeFreezer{thawErrs: []error{errors.New("agent busy"), nil}}
+	if out, _ = withFrozenGuest(nil, true, f, func() error { return nil }); !out.Frozen || out.Text != frozenText {
+		t.Errorf("outcome %+v", out)
+	}
+}
+
+// A guest left frozen by an earlier freeze: its agent lists the freeze as disabled. It is thawed and frozen anew;
+// an agent that cannot freeze for another reason is not touched.
+func TestFreezeReady(t *testing.T) {
+	info := func(enabled bool) json.RawMessage {
+		return json.RawMessage(fmt.Sprintf(`{"version":"9.2","supported_commands":[{"name":"guest-fsfreeze-freeze","enabled":%v}]}`, enabled))
+	}
+	var nt *freezeNotTried
+	run := func(infos []bool, status string, thawErr error) (error, []string) {
+		var ev []string
+		i := 0
+		err := freezeReady(
+			func() (json.RawMessage, error) { ev = append(ev, "info"); r := info(infos[i]); i++; return r, nil },
+			func() (string, error) { ev = append(ev, "status"); return status, nil },
+			func() error { ev = append(ev, "thaw"); return thawErr })
+		return err, ev
+	}
+	if err, ev := run([]bool{true}, "thawed", nil); err != nil || strings.Join(ev, ",") != "info" {
+		t.Errorf("can freeze: %v %v", err, ev)
+	}
+	if err, ev := run([]bool{false, true}, "frozen", nil); err != nil || strings.Join(ev, ",") != "info,status,thaw,info" {
+		t.Errorf("left frozen: %v %v", err, ev)
+	}
+	if err, ev := run([]bool{false}, "thawed", nil); !errors.As(err, &nt) || strings.Join(ev, ",") != "info,status" {
+		t.Errorf("cannot freeze: %v %v", err, ev)
+	}
+	if err, ev := run([]bool{false, false}, "frozen", nil); !errors.As(err, &nt) || strings.Join(ev, ",") != "info,status,thaw,info" {
+		t.Errorf("still disabled after the thaw: %v %v", err, ev)
+	}
+	err, ev := run([]bool{false}, "frozen", errors.New("agent busy"))
+	if err == nil || errors.As(err, &nt) || !strings.Contains(err.Error(), "frozen already") || strings.Join(ev, ",") != "info,status,thaw" {
+		t.Errorf("thaw fails: %v %v", err, ev)
+	}
+	if err := freezeReady(func() (json.RawMessage, error) { return nil, errors.New("timeout") }, nil, nil); !errors.As(err, &nt) {
+		t.Errorf("no answer: %v", err)
+	}
+}
+
 func TestWaitText(t *testing.T) {
-	for d, want := range map[time.Duration]string{2 * time.Minute: "2 minutes", time.Minute: "1 minute", 45 * time.Second: "45 seconds", 90 * time.Second: "90 seconds"} {
+	for d, want := range map[time.Duration]string{2 * time.Minute: "2 minutes", time.Minute: "1 minute", 45 * time.Second: "45 seconds", 90 * time.Second: "90 seconds", time.Second: "1 second", 100 * time.Millisecond: "under 1 second", 12300 * time.Millisecond: "12 seconds"} {
 		if got := waitText(d); got != want {
 			t.Errorf("waitText(%v) = %q, want %q", d, got, want)
 		}

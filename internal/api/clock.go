@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/digitalocean/go-libvirt"
@@ -151,11 +152,16 @@ var (
 // corrects itself, which can take days. The clock is synced only when it is
 // off by more than guestClockSkew.
 func (s *Server) syncClockAfterStart(user string, h *hostconn.Host, dom libvirt.Domain) {
+	s.syncLocalTimeClock(user, "start", h, dom)
+}
+
+// syncLocalTimeClock is syncClockAfterStart with the reason the task note gives.
+func (s *Server) syncLocalTimeClock(user, why string, h *hostconn.Host, dom libvirt.Domain) {
 	raw, err := h.DomainGetXMLDesc(dom, 0)
 	if err != nil || !localTimeClock(raw) {
 		return
 	}
-	go s.syncClockWhenAgent(user, "start", h, dom, startAgentWait, startAgentPoll, guestClockSkew)
+	go s.syncClockWhenAgent(user, why, h, dom, startAgentWait, startAgentPoll, guestClockSkew)
 }
 
 // localTimeClock reports whether a definition keeps the guest's hardware clock in local time.
@@ -169,6 +175,11 @@ func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libv
 			log.Printf("clock sync after %s: %v", why, p)
 		}
 	}()
+	key := h.Name + "/" + cluster.FormatUUID(dom.UUID)
+	if !claimClockSync(key, clockClaim{user, why, minSkew}) {
+		return // one waits for this VM already and has taken this one's reason over
+	}
+	defer releaseClockSync(key)
 	if !clockSyncOn(h, dom) {
 		return
 	}
@@ -179,6 +190,8 @@ func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libv
 		}
 		time.Sleep(poll)
 	}
+	c := clockClaimOf(key)
+	user, why, minSkew = c.user, c.why, c.minSkew
 	if minSkew > 0 {
 		now := nodeClock(h)
 		g, err := guestTime(h, dom)
@@ -199,6 +212,56 @@ func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libv
 	}
 	s.Store.FinishTaskNote(&t, err, clockSyncNote(before, known, cnote != "", why))
 	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
+}
+
+// Pending syncs, one per VM (node name + "/" + uuid). A start asks twice, once from the call that started the
+// VM and once from the node's "started" event; a resume or a migration can come while a start's sync waits for
+// the agent. The first one waits and syncs; a later one only adds its reason.
+type clockClaim struct {
+	user, why string
+	minSkew   time.Duration
+}
+
+var clockSyncs = struct {
+	sync.Mutex
+	m map[string]clockClaim
+}{m: map[string]clockClaim{}}
+
+// claimClockSync registers a pending sync and reports whether the caller is the first. A later claim is merged
+// into the pending one.
+func claimClockSync(key string, c clockClaim) bool {
+	clockSyncs.Lock()
+	defer clockSyncs.Unlock()
+	p, had := clockSyncs.m[key]
+	if !had {
+		clockSyncs.m[key] = c
+		return true
+	}
+	clockSyncs.m[key] = mergeClockClaim(p, c)
+	return false
+}
+
+// mergeClockClaim: a person's name replaces "system", and the smaller skew limit wins with its reason.
+func mergeClockClaim(p, c clockClaim) clockClaim {
+	if p.user == "system" && c.user != "" && c.user != "system" {
+		p.user = c.user
+	}
+	if c.minSkew < p.minSkew {
+		p.minSkew, p.why = c.minSkew, c.why
+	}
+	return p
+}
+
+func clockClaimOf(key string) clockClaim {
+	clockSyncs.Lock()
+	defer clockSyncs.Unlock()
+	return clockSyncs.m[key]
+}
+
+func releaseClockSync(key string) {
+	clockSyncs.Lock()
+	delete(clockSyncs.m, key)
+	clockSyncs.Unlock()
 }
 
 // clockOff reports whether a guest clock off by d (either way) is worth a sync.

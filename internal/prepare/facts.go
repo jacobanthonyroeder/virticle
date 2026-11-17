@@ -34,6 +34,8 @@ type Row struct {
 	Title  string `json:"title"`
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
+	// Help is a second line: where a change goes, or why. The web page shows it behind a "?", the command line under the row.
+	Help string `json:"help,omitempty"`
 }
 
 // Default locations on a node.
@@ -99,6 +101,8 @@ if [ -e /dev/kvm ]; then echo "kvm_dev=$(stat -c '%a %U:%G' /dev/kvm 2>/dev/null
 echo "nested=$(cat /sys/module/kvm_intel/parameters/nested /sys/module/kvm_amd/parameters/nested 2>/dev/null | head -n 1)"
 echo "iommu_groups=$(ls /sys/kernel/iommu_groups 2>/dev/null | wc -l)"
 echo "iommu_cmdline=$(grep -o -w -E 'intel_iommu=on|amd_iommu=on|iommu=pt' /proc/cmdline 2>/dev/null | tr '\n' ' ')"
+` + KernelProbe + `
+` + moduleProbe + `
 p=` + DefaultPoolPath + `; while [ ! -d "$p" ] && [ "$p" != / ]; do p=$(dirname "$p"); done
 echo "free_path=$p"
 echo "free_bytes=$(df -P -B1 "$p" 2>/dev/null | awk 'NR==2{print $4}')"
@@ -160,6 +164,10 @@ type Facts struct {
 	CPUVirt, Hypervisor, KVMDev, Nested                        string
 	IOMMUGroups                                                int
 	IOMMUCmdline                                               string
+	CPUVendor, Cmdline, Bootloader                             string
+	KMod                                                       map[string]string // kvm_intel, kvm_amd: loaded, builtin or absent
+	ModBlock                                                   map[string]string // kvm_intel, kvm_amd: "FILE blacklist|install" of a modprobe.d line that stops the module
+	ModulesFile                                                string            // the drop-in's lines joined by "|"; empty when there is none
 	FreePath                                                   string
 	FreeBytes                                                  int64
 	SELinux, AppArmor, TimeSync                                string
@@ -177,7 +185,7 @@ type Facts struct {
 
 // ParseFacts reads FactsScript's output.
 func ParseFacts(out string) Facts {
-	var f Facts
+	f := Facts{KMod: map[string]string{}, ModBlock: map[string]string{}}
 	ctl := map[string]bool{}
 	for _, l := range strings.Split(out, "\n") {
 		k, v, ok := strings.Cut(strings.TrimRight(l, "\r"), "=")
@@ -212,6 +220,18 @@ func ParseFacts(out string) Facts {
 			f.IOMMUGroups, _ = strconv.Atoi(v)
 		case "iommu_cmdline":
 			f.IOMMUCmdline = v
+		case "cpu_vendor":
+			f.CPUVendor = v
+		case "cmdline":
+			f.Cmdline = v
+		case "bootloader":
+			f.Bootloader = v
+		case "kmod_kvm_intel", "kmod_kvm_amd":
+			f.KMod[strings.TrimPrefix(k, "kmod_")] = v
+		case "modblock_kvm_intel", "modblock_kvm_amd":
+			f.ModBlock[strings.TrimPrefix(k, "modblock_")] = v
+		case "modules_file":
+			f.ModulesFile = v
 		case "free_path":
 			f.FreePath = v
 		case "free_bytes":

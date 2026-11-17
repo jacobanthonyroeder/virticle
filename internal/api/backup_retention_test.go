@@ -302,7 +302,7 @@ func TestControllerBackupPrunesWithThePolicy(t *testing.T) {
 	// Back-dated copies every 6 hours for 30 days.
 	start := time.Now().Add(-30 * 24 * time.Hour)
 	for i := 0; i < 30*4; i++ {
-		name := ctlbackup.FileName("h", start.Add(time.Duration(i)*6*time.Hour), false)
+		name := ctlbackup.FileName(thisHost(), start.Add(time.Duration(i)*6*time.Hour), false)
 		os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600)
 	}
 	b, _ := json.Marshal(cbSettings{Daily: true, Mode: "interval", EveryHours: 6, Policy: retention.Policy{Hourly: 4, Daily: 3}})

@@ -19,7 +19,8 @@ import (
 // right after backup-begin, or the one after a freeze that took effect after the wait), the guest is recorded
 // here and becomes an alert. Each alert pass looks at the recorded guests of the nodes it reads: the record goes
 // once the guest agent reports the file systems thawed, or the VM is gone or no longer running; a guest that the
-// agent reports frozen is thawed again. The records live in memory only, like the alerts.
+// agent reports frozen is thawed again. The records are kept in the database with the alert state (alertpersist.go), so a
+// restart does not forget them.
 
 type frozenGuest struct {
 	Host, UUID, Name string
@@ -43,6 +44,38 @@ func noteFrozen(host, uuid, name string, err error) {
 	}
 	g.Err = freezeReason(err)
 	frozenGuests.m[k] = g
+	pokeAlertsNow() // the alert appears within seconds, not at the next minute
+}
+
+// pokeAlertsNow is pokeAlerts for code that has no server at hand.
+func pokeAlertsNow() {
+	select {
+	case alertPoke <- struct{}{}:
+	default:
+	}
+}
+
+// allFrozen lists all records, for saving.
+func allFrozen() []frozenGuest {
+	frozenGuests.Lock()
+	defer frozenGuests.Unlock()
+	var out []frozenGuest
+	for _, g := range frozenGuests.m {
+		out = append(out, g)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Host+"/"+out[i].UUID < out[j].Host+"/"+out[j].UUID })
+	return out
+}
+
+// setFrozen adds saved records that are not known yet.
+func setFrozen(list []frozenGuest) {
+	frozenGuests.Lock()
+	defer frozenGuests.Unlock()
+	for _, g := range list {
+		if _, ok := frozenGuests.m[g.Host+"/"+g.UUID]; !ok {
+			frozenGuests.m[g.Host+"/"+g.UUID] = g
+		}
+	}
 }
 
 func forgetFrozen(host, uuid string) {

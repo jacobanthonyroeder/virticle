@@ -124,8 +124,8 @@ Small faults left in 0.5.0:
 - [x] **Migrate dialog**: the Migrate button is active while the pre-flight checks still say "Checking".
 - [x] **Controller backup**: the error for a bad folder starts with a lower-case letter.
 - [x] **Late thaw**: when even the thaw of a late freeze fails, it is only written to the controller's log; raise a task or an alert.
-- [ ] **Clock sync after a start** does not cover VMs the node starts at boot, a clone that starts, or failover. A better fix: the guest's real time zone in the definition, or a UTC hardware clock for Windows.
-- [ ] **One live backup did not freeze** in the Windows test although the agent was connected; the wait is longer now, the cause on Windows is inferred, not shown.
+- [x] **Clock sync after a start** covers every start the node reports (boot with autostart, clone, restore, failover, `virsh start`) and running VMs when a node connects. Decided 2026-11-17, not built: new Windows VMs get a UTC hardware clock with `RealTimeIsUniversal` set in the guest; the sync stays as the safety net and existing VMs are left alone.
+- [x] **One live backup did not freeze** in the Windows test: the earlier backup's wait gave up while the guest was still freezing, and the guest stayed frozen. A guest found frozen is now thawed and frozen again; a freeze Windows released by itself after 10 seconds is reported as not frozen. Shown on a Linux guest, not on Windows.
 - [x] **Encrypted backup space check** asks for a whole extra copy of the largest disk; a 21 GB disk needed 41.5 GiB free. The check is accurate now (an incremental asks for the changed blocks only); a full backup still needs the extra copy. Encrypting in place would remove it: a node command change, not done.
 - [x] **Deleted backups** stay in libvirt's volume list until the pool is refreshed.
 - [x] **Screenshot failure hint** names a stuck NFS share when the node is only out of memory.
@@ -143,21 +143,22 @@ Not tested in 0.5.0:
 
 Found while working through the list above (2026-11-15), open:
 
-- [ ] **Add node through a jump host** fails on a new controller with "unable to authenticate": the controller's own key is not authorised on the jump host and the dialog does not say so.
+- [x] **Add node through a jump host** on a new controller: the dialog and `node add` ask for the jump host's login and authorise the controller's key there, for forwarding only. The line is not removed with the node. Open: **Update Virticle on nodes** has no jump login.
 - [ ] **A node taken over from another controller** needs a manual Fix for migration encryption; the take-over could do it.
-- [ ] **Saving a controller backup folder** does not write a backup; one appears only after the schedule is switched off and on.
-- [ ] **dnf asks to import the signing key twice**; the install guide says once.
+- [x] **Saving a controller backup folder** writes a copy there at once. Thinning out counts only the copies of this host name.
+- [x] **dnf asks to import the signing key twice**; the install guide says so.
 - [ ] **Migration of a VM on an Open vSwitch host bridge** is not tested (New VM, Add NIC, Edit NIC and Import are fixed and tested).
 - [ ] **Operation traces** show a node command verb, not the programs it ran inside; needs a node command change (protocol bump). Not verified on the lab: clone with a password, quiesced snapshot, migration, scheduled tasks.
-- [ ] **Frozen-guest alert**: the record is in memory only (a controller restart forgets it); it appears at the next alert pass, not at once.
+- [x] **Frozen-guest alert**: the record is in the database and the alert appears at once.
 - [ ] **Backups deleted on an NFS pool**: the refresh on the other nodes is not tested on the lab.
 - [ ] **Task results**: no downtime figure for a migration and no current step for a running task (the code records neither).
-- [ ] **Alerts for a user's failed task** are never sent to notification destinations; a scheduler alert replaced by a user failure of the same job never sends its "clear".
-- [ ] **Command line setup** not tested on a machine that never had Virticle, with the RPM, with a firewall active, or `node add` through a jump host.
+- [x] **Alerts for a user's failed task** go to the notification destinations; every "raised" is followed by one "clear", also across a controller restart.
+- [x] **Command line setup** on a machine that never had Virticle, with the RPM, with a firewall active, and `node add` through a jump host.
 - [ ] **Unit tests that time out under load**: `internal/dirauth` TestTransport (5 s) and `TestQRCodeDecodes` each failed once while several agents were building; both pass alone.
-- [ ] **Bootloader and kernel modules**: `node prepare` reports a missing KVM module and IOMMU arguments but changes neither (the owner has not decided).
-- [ ] **Migration cleanup, not verified or still open**: the file identity on NFS (and removal there, which uses a plain rename) was not tried in the lab; a disk move still removes its new volume after a failure without an identity check; restore and clone were not reviewed for the same weakness; a VM whose hand-over answer is lost stays paused on the source until the target answers (no limit).
-- [ ] **Hardening of the public repository**: secret scanning and push protection are off, `main` is unprotected, Actions are pinned by tag (the owner has not decided; nor on rewriting the commit author and the old attribution lines).
+- [x] **Bootloader and kernel modules**: `node prepare` loads a missing KVM module and keeps it in `/etc/modules-load.d/virticle.conf` (a blacklisted or failing module stops the step with the reason). It never edits the boot loader or reboots: where a kernel argument is needed (IOMMU for passthrough, or one that blocks KVM) it names the exact arguments for the node and where they go.
+- [x] **Migration cleanup** on NFS (file identity, removal, time limits, a dead share); disk move, restore, clone and OVA import remove only files they made, by identity; the alert for a lost hand-over says how to settle it by hand. Open: the TPM state's place and a directory move on NFS still use a plain rename; a VM whose hand-over answer is lost stays paused until the target answers or it is settled by hand.
+- [x] **Removing a node** is refused while a task or a migration runs on it (2026-11-17): the removal closes the connection, and a backup cut there could leave a guest frozen.
+- [x] **Hardening of the public repository** (2026-11-15): secret scanning and push protection are on, `main` refuses force pushes and deletion, the commit author and old attribution lines were rewritten. Open: Actions are pinned by tag, not by commit.
 
 Built for 0.5.0 (see the entries above): bridges set up by hand as virtual switches, the Edit dialog for management and migration addresses, the console inside the Overview card, Guest setup on a clone of a template without cloud-init, the folder of the controller's scheduled copies, the Templates group in the tree, the "?" help marks, `node prepare` on the machine itself, the longer backup freeze, and the clock sync after a start.
 

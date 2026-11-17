@@ -128,6 +128,14 @@ names the service account;
 .B \-\-jump
 .I user@host
 reaches the host through a jump host;
+.B \-\-jump\-identity
+.I file
+and
+.B \-\-jump\-password\-file
+.I file
+give a login for the jump host, used when it does not accept the controller's
+key (a terminal asks); Virticle then adds the controller's key to that account's
+authorized_keys, restricted to forwarding;
 .B \-\-take\-over
 takes over a host that another Virticle controller manages (a terminal asks
 instead).
@@ -154,14 +162,17 @@ when something needs attention.
 Prepare a host without adding it (what node add runs first; also how a node
 gets this version's node command). Installs libvirt, QEMU, the guest disk
 tools and the node command, sets up the access the controller needs and opens
-the migration ports (TCP 49152 to 49215) in firewalld or ufw.
+the migration ports (TCP 49152 to 49215) in firewalld or ufw. Loads the KVM
+module when it is missing and lists it in /etc/modules-load.d/virticle.conf.
+It never changes the boot loader or the kernel command line and never reboots;
+where a kernel argument is needed it names the exact arguments.
 .B \-\-check
 changes nothing. It takes the options of node add, and more; see
 .BR "virticle node \-\-help" .
 .TP
 .B virticle node unprepare
-Undo prepare: removes the account, key, node command, sudo rule and firewall
-rule. Packages, VMs, pools and networks stay.
+Undo prepare: removes the account, key, node command, sudo rule, module list
+and firewall rule. Packages, VMs, pools and networks stay.
 .TP
 .B virticle backup
 Write the controller's own data (database, SSH key, certificates) to one file,
@@ -235,7 +246,8 @@ For scripts: the host administrator's password for node add, prepare and
 unprepare.
 .TP
 .B VIRTICLE_JUMP_PASSWORD
-Password for node jump hosts.
+Password for node jump hosts. In node add and prepare: the login for a jump
+host that does not accept the controller's key.
 .TP
 .B VIRTICLE_LISTEN
 Default for \-listen.

@@ -20,13 +20,17 @@ const stampLayout = "20060102T150405Z"
 
 var hostClean = regexp.MustCompile(`[^A-Za-z0-9.-]+`)
 
-// FileName is the default name of a backup file.
-func FileName(host string, t time.Time, encrypted bool) string {
+func cleanHost(host string) string {
 	host = strings.Trim(hostClean.ReplaceAllString(host, "-"), "-.")
 	if host == "" {
 		host = "controller"
 	}
-	n := "virticle-backup-" + host + "-" + t.UTC().Format(stampLayout) + ".tar.gz"
+	return host
+}
+
+// FileName is the default name of a backup file.
+func FileName(host string, t time.Time, encrypted bool) string {
+	n := "virticle-backup-" + cleanHost(host) + "-" + t.UTC().Format(stampLayout) + ".tar.gz"
 	if encrypted {
 		n += ".age"
 	}
@@ -111,7 +115,15 @@ type File struct {
 
 // Files lists the backups made by WriteFile in dir: regular files named virticle-backup-HOST-STAMP.tar.gz or
 // .tar.gz.age. Other files are not listed. A missing directory has none.
-func Files(dir string) ([]File, error) {
+func Files(dir string) ([]File, error) { return filesOf(dir, "") }
+
+// FilesOf is Files for the backups of one host only (the name FileName gives it); a folder shared with other
+// controllers holds theirs too, which are not ours to count or remove.
+func FilesOf(dir, host string) ([]File, error) {
+	return filesOf(dir, "virticle-backup-"+cleanHost(host)+"-")
+}
+
+func filesOf(dir, prefix string) ([]File, error) {
 	ents, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -122,7 +134,7 @@ func Files(dir string) ([]File, error) {
 	var all []File
 	for _, e := range ents {
 		n := e.Name()
-		if !e.Type().IsRegular() || !strings.HasPrefix(n, "virticle-backup-") {
+		if !e.Type().IsRegular() || !strings.HasPrefix(n, "virticle-backup-") || !strings.HasPrefix(n, prefix) {
 			continue
 		}
 		stem, ok := strings.CutSuffix(n, ".tar.gz")
@@ -165,10 +177,19 @@ func Prune(dir string, keep int) ([]string, error) {
 // clock was set back and older files carry later times. A policy that keeps everything removes nothing. Other
 // files are left alone. It returns the names it removed.
 func PrunePolicy(dir string, p retention.Policy, loc *time.Location, just string) ([]string, error) {
+	return prunePolicy(dir, "", p, loc, just)
+}
+
+// PrunePolicyOf is PrunePolicy for the backups of one host only: the others in dir are not counted and stay.
+func PrunePolicyOf(dir, host string, p retention.Policy, loc *time.Location, just string) ([]string, error) {
+	return prunePolicy(dir, "virticle-backup-"+cleanHost(host)+"-", p, loc, just)
+}
+
+func prunePolicy(dir, prefix string, p retention.Policy, loc *time.Location, just string) ([]string, error) {
 	if p.KeepsAll() {
 		return nil, nil
 	}
-	all, err := Files(dir)
+	all, err := filesOf(dir, prefix)
 	if err != nil {
 		return nil, err
 	}

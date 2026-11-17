@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"virticle/internal/prepare"
 )
 
 // Host devices that can be passed to a VM: parsing libvirt's node device XML,
@@ -217,6 +219,8 @@ type hostFacts struct {
 	Storage map[string]string
 	// BootVGA is the PCI address of the GPU the firmware booted with.
 	BootVGA string
+	// Kernel is the node's CPU vendor, kernel command line and boot loader, for what a refusal tells the administrator.
+	Kernel prepare.KernelFacts
 	// Known is false when the facts could not be read; then every PCI device
 	// that could matter is refused rather than guessed about.
 	Known bool
@@ -310,6 +314,7 @@ func parseFacts(out string) hostFacts {
 			f.Known = true
 		}
 	}
+	f.Kernel = prepare.ParseKernelFacts(out)
 	return f
 }
 

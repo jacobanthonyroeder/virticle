@@ -272,7 +272,7 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 	// the call (uuid, nvramNote) unless the call was synchronous.
 	err = s.taskStopAsync(r, "clone", q.Name+" (from "+src.Name+")", h.Name, stop, func(progress func(float64)) error {
 		defer st.done()
-		var created []libvirt.StorageVol
+		var created []hostconn.FileID // the files this clone made, with their identity
 		var defined *libvirt.Domain
 		rollback := func(cause error) error {
 			var left []string
@@ -282,10 +282,14 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 					left = append(left, "VM definition "+q.Name+": "+err.Error())
 				}
 			}
+			// Only what this clone made, and only while it is still that file and nothing holds it open.
 			for i := len(created) - 1; i >= 0; i-- {
-				if err := h.StorageVolDelete(created[i], 0); err != nil {
-					left = append(left, "volume "+created[i].Name+": "+err.Error())
+				if why := removeOwnFile(h, created[i]); why != "" {
+					left = append(left, created[i].Path+": "+why)
 				}
+			}
+			if len(created) > 0 {
+				refreshLive(h) // libvirt forgets the removed volumes
 			}
 			if len(left) > 0 {
 				return fmt.Errorf("%w (rollback incomplete, left behind: %s)", cause, strings.Join(left, "; "))
@@ -325,11 +329,14 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 			if err := xml.Unmarshal([]byte(vraw), &vx); err != nil {
 				return rollback(err)
 			}
-			var nv libvirt.StorageVol
+			var id hostconn.FileID
 			if q.Linked {
-				nv, err = h.StorageVolCreateXML(pool, linkedVolumeXML(d.newName, vx.Capacity, d.srcPath, vx.Format.Type), 0)
+				id, err = newPoolImage(h, pool, d.newName, "qcow2", vx.Capacity, d.srcPath, vx.Format.Type)
 			} else {
-				nv, err = copyVolume(h, pool, volumeXML(d.newName, vx.Format.Type, vx.Capacity), d.newName, srcVol, st)
+				_, id, err = copyVolume(h, pool, d.newName, vx.Format.Type, vx.Capacity, srcVol, st)
+			}
+			if id.Path != "" {
+				created = append(created, id)
 			}
 			if errors.Is(err, errCopyStopped) {
 				return rollback(copyStopped("clone", err))
@@ -337,11 +344,7 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return rollback(fmt.Errorf("disk %s: %w", d.newName, err))
 			}
-			created = append(created, nv)
-			np, err := h.StorageVolGetPath(nv)
-			if err != nil {
-				return rollback(err)
-			}
+			np := id.Path
 			newPaths[d.srcPath] = np
 			newDisks = append(newDisks, np)
 		}
@@ -354,17 +357,21 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 			edit.Disks[oldSeed] = ""
 		}
 		if seed != nil {
-			sv, err := h.StorageVolCreateXML(firstPool, volumeXML(seedVolumeName(q.Name), "raw", uint64(len(seed))), 0)
+			sid, err := newPoolImage(h, firstPool, seedVolumeName(q.Name), "raw", uint64(len(seed)), "", "")
+			if sid.Path != "" {
+				created = append(created, sid)
+			}
 			if err != nil {
 				return rollback(fmt.Errorf("seed image: %w", err))
 			}
-			created = append(created, sv)
+			sv, err := h.StorageVolLookupByName(firstPool, seedVolumeName(q.Name))
+			if err != nil {
+				return rollback(fmt.Errorf("seed image: %w", err))
+			}
 			if err := h.StorageVolUpload(sv, bytes.NewReader(seed), 0, 0, 0); err != nil {
 				return rollback(fmt.Errorf("seed image upload: %w", err))
 			}
-			if edit.AddCDROM, err = h.StorageVolGetPath(sv); err != nil {
-				return rollback(err)
-			}
+			edit.AddCDROM = sid.Path
 		}
 		newXML, err := cloneDomainXML(raw, edit)
 		if err != nil {
@@ -431,6 +438,29 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+// newPoolImage makes a new empty image (qcow2 with an optional backing file, or raw) named name in pool, through
+// the node, which never replaces a file (libvirt's own create runs qemu-img over a file it does not list), and
+// returns its identity. The pool is refreshed, so libvirt lists it.
+func newPoolImage(h *hostconn.Host, pool libvirt.StoragePool, name, format string, capacity uint64, backing, backingFormat string) (hostconn.FileID, error) {
+	dir, err := poolDirectory(h, pool)
+	if err != nil {
+		return hostconn.FileID{}, err
+	}
+	p := dir + "/" + name
+	if !safePathRE.MatchString(p) {
+		return hostconn.FileID{}, fmt.Errorf("unsupported volume path %s", p)
+	}
+	if format == "qcow2" && backing != "" && backingFormat == "" {
+		backingFormat = "raw"
+	}
+	id, err := h.ImageNew(p, format, capacity, backing, backingFormat)
+	if err != nil {
+		return hostconn.FileID{}, err
+	}
+	h.StoragePoolRefresh(pool, 0)
+	return hostconn.FileID{Path: p, Exists: true, Regular: true, ID: id}, nil
+}
+
 // lookupVolByPath finds a volume by its file path, letting the pools rescan
 // once if it was created outside libvirt.
 func lookupVolByPath(h *hostconn.Host, p string) (libvirt.StorageVol, error) {
@@ -440,15 +470,6 @@ func lookupVolByPath(h *hostconn.Host, p string) (libvirt.StorageVol, error) {
 	}
 	refreshLive(h)
 	return h.StorageVolLookupByPath(p)
-}
-
-func linkedVolumeXML(name string, capacity uint64, backing, backingFormat string) string {
-	bf := ""
-	if backingFormat != "" {
-		bf = fmt.Sprintf("<format type='%s'/>", esc(backingFormat))
-	}
-	return fmt.Sprintf(`<volume><name>%s</name><capacity unit='bytes'>%d</capacity><target><format type='qcow2'/></target><backingStore><path>%s</path>%s</backingStore></volume>`,
-		esc(name), capacity, esc(backing), bf)
 }
 
 func tail(s string, n int) string {

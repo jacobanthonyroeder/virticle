@@ -13,6 +13,7 @@ import (
 	"virticle/internal/cluster"
 	"virticle/internal/domxml"
 	"virticle/internal/hostconn"
+	"virticle/internal/prepare"
 )
 
 // Passthrough of host PCI and USB devices. The list comes from libvirt's node
@@ -40,8 +41,19 @@ wb() { n=$1; d=$2; [ "$d" -gt 5 ] && return
 for s in $( { awk '$1 ~ "^/dev/" {print $1}' /proc/mounts; awk 'NR>1 {print $1}' /proc/swaps; } | sort -u); do
   n=$(basename "$(readlink -f "$s")"); [ -e /sys/class/block/$n ] && wb "$n" 0; done
 for d in /sys/bus/pci/devices/*; do [ "$(cat $d/boot_vga 2>/dev/null)" = 1 ] && echo "bootvga $(basename $d)"; done
+` + prepare.OSProbe + `
+` + prepare.KernelProbe + `
 echo ok
 `
+
+// noIOMMUAdvice is what the administrator has to do on the node, for its CPU and boot loader: the exact arguments (or
+// the firmware setting when the command line is right already) and where they go. Virticle changes nothing there.
+func noIOMMUAdvice(k prepare.KernelFacts) string {
+	if what, where, ok := k.IOMMUAdvice(); ok {
+		return upperFirst(what) + ". " + where
+	}
+	return upperFirst(k.IOMMUFirmware()) + "; the kernel command line is right already."
+}
 
 func nodeHostFacts(h *hostconn.Host) hostFacts {
 	out, err := h.Run("sh -c " + shq(factsScript))
@@ -175,9 +187,21 @@ func (s *Server) vmHostdevs(w http.ResponseWriter, r *http.Request) {
 		attached = append(attached, a)
 	}
 	writeJSON(w, map[string]any{
-		"devices": devs, "attached": attached, "iommu": iommu, "factsKnown": facts.Known,
+		"devices": devs, "attached": attached, "iommu": iommu, "factsKnown": facts.Known, "iommuAdvice": iommuAdvice(iommu, facts),
 		"vm": uuid, "warning": passthroughWarning,
 	})
+}
+
+// iommuAdvice is what the passthrough dialog shows for a node without an active IOMMU: the sentence and, behind the
+// help mark, where it goes. Empty when the IOMMU is on.
+func iommuAdvice(iommu bool, f hostFacts) map[string]string {
+	if iommu || !f.Known {
+		return nil
+	}
+	if what, where, ok := f.Kernel.IOMMUAdvice(); ok {
+		return map[string]string{"text": upperFirst(what), "where": where}
+	}
+	return map[string]string{"text": upperFirst(f.Kernel.IOMMUFirmware()) + "; the kernel command line is right already"}
 }
 
 func (s *Server) vmHostdevAttach(w http.ResponseWriter, r *http.Request) {
@@ -195,11 +219,11 @@ func (s *Server) vmHostdevAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	var res hwResult
 	err = s.task(r, "attach host device", c.dom.Name+"/"+req.ID, c.h.Name, func(func(float64)) error {
-		devs, iommu, _, err := collectHostDevs(c.h)
+		devs, iommu, facts, err := collectHostDevs(c.h)
 		if err != nil {
 			return err
 		}
-		d, xmlText, note, err := pickHostdev(devs, iommu, req.ID, cluster.FormatUUID(c.dom.UUID))
+		d, xmlText, note, err := pickHostdev(devs, iommu, facts.Kernel, req.ID, cluster.FormatUUID(c.dom.UUID))
 		if err != nil {
 			return err
 		}
@@ -227,7 +251,7 @@ func (s *Server) vmHostdevAttach(w http.ResponseWriter, r *http.Request) {
 
 // pickHostdev applies every server-side refusal and returns the device and
 // the <hostdev> XML to attach.
-func pickHostdev(devs []hostDevice, iommu bool, id, vmUUID string) (hostDevice, string, string, error) {
+func pickHostdev(devs []hostDevice, iommu bool, kern prepare.KernelFacts, id, vmUUID string) (hostDevice, string, string, error) {
 	var d *hostDevice
 	for i := range devs {
 		if devs[i].ID == id {
@@ -249,11 +273,10 @@ func pickHostdev(devs []hostDevice, iommu bool, id, vmUUID string) (hostDevice, 
 	note := ""
 	if d.Kind == "pci" {
 		if d.IOMMUGroup == nil {
-			msg := "this device has no IOMMU group"
 			if !iommu {
-				msg = "this node has no active IOMMU (enable intel_iommu=on or amd_iommu=on and reboot)"
+				return *d, "", "", badRequest("refused: this node has no active IOMMU, so VFIO cannot pass it through. " + noIOMMUAdvice(kern))
 			}
-			return *d, "", "", badRequest("refused: " + msg + ", so VFIO cannot pass it through")
+			return *d, "", "", badRequest("refused: this device has no IOMMU group, so VFIO cannot pass it through")
 		}
 		for _, p := range d.GroupPeers {
 			for i := range devs {

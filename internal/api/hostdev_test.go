@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"virticle/internal/domxml"
+	"virticle/internal/prepare"
 )
 
 func mustDev(t *testing.T, file string) hostDevice {
@@ -57,7 +58,7 @@ func TestIOMMUGroupFixtureWithSeveralFunctions(t *testing.T) {
 		t.Errorf("boot GPU warning missing: %v", devs[0].Warnings)
 	}
 	// Attach: a note about the group, and the XML names the function.
-	_, x, note, err := pickHostdev(devs, true, "0000:0a:00.0", "vm-1")
+	_, x, note, err := pickHostdev(devs, true, prepare.KernelFacts{}, "0000:0a:00.0", "vm-1")
 	if err != nil || !strings.Contains(note, "IOMMU group 14 also holds 0000:0a:00.1") {
 		t.Fatalf("%v %q", err, note)
 	}
@@ -67,7 +68,7 @@ func TestIOMMUGroupFixtureWithSeveralFunctions(t *testing.T) {
 	}
 	// The other function is used by another VM: the group cannot be given away.
 	devs[1].UsedBy = []vmRef{{UUID: "vm-2", Name: "other"}}
-	if _, _, _, err := pickHostdev(devs, true, "0000:0a:00.0", "vm-1"); err == nil || !strings.Contains(err.Error(), "other") {
+	if _, _, _, err := pickHostdev(devs, true, prepare.KernelFacts{}, "0000:0a:00.0", "vm-1"); err == nil || !strings.Contains(err.Error(), "other") {
 		t.Errorf("group peer in use elsewhere must refuse: %v", err)
 	}
 }
@@ -105,7 +106,7 @@ func TestSafetyRefusals(t *testing.T) {
 		}
 	}
 	// Refusal reaches the attach path, with the reason.
-	_, _, _, err := pickHostdev(devs, true, "0000:01:00.0", "vm")
+	_, _, _, err := pickHostdev(devs, true, prepare.KernelFacts{}, "0000:01:00.0", "vm")
 	if err == nil || !strings.HasPrefix(err.Error(), "refused: ") || !strings.Contains(err.Error(), "default route") {
 		t.Errorf("attach of the NIC: %v", err)
 	}
@@ -132,29 +133,61 @@ func TestPickHostdevRules(t *testing.T) {
 	mouse := mustDev(t, "nodedev_handwritten_usb_mouse.xml")
 	mouse2 := mouse
 	mouse2.ID, mouse2.usbDev = "usb:3:3", 3
-	_, x, _, err := pickHostdev([]hostDevice{mouse}, false, "usb:3:2", "vm")
+	_, x, _, err := pickHostdev([]hostDevice{mouse}, false, prepare.KernelFacts{}, "usb:3:2", "vm")
 	if err != nil || x != "<hostdev mode='subsystem' type='usb' managed='yes'><source><vendor id='0x046d'/><product id='0xc077'/></source></hostdev>" {
 		t.Fatalf("%v\n%s", err, x)
 	}
-	_, x, _, _ = pickHostdev([]hostDevice{mouse, mouse2}, false, "usb:3:3", "vm")
+	_, x, _, _ = pickHostdev([]hostDevice{mouse, mouse2}, false, prepare.KernelFacts{}, "usb:3:3", "vm")
 	if !strings.Contains(x, "<address bus='3' device='3'/>") {
 		t.Errorf("identical devices need the address: %s", x)
 	}
-	if _, _, _, err := pickHostdev([]hostDevice{mouse}, false, "usb:9:9", "vm"); err == nil {
+	if _, _, _, err := pickHostdev([]hostDevice{mouse}, false, prepare.KernelFacts{}, "usb:9:9", "vm"); err == nil {
 		t.Error("unknown device must fail")
 	}
 	mouse.UsedBy = []vmRef{{UUID: "vm", Name: "me"}}
-	if _, _, _, err := pickHostdev([]hostDevice{mouse}, false, "usb:3:2", "vm"); err == nil || !strings.Contains(err.Error(), "already attached to this VM") {
+	if _, _, _, err := pickHostdev([]hostDevice{mouse}, false, prepare.KernelFacts{}, "usb:3:2", "vm"); err == nil || !strings.Contains(err.Error(), "already attached to this VM") {
 		t.Errorf("%v", err)
 	}
 	mouse.UsedBy = []vmRef{{UUID: "other", Name: "them"}}
-	if _, _, _, err := pickHostdev([]hostDevice{mouse}, false, "usb:3:2", "vm"); err == nil || !strings.Contains(err.Error(), "them") {
+	if _, _, _, err := pickHostdev([]hostDevice{mouse}, false, prepare.KernelFacts{}, "usb:3:2", "vm"); err == nil || !strings.Contains(err.Error(), "them") {
 		t.Errorf("%v", err)
 	}
 	// PCI without any IOMMU on the node.
 	nic := mustDev(t, "nodedev_pci_0000_02_00_0.xml")
-	if _, _, _, err := pickHostdev([]hostDevice{nic}, false, "0000:02:00.0", "vm"); err == nil || !strings.Contains(err.Error(), "no active IOMMU") {
+	if _, _, _, err := pickHostdev([]hostDevice{nic}, false, prepare.KernelFacts{}, "0000:02:00.0", "vm"); err == nil || !strings.Contains(err.Error(), "no active IOMMU") {
 		t.Errorf("%v", err)
+	}
+}
+
+// The refusal names the exact arguments for the node's CPU and its boot loader, and changes nothing.
+func TestNoIOMMURefusalNamesTheArguments(t *testing.T) {
+	nic := mustDev(t, "nodedev_pci_0000_02_00_0.xml")
+	refuse := func(facts string) string {
+		_, _, _, err := pickHostdev([]hostDevice{nic}, false, parseFacts(facts+"ok\n").Kernel, "0000:02:00.0", "vm")
+		if err == nil {
+			t.Fatal("no refusal")
+		}
+		return err.Error()
+	}
+	intel := refuse("os_id=debian\nos_like=\ncpu_vendor=GenuineIntel\ncmdline=BOOT_IMAGE=/vmlinuz ro quiet\nbootloader=grub\n")
+	if !strings.Contains(intel, "Add intel_iommu=on iommu=pt to the kernel command line.") || strings.Contains(intel, "amd_iommu") ||
+		!strings.Contains(intel, "GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub, run update-grub") {
+		t.Errorf("intel debian: %s", intel)
+	}
+	amd := refuse("os_id=rocky\nos_like=rhel centos fedora\ncpu_vendor=AuthenticAMD\ncmdline=ro iommu=pt\nbootloader=grub\n")
+	if !strings.Contains(amd, "Add amd_iommu=on to the kernel command line.") || strings.Contains(amd, "intel_iommu") ||
+		!strings.Contains(amd, `grubby --update-kernel=ALL --args="amd_iommu=on"`) {
+		t.Errorf("amd rocky: %s", amd)
+	}
+	right := refuse("os_id=debian\ncpu_vendor=GenuineIntel\ncmdline=ro intel_iommu=on iommu=pt\nbootloader=grub\n")
+	if !strings.Contains(right, "Turn on VT-d in the firmware") {
+		t.Errorf("right already: %s", right)
+	}
+	if a := iommuAdvice(false, hostFacts{Known: true, Kernel: parseFacts("cpu_vendor=GenuineIntel\ncmdline=ro\nok\n").Kernel}); a["text"] != "Add intel_iommu=on iommu=pt to the kernel command line" || a["where"] == "" {
+		t.Errorf("advice: %v", a)
+	}
+	if iommuAdvice(true, hostFacts{Known: true}) != nil {
+		t.Error("no advice when the IOMMU is on")
 	}
 }
 
@@ -224,7 +257,7 @@ func TestGPUBehindRootPortIsAllowed(t *testing.T) {
 	if devs[1].Unsafe || devs[2].Unsafe {
 		t.Errorf("GPU and its audio function must be allowed: %q / %q", devs[1].UnsafeReason, devs[2].UnsafeReason)
 	}
-	_, xml, note, err := pickHostdev(devs, true, "0000:01:00.0", "vm")
+	_, xml, note, err := pickHostdev(devs, true, prepare.KernelFacts{}, "0000:01:00.0", "vm")
 	if err != nil || xml == "" {
 		t.Fatalf("attach refused: %v", err)
 	}

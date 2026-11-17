@@ -32,6 +32,22 @@ func (h *Host) FileIDs(paths ...string) ([]FileID, error) {
 	return parseFileIDs(paths, out)
 }
 
+// FileIDsCtx is FileIDs that gives up when ctx ends (a share that stopped answering): the node command is hung up,
+// and nothing was changed, as file-id only looks.
+func (h *Host) FileIDsCtx(ctx context.Context, paths ...string) ([]FileID, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	out, err := h.RunNodeCtx(ctx, "file-id", paths...)
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("no answer while identifying files: %w", ctx.Err())
+	}
+	if err != nil {
+		return nil, nodeErr(out, err)
+	}
+	return parseFileIDs(paths, out)
+}
+
 func parseFileIDs(paths []string, out string) ([]FileID, error) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != len(paths) {
@@ -90,6 +106,27 @@ func (h *Host) RemoveIfID(path, id string) (string, error) {
 		return "", errors.New("no identity to compare with")
 	}
 	out, err := h.run("remove-id", path, id)
+	if err != nil {
+		return "", nodeErr(out, err)
+	}
+	switch a := strings.TrimSpace(out); a {
+	case RemovedFile, MissingFile, OtherFile, InUseFile:
+		return a, nil
+	}
+	return "", fmt.Errorf("unexpected answer while removing %s: %s", path, firstLineOf(out, errors.New("empty")))
+}
+
+// RemoveIfIDCtx is RemoveIfID that stops waiting when ctx ends. The node command is hung up then; if it had moved
+// the file aside already it puts it back (or has removed it), so the caller must look again before it decides
+// anything: an error that wraps ctx.Err() means the outcome is not known.
+func (h *Host) RemoveIfIDCtx(ctx context.Context, path, id string) (string, error) {
+	if !validID(id) {
+		return "", errors.New("no identity to compare with")
+	}
+	out, err := h.RunNodeCtx(ctx, "remove-id", path, id)
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("no answer while removing %s: %w", path, ctx.Err())
+	}
 	if err != nil {
 		return "", nodeErr(out, err)
 	}

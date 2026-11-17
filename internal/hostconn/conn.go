@@ -19,26 +19,30 @@ type Conn struct {
 	Name string
 	ssh  *ssh.Client
 	jump *ssh.Client
+	// JumpKeyAdded: the controller's key was refused on the jump host, a login was used instead, and the key was
+	// added to that account's authorized_keys (Target.JumpInstallKey).
+	JumpKeyAdded bool
 }
 
 // DialConn opens the SSH connection (through t.Jump when set).
 func DialConn(t Target, knownHosts string) (*Conn, error) {
 	var jump *ssh.Client
+	added := false
 	if t.Jump != nil {
-		j, err := dialSSH(*t.Jump, knownHosts, nil)
+		j, a, err := dialJump(t, knownHosts)
 		if err != nil {
-			return nil, fmt.Errorf("jump host %s: %w", t.Jump.Addr, err)
+			return nil, err
 		}
-		jump = j
+		jump, added = j, a
 	}
 	c, err := dialSSH(t, knownHosts, jump)
 	if err != nil {
 		if jump != nil {
 			jump.Close()
 		}
-		return nil, fmt.Errorf("ssh %s: %w", t.Addr, err)
+		return nil, &HopError{Addr: t.Addr, User: t.User, Err: err}
 	}
-	return &Conn{Name: t.Addr, ssh: c, jump: jump}, nil
+	return &Conn{Name: t.Addr, ssh: c, jump: jump, JumpKeyAdded: added}, nil
 }
 
 // Close ends the connection.

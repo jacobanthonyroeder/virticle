@@ -72,7 +72,7 @@ func TestDailyBackupWritesAndPrunes(t *testing.T) {
 	os.MkdirAll(dir, 0o700)
 	for i := 0; i < 9; i++ {
 		// names of earlier days
-		name := ctlbackup.FileName("h", time.Date(2026, 1, 1+i, 3, 30, 0, 0, time.UTC), false)
+		name := ctlbackup.FileName(thisHost(), time.Date(2026, 1, 1+i, 3, 30, 0, 0, time.UTC), false)
 		os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600)
 	}
 	if err := e.srv.dailyBackupRun(); err != nil {

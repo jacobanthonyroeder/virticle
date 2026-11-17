@@ -1,7 +1,7 @@
 // Settings > Controller backup: the controller's own backup. Safe on any lab: it only downloads an archive and looks inside it; nothing is
 // restored (restore is a command on the controller's machine) and the setting of the copies on the server is not touched.
 import { execFileSync } from "child_process";
-import { mkdtempSync, readFileSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Page } from "@playwright/test";
@@ -86,6 +86,30 @@ test.describe("controller backup", () => {
     await page.getByRole("button", { name: "Save schedule" }).click();
     await expect(page.locator(".error")).toHaveText(/^The folder must be a full path/);
     await page.getByRole("button", { name: "Cancel" }).click(); // nothing was saved
+  });
+
+  test("saving a new folder writes a copy there at once; the old folder keeps its copies", async ({ page, api }) => {
+    test.skip(!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(env.base), "the folders are on this machine, so the controller must be too");
+    const before = await api.get("/controller-backup");
+    const root = mkdtempSync(join(tmpdir(), "e2e-ctlbackup-dir-"));
+    const one = join(root, "one"), two = join(root, "two");
+    const copies = (d: string) => (existsSync(d) ? readdirSync(d).filter((n) => n.startsWith("virticle-backup-")) : []);
+    const save = async (dir: string) => {
+      await page.goto("/controller-backup");
+      await page.getByRole("button", { name: "Edit schedule" }).click();
+      await field(page, "Folder").fill(dir);
+      await page.getByRole("button", { name: "Save schedule" }).click();
+    };
+    try {
+      await api.put("/controller-backup", { daily: true });
+      await save(one);
+      await expect.poll(() => copies(one).length, { timeout: 30_000 }).toBe(1);
+      await save(two);
+      await expect.poll(() => copies(two).length, { timeout: 30_000 }).toBe(1);
+      expect(copies(one).length).toBe(1);
+    } finally {
+      await api.put("/controller-backup", { daily: before.daily, dir: before.dirCustom ? before.dir : "" });
+    }
   });
 
   test("a passphrase encrypts the download, and two different ones are refused", async ({ page }) => {
