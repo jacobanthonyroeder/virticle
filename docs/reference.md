@@ -271,7 +271,7 @@ earlier versions no longer exist.
   (the guest is watched for 10 minutes). When the shutdown ends in a force off, the definition is left as it is and
   the switch keeps waiting, because the value may not have reached the guest's disk. When the guest does not shut
   down, the value is put back and the switch keeps waiting. Without the agent the switch keeps waiting. A reboot, a
-  force off or a shutdown from inside the guest do not switch. A restore keeps the switch that waited when the
+  force off or a shutdown from inside the guest do not switch. A restore (to the original VM or as a new one) keeps the switch that waited when the
   backup was made.
   While a switch waits, Edit Settings shows `● Pending` next to the box.
 
@@ -281,7 +281,8 @@ earlier versions no longer exist.
   | New VM, box off | `localtime`, no switch. The clock is synced after each start. |
   | Clone with Windows guest setup of a sealed template | `utc`. The answer file sets the value in the specialize pass, before the first logon. |
   | Other clones | The source's offset and its waiting switch. |
-  | Restores, VMs made by an older Virticle | Unchanged. An older VM shows the box off (local time) and nothing changes for it. |
+  | Restores | The backup's offset and the switch that waited when it was made. |
+  | VMs made by an older Virticle | Unchanged. They show the box off (local time) and nothing changes for them. |
 
   Turning the box on or off later records the switch (or cancels the one that waits); it is made at the next shutdown
   from Virticle as above, also while the agent is running. Writing the value at once was tried on Windows 11 26H2 and

@@ -221,6 +221,28 @@ func TestRestoreKeepsWaitingClockSwitch(t *testing.T) {
 	}
 }
 
+// A restore as a new VM goes through cloneDomainXML, which drops the app metadata (seen on the lab: the restored
+// VM had no switch); the restore sets it again from the backup's definition.
+func TestRestoreNewKeepsWaitingClockSwitch(t *testing.T) {
+	for want, el := range map[string]string{"utc": `<virticle:utcclock/>`, "localtime": `<virticle:utcclock to="localtime"/>`} {
+		dom := `<domain type='kvm'><name>w</name><metadata><virticle:meta xmlns:virticle="https://virticle.invalid/ns/1">` + el +
+			`</virticle:meta></metadata><devices/></domain>`
+		if got := defClockSwitch(dom); got != want {
+			t.Errorf("%s: read %q", el, got)
+		}
+		out, err := cloneDomainXML(dom, cloneEdit{Name: "w2", Disks: map[string]string{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if defClockSwitch(out) != "" {
+			t.Errorf("cloneDomainXML kept the app metadata; the restore's own step is then not needed:\n%s", out)
+		}
+	}
+	if defClockSwitch("<domain><metadata/></domain>") != "" {
+		t.Error("no switch read as one")
+	}
+}
+
 func TestSwitchWaitsNotes(t *testing.T) {
 	c := &shutdownSwitch{sw: "utc"}
 	if got := c.finish(poweredOff, nil); got != "hardware clock change still waits: the VM was powered off" {

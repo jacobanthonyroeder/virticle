@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,21 @@ func metaClockSwitch(meta string) string {
 		return ""
 	}
 	if root.UTC.To == "localtime" {
+		return "localtime"
+	}
+	return "utc"
+}
+
+// reDefClockSwitch finds the switch element in a whole domain definition (with libvirt's namespace prefix).
+var reDefClockSwitch = regexp.MustCompile(`<(?:[A-Za-z0-9_]+:)?utcclock(\s[^>]*)?/>`)
+
+// defClockSwitch reads the waiting switch from a whole domain definition, such as a backup's domain.xml.
+func defClockSwitch(domXML string) string {
+	m := reDefClockSwitch.FindStringSubmatch(domXML)
+	if m == nil {
+		return ""
+	}
+	if strings.Contains(m[1], `"localtime"`) || strings.Contains(m[1], `'localtime'`) {
 		return "localtime"
 	}
 	return "utc"

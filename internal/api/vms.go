@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"path"
 	"strings"
@@ -463,6 +464,9 @@ func (s *Server) vmAction(w http.ResponseWriter, r *http.Request) {
 				clk = sw.settle(0) // done when the guest went off by itself; not after a force off or when it still runs
 			}
 			if err != nil {
+				if clk != "" {
+					return fmt.Errorf("%w; %s", err, clk) // the failed task says the switch still waits
+				}
 				return err
 			}
 			return taskDone("%s", joinFacts(shutdownNote(res), clk))

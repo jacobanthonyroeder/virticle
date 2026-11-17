@@ -734,6 +734,15 @@ func (p *restorePlan) run(progress func(float64)) (uuid string, err error) {
 	if perr := restorePlacement(dst, dom, oldMeta); perr != nil {
 		log.Printf("restore %s: replication settings: %v", p.name, perr)
 	}
+	if p.req.Mode == "new" {
+		// A new VM's definition drops the app metadata (cloneDomainXML); a hardware clock switch that waited when
+		// the backup was made still waits, as for a clone (winclock.go).
+		if sw := defClockSwitch(p.domXML); sw != "" {
+			if serr := setClockSwitch(dst, dom, sw); serr != nil {
+				log.Printf("restore %s: hardware clock switch: %v", p.name, serr)
+			}
+		}
+	}
 	progress(0.97)
 	if p.req.Start {
 		if serr := dst.DomainCreate(dom); serr != nil {
