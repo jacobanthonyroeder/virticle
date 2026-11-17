@@ -259,7 +259,7 @@ its guest agent answers.
 **UTC hardware clock** (Windows guests) is a box in **New VM**, on by default, and in **Edit Settings > Firmware and
 TPM**. On: Windows keeps its hardware clock in UTC (`RealTimeIsUniversal`), so every start and restart has the right
 time. A change, and the first switch of a new VM, is made at the next **Shutdown (graceful)** from Virticle while the
-guest agent runs; until then the box shows `● Pending`, and the shutdown task says when it is done. Off: the clock
+guest agent runs; until then the box shows `● Pending`, and the shutdown task, or a **change clock** task after it, says when it is done (not after a force off). Off: the clock
 runs in local time and is synced after each start. A clone keeps the source's setting; a clone with guest setup of a
 sealed Windows template is on UTC from the start. VMs made by an older Virticle show the box off and keep their clock.
 

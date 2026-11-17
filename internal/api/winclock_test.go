@@ -202,3 +202,28 @@ func TestUTCSetupClone(t *testing.T) {
 		t.Error("an unsealed Windows source (the answer file is not read) or a Linux one keeps its clock")
 	}
 }
+
+// A restore defines the VM from the backup's definition, metadata included, and clears only the replication
+// children: a switch that waited when the backup was made still waits, which fits the restored disk (no value yet).
+func TestRestoreKeepsWaitingClockSwitch(t *testing.T) {
+	for _, target := range []string{"utc", "localtime"} {
+		meta, err := metaSetChild("<meta></meta>", "utcclock", clockSwitchEl(target))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := setMetaChildren(meta, map[string]string{replChild: "", replicaChild: "", staleChild: "", failedOverChd: ""})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if metaClockSwitch(got) != target {
+			t.Fatalf("%s: switch lost by the restore's metadata change: %s", target, got)
+		}
+	}
+}
+
+func TestSwitchWaitsNotes(t *testing.T) {
+	c := &shutdownSwitch{sw: "utc"}
+	if got := c.finish(poweredOff, nil); got != "hardware clock change still waits: the VM was powered off" {
+		t.Fatal(got)
+	}
+}

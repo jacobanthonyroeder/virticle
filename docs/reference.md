@@ -266,8 +266,13 @@ earlier versions no longer exist.
   the saved offset plus a switch that waits in Virticle's metadata: `<utcclock/>` (to UTC) or
   `<utcclock to="localtime"/>`. The switch is made at the next **Shutdown (graceful)** from Virticle (with or without a
   timeout) while the guest agent answers: Virticle sets or removes the value with `reg.exe` through the agent's
-  `guest-exec`, saves the definition with the new offset, and then shuts the guest down. The shutdown task says so.
-  Without the agent the switch keeps waiting. A reboot, a force off or a shutdown from inside the guest do not switch.
+  `guest-exec`, shuts the guest down, and saves the definition with the new offset once the guest has shut down by
+  itself. With a timeout the shutdown task says so; without one the outcome is a task of its own, **change clock**
+  (the guest is watched for 10 minutes). When the shutdown ends in a force off, the definition is left as it is and
+  the switch keeps waiting, because the value may not have reached the guest's disk. When the guest does not shut
+  down, the value is put back and the switch keeps waiting. Without the agent the switch keeps waiting. A reboot, a
+  force off or a shutdown from inside the guest do not switch. A restore keeps the switch that waited when the
+  backup was made.
   While a switch waits, Edit Settings shows `● Pending` next to the box.
 
   | How the VM is made | Hardware clock |

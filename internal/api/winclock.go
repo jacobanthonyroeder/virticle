@@ -227,49 +227,131 @@ func defineOffset(h *hostconn.Host, dom libvirt.Domain, offset string) error {
 	return err
 }
 
-// clockAtShutdown runs before Virticle shuts a VM down. With a waiting switch, the agent connected and Windows in
-// the guest it sets or removes the value and saves the definition with the new offset; the shutdown then powers
-// the guest off, and the next start boots with both. It returns the clause for the shutdown's note ("" when
-// nothing happened). A failure does not stop the shutdown: the switch is dropped, the VM keeps its clock, and the
-// clause says so.
-func clockAtShutdown(h *hostconn.Host, dom libvirt.Domain) string {
+// shutdownSwitch is a waiting switch whose value was written into the guest just before a shutdown from Virticle.
+type shutdownSwitch struct {
+	h   *hostconn.Host
+	dom libvirt.Domain
+	sw  string // "utc" or "localtime": the offset the definition gets when the guest has shut down
+}
+
+// clockSettleWait is how long a plain Shut down is watched for the guest to go off before the value is taken back.
+var clockSettleWait = 10 * time.Minute
+
+// clockBeforeShutdown runs before Virticle shuts a VM down. With a waiting switch, the agent connected and Windows
+// in the guest it sets or removes the value in the guest; the definition follows in settle, once the guest has
+// shut down by itself. It returns nil when there is nothing to settle, with a clause for the shutdown's note when
+// the value could not be written: the switch is dropped then and the VM keeps its clock. A failure never stops
+// the shutdown.
+func clockBeforeShutdown(h *hostconn.Host, dom libvirt.Domain) (*shutdownSwitch, string) {
 	sw := clockSwitch(h, dom)
 	if sw == "" || !agentConnected(h, dom) {
-		return ""
+		return nil, ""
 	}
 	id, err := agentOS(h, dom)
 	if err != nil {
-		return "" // the agent did not answer: the next shutdown tries again
+		return nil, "" // the agent did not answer: the next shutdown tries again
 	}
 	if id != "mswindows" {
 		setClockSwitch(h, dom, "")
-		return ""
+		return nil, ""
 	}
 	raw, err := h.DomainGetXMLDesc(dom, libvirt.DomainXMLInactive)
 	if err != nil {
-		return ""
+		return nil, ""
 	}
 	offset := domxml.ClockOffset(raw)
-	if offset != "utc" && offset != "localtime" {
+	if offset != "utc" && offset != "localtime" || offset == sw {
 		setClockSwitch(h, dom, "")
-		return ""
+		return nil, ""
 	}
-	if offset != sw {
-		if err = setGuestRTCUniversal(h, dom, sw == "utc"); err == nil {
-			err = defineOffset(h, dom, sw)
-		}
-	}
-	if merr := setClockSwitch(h, dom, ""); merr != nil && err == nil {
-		err = merr
-	}
-	if err != nil {
+	if err := setGuestRTCUniversal(h, dom, sw == "utc"); err != nil {
+		setClockSwitch(h, dom, "")
 		log.Printf("clock of %s: %v", dom.Name, err)
-		return switchFailNote(offset, sw, err)
+		return nil, switchFailNote(offset, sw, err)
 	}
-	if offset == sw {
-		return ""
+	return &shutdownSwitch{h: h, dom: dom, sw: sw}, ""
+}
+
+// shutoffHow says how a domain's shutdown ended.
+type shutoffHow int
+
+const (
+	stillRunning shutoffHow = iota
+	wentOff                 // the guest shut down by itself: what it wrote is on its disk
+	poweredOff              // forced off, crashed or anything else: the value may not have reached the disk
+)
+
+func shutoffState(h *hostconn.Host, dom libvirt.Domain) (shutoffHow, error) {
+	state, reason, err := h.DomainGetState(dom, 0)
+	if err != nil {
+		return stillRunning, err
 	}
-	return switchNote(sw)
+	if libvirt.DomainState(state) != libvirt.DomainShutoff {
+		return stillRunning, nil
+	}
+	if libvirt.DomainShutoffReason(reason) == libvirt.DomainShutoffShutdown {
+		return wentOff, nil
+	}
+	return poweredOff, nil
+}
+
+// settle waits up to wait for the guest to be off and finishes the switch, returning the clause for a note.
+//   - The guest shut down by itself: the definition gets the new offset and the switch is done.
+//   - It was powered off (the force after a timeout, a force off by hand, a crash): nothing more is changed and the
+//     switch keeps waiting, because the value may not have reached the guest's disk. A start in between is off
+//     until the sync when it did; the next Shut down from Virticle finishes the switch.
+//   - It still runs: the value is put back as it was, so a restart from inside the guest stays right, and the
+//     switch keeps waiting.
+func (c *shutdownSwitch) settle(wait time.Duration) string {
+	deadline := time.Now().Add(wait)
+	how, err := shutoffState(c.h, c.dom)
+	for err == nil && how == stillRunning && time.Now().Before(deadline) {
+		time.Sleep(time.Second)
+		how, err = shutoffState(c.h, c.dom)
+	}
+	return c.finish(how, err)
+}
+
+func (c *shutdownSwitch) finish(how shutoffHow, err error) string {
+	if err != nil {
+		log.Printf("clock of %s: %v", c.dom.Name, err)
+		return switchWaitsNote("its state could not be read")
+	}
+	switch how {
+	case wentOff:
+		err := defineOffset(c.h, c.dom, c.sw)
+		if err == nil {
+			err = setClockSwitch(c.h, c.dom, "")
+		}
+		if err != nil {
+			log.Printf("clock of %s: %v", c.dom.Name, err)
+			return switchWaitsNote(err.Error())
+		}
+		return switchNote(c.sw)
+	case poweredOff:
+		return switchWaitsNote("the VM was powered off")
+	}
+	if err := setGuestRTCUniversal(c.h, c.dom, c.sw != "utc"); err != nil {
+		log.Printf("clock of %s: putting %s back: %v", c.dom.Name, rtcValue, err)
+	}
+	return switchWaitsNote("the guest did not shut down")
+}
+
+// settleLater is settle for a plain Shut down, which does not wait for the guest: the outcome is a task of its own.
+func (s *Server) settleLater(user string, c *shutdownSwitch) {
+	note := c.settle(clockSettleWait)
+	t, err := s.Store.StartTask("change clock", c.dom.Name, c.h.Name, user)
+	if err != nil {
+		log.Printf("clock of %s: %v", c.dom.Name, err)
+		return
+	}
+	s.Store.FinishTaskNote(&t, nil, note)
+	s.Nodes.Publish(cluster.Event{Type: "task", Task: t})
+}
+
+// switchWaitsNote is the clause when a switch was not finished at a shutdown.
+func switchWaitsNote(why string) string {
+	return "hardware clock change still waits: " + why
 }
 
 // switchWaitNote is the hardware result's note when the setting changed and a switch now waits.

@@ -157,7 +157,7 @@ hand.
 Upgrade the package, then prepare every node again (the node command has a new
 version; **Nodes > Update Virticle on nodes** does all of them). Never let two controllers of
 different versions manage the same nodes. Nodes below libvirt 11.0 and QEMU 10.0
-are not managed. Steps for 0.6.0 to 0.6.1, and for older versions, are in
+are not managed. Steps for 0.6.1 to 0.6.2, and for older versions, are in
 [docs/install.md](docs/install.md#upgrading).
 
 ## Documentation
