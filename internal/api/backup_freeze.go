@@ -191,6 +191,9 @@ const (
 	hintVSSWriter   = "a VSS writer in the guest failed or timed out: see vssadmin list writers and the Application event log (VSS) in the guest"
 	hintVSSBusy     = "another shadow copy was being made in the guest (a Windows backup or restore point)"
 	hintVSSSlow     = "VSS in the guest did not finish: see vssadmin list writers and the Application event log (VSS, QEMU-GA) in the guest"
+	// Seen on Windows 11 26H2 with the Volume Shadow Copy service disabled: "failed to initialize for backup:
+	// Windows error 0x80042302: " (VSS_E_UNEXPECTED, from InitializeForBackup).
+	hintVSSService = "the Volume Shadow Copy service in the guest is disabled or does not start: set it to Manual (sc config VSS start= demand)"
 )
 
 // freezeHint names the likely cause in the guest of a freeze that failed, or "" when the error says nothing more
@@ -202,6 +205,8 @@ func freezeHint(err error, windows bool) string {
 	switch {
 	case strings.Contains(s, "0x80042316"): // VSS_E_SNAPSHOT_SET_IN_PROGRESS
 		return hintVSSBusy
+	case strings.Contains(s, "0x80042302"), strings.Contains(s, "failed to initialize for backup"):
+		return hintVSSService
 	case strings.Contains(s, "0x80042304"), strings.Contains(s, "0x8004230f"), // VSS_E_PROVIDER_NOT_REGISTERED, VSS_E_UNEXPECTED_PROVIDER_ERROR
 		strings.Contains(s, "error in vss provider"), strings.Contains(s, "to snapshot set"):
 		return hintVSSProvider

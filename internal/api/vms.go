@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"path"
 	"strings"
@@ -457,11 +458,18 @@ func (s *Server) vmAction(w http.ResponseWriter, r *http.Request) {
 	if req.TimeoutSec > 0 && req.Action == "shutdown" {
 		var res shutdownOutcome
 		err := s.task(r, "shutdown", dom.Name, h.Name, func(progress func(float64)) (err error) {
+			sw, clk := clockBeforeShutdown(h, dom) // a waiting switch of the hardware clock (winclock.go)
 			res, err = shutdownWithTimeout(h, dom, time.Duration(req.TimeoutSec)*time.Second, req.Force, progress)
+			if sw != nil {
+				clk = sw.settle(0) // done when the guest went off by itself; not after a force off or when it still runs
+			}
 			if err != nil {
+				if clk != "" {
+					return fmt.Errorf("%w; %s", err, clk) // the failed task says the switch still waits
+				}
 				return err
 			}
-			return taskDone("%s", shutdownNote(res))
+			return taskDone("%s", joinFacts(shutdownNote(res), clk))
 		})
 		if err != nil {
 			fail(w, err)
@@ -505,10 +513,19 @@ func (s *Server) vmAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.task(r, req.Action, dom.Name, h.Name, func(func(float64)) error {
-		if err := fn(); err != nil {
+		clk := ""
+		var sw *shutdownSwitch
+		if req.Action == "shutdown" {
+			sw, clk = clockBeforeShutdown(h, dom) // a waiting switch of the hardware clock (winclock.go)
+		}
+		err := fn()
+		if sw != nil {
+			go s.settleLater(userOf(r), sw) // the shutdown is only sent here: the outcome is seen later
+		}
+		if err != nil {
 			return err
 		}
-		return taskDone("%s", powerNote(req.Action))
+		return taskDone("%s", joinFacts(powerNote(req.Action), clk))
 	}); err != nil {
 		fail(w, err)
 		return

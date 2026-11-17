@@ -15,6 +15,8 @@ type unattendConfig struct {
 	ComputerName string
 	User         string
 	Password     string
+	// UTCClock sets RealTimeIsUniversal in the specialize pass, for a VM whose hardware clock is in UTC.
+	UTCClock bool
 }
 
 var (
@@ -49,7 +51,12 @@ func (c unattendConfig) unattendXML() (string, error) {
 	const comp = `<component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">`
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<unattend xmlns=\"urn:schemas-microsoft-com:unattend\">\n")
-	fmt.Fprintf(&b, "  <settings pass=\"specialize\">\n    %s\n      <ComputerName>%s</ComputerName>\n    </component>\n  </settings>\n", comp, xmlText(c.ComputerName))
+	fmt.Fprintf(&b, "  <settings pass=\"specialize\">\n    %s\n      <ComputerName>%s</ComputerName>\n    </component>\n", comp, xmlText(c.ComputerName))
+	if c.UTCClock {
+		// Before the first logon, so Windows reads its UTC hardware clock right from the boot after this pass.
+		fmt.Fprintf(&b, "    <component name=\"Microsoft-Windows-Deployment\" processorArchitecture=\"amd64\" publicKeyToken=\"31bf3856ad364e35\" language=\"neutral\" versionScope=\"nonSxS\" xmlns:wcm=\"http://schemas.microsoft.com/WMIConfig/2002/State\">\n      <RunSynchronous>\n        <RunSynchronousCommand wcm:action=\"add\">\n          <Order>1</Order>\n          <Path>%s</Path>\n        </RunSynchronousCommand>\n      </RunSynchronous>\n    </component>\n", xmlText(regExe+" "+strings.Join(rtcAddArgs, " ")))
+	}
+	b.WriteString("  </settings>\n")
 	fmt.Fprintf(&b, "  <settings pass=\"oobeSystem\">\n    %s\n", comp)
 	b.WriteString("      <OOBE>\n        <HideEULAPage>true</HideEULAPage>\n        <HideLocalAccountScreen>true</HideLocalAccountScreen>\n        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>\n        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>\n        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>\n        <ProtectYourPC>3</ProtectYourPC>\n        <SkipMachineOOBE>true</SkipMachineOOBE>\n        <SkipUserOOBE>true</SkipUserOOBE>\n      </OOBE>\n")
 	fmt.Fprintf(&b, "      <UserAccounts>\n        <LocalAccounts>\n          <LocalAccount wcm:action=\"add\">\n            <Name>%s</Name>\n            <Group>Administrators</Group>\n            <Password>\n              <Value>%s</Value>\n              <PlainText>true</PlainText>\n            </Password>\n          </LocalAccount>\n        </LocalAccounts>\n      </UserAccounts>\n", xmlText(c.User), xmlText(c.Password))

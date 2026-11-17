@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { get, put, VMDetail } from "../api";
 import Select from "../Select";
 import { ErrorBox, Field, useAction, useConfirm } from "../ui";
+import Help from "../Help";
 import { OneLine } from "./Disclosure";
 
 export interface FwCaps {
@@ -24,12 +25,14 @@ export interface FwValues {
   tpm: boolean;
   diskBus: "virtio" | "sata";
   nicModel: "virtio" | "e1000e";
+  /** Windows only: the hardware clock in UTC (RealTimeIsUniversal set in the guest at the first shutdown). */
+  utcClock: boolean;
 }
 
-export const emptyFw: FwValues = { osType: "linux", firmware: defaultLinuxFirmware, secureBoot: false, tpm: false, diskBus: "virtio", nicModel: "virtio" };
+export const emptyFw: FwValues = { osType: "linux", firmware: defaultLinuxFirmware, secureBoot: false, tpm: false, diskBus: "virtio", nicModel: "virtio", utcClock: true };
 
 /** What the form sends; the server fills in the same defaults, this keeps the UI honest about them. */
-export const fwPayload = (v: FwValues) => ({ ...v });
+export const fwPayload = (v: FwValues) => ({ ...v, utcClock: v.osType === "windows" ? v.utcClock : undefined });
 
 /** The node's firmware abilities; undefined while loading. */
 export function useFwCaps(node: number) {
@@ -76,7 +79,7 @@ export function osDefaults(osType: FwValues["osType"], caps?: FwCaps): FwValues 
   if (osType === "windows") {
     // Windows 11 wants UEFI, Secure Boot and a TPM; SATA and e1000e install without extra drivers.
     const uefi = !!caps?.uefi;
-    return { osType, firmware: uefi ? "uefi" : "bios", secureBoot: uefi && !!caps?.secureBoot, tpm: !!caps?.tpm, diskBus: "sata", nicModel: "e1000e" };
+    return { osType, firmware: uefi ? "uefi" : "bios", secureBoot: uefi && !!caps?.secureBoot, tpm: !!caps?.tpm, diskBus: "sata", nicModel: "e1000e", utcClock: true };
   }
   const uefi = defaultLinuxFirmware === "uefi" && (!caps || caps.uefi);
   return { ...emptyFw, osType, firmware: uefi ? "uefi" : "bios" };
@@ -105,6 +108,27 @@ export function OsTypeField({ value, caps, onChange }: { value: FwValues; caps?:
       />
     </Field>
   );
+}
+
+/** What the "UTC hardware clock" setting of a Windows guest does; the same text in New VM and in the VM's settings. */
+const utcClockHelp =
+  "Windows keeps the hardware clock in UTC (RealTimeIsUniversal), so every start and restart has the right time. The change is made at the next Shut down from Virticle while the guest agent runs: Windows and the clock can only change over together while the VM is off. Off: the clock runs in local time and is synced through the guest agent after each start.";
+
+/** The "UTC hardware clock" checkbox of the New VM dialog, for a Windows guest. */
+export function UTCClockField({ value, onChange }: { value: FwValues; onChange: (v: FwValues) => void }) {
+  if (value.osType !== "windows") return null;
+  return (
+    <label className="check">
+      <input type="checkbox" checked={value.utcClock} onChange={(e) => onChange({ ...value, utcClock: e.target.checked })} /> UTC hardware clock
+      <Help label="About UTC hardware clock">{utcClockHelp}</Help>
+    </label>
+  );
+}
+
+interface ClockInfo {
+  windows: boolean;
+  utc: boolean;
+  pending?: "utc" | "localtime";
 }
 
 /** Firmware, Secure Boot, TPM and (for Windows) disk bus and network card, for the dialog's Advanced section. */
@@ -173,9 +197,21 @@ export default function FirmwareCard({ d, base, onChanged, bare }: { d: VMDetail
   const confirm = useConfirm();
   const [caps, setCaps] = useState<FwCaps | undefined>();
   const [outcome, setOutcome] = useState<string | undefined>();
+  const [clk, setClk] = useState<ClockInfo | undefined>();
   useEffect(() => {
     get<FwCaps>(`/nodes/${d.node}/firmware-caps`).then(setCaps).catch(() => {});
   }, [d.node]);
+  const loadClock = () => get<ClockInfo>(`${base}/clock`).then(setClk, () => setClk(undefined));
+  useEffect(() => {
+    loadClock();
+  }, [base, d.state]);
+  const setUTC = (utc: boolean) =>
+    act.run(async () => {
+      const r = await put<{ note?: string }>(`${base}/clock`, { utc });
+      setOutcome(`UTC hardware clock ${utc ? "on" : "off"}. ${r.note ?? ""}`.trim());
+      await loadClock();
+      onChanged();
+    });
   const off = d.state === "shutoff";
   const fw = d.fw;
   const hasTPM = !!fw?.tpmModel || d.tpm;
@@ -206,6 +242,18 @@ export default function FirmwareCard({ d, base, onChanged, bare }: { d: VMDetail
         )}
         <dt>TPM</dt>
         <dd>{hasTPM ? `emulated ${fw?.tpmVersion ? "TPM " + fw.tpmVersion : "TPM"}${fw?.tpmModel ? ` (${fw.tpmModel})` : ""}` : "none"}</dd>
+        {clk?.windows && (
+          <>
+            <dt>Hardware clock</dt>
+            <dd className="hwclock">
+              <label className="check">
+                <input type="checkbox" checked={clk.utc} disabled={act.busy} onChange={(e) => setUTC(e.target.checked)} /> UTC
+              </label>
+              {clk.pending && <span className="badge s-pending">Pending</span>}
+              <Help label="About UTC hardware clock">{utcClockHelp}</Help>
+            </dd>
+          </>
+        )}
       </dl>
       <div className="actions" style={{ marginTop: 10 }}>
         {hasTPM ? (

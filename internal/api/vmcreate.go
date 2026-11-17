@@ -27,10 +27,14 @@ type createVMRequest struct {
 	SecureBoot bool `json:"secureBoot"`
 	TPM        bool `json:"tpm"`
 	// OSType is a hint ("linux", the default, or "windows") that picks
-	// devices: Windows gets Hyper-V enlightenments, a local-time clock, and
+	// devices: Windows gets Hyper-V enlightenments, a local-time clock that
+	// becomes UTC at its first shutdown by Virticle with the agent connected, and
 	// SATA disk and e1000e NIC unless DiskBus / NICModel say otherwise
 	// (virtio needs the virtio-win driver during Windows setup).
-	OSType   string `json:"osType"`
+	OSType string `json:"osType"`
+	// UTCClock is the "UTC hardware clock" setting of a Windows guest; absent means on. Off keeps the
+	// local-time clock with the sync after a start. Ignored for other guests.
+	UTCClock *bool  `json:"utcClock"`
 	DiskBus  string `json:"diskBus"`  // virtio | sata
 	NICModel string `json:"nicModel"` // virtio | e1000e
 	// Disk: a new volume "<name>.qcow2" in Pool. With BaseVolume set it
@@ -80,6 +84,12 @@ type cloudInitRequest struct {
 func seedVolumeName(vm string) string { return vm + "-seed.iso" }
 
 var vmNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// utcClock says whether a new VM gets the switch to a UTC hardware clock: a Windows guest, unless the request
+// turns it off.
+func (q createVMRequest) utcClock() bool {
+	return q.OSType == "windows" && (q.UTCClock == nil || *q.UTCClock)
+}
 
 // normalize fills in the defaults the OS hint implies.
 func (q *createVMRequest) normalize() error {
@@ -378,6 +388,12 @@ func (s *Server) createVM(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		uuid = cluster.FormatUUID(dom.UUID)
+		if q.utcClock() {
+			// Local time until the first shutdown by Virticle with the agent connected, then UTC (winclock.go).
+			if err := setClockSwitch(h, dom, "utc"); err != nil {
+				warnings = append(warnings, "The hardware clock stays in local time: "+err.Error())
+			}
+		}
 		if q.Firmware == "uefi" {
 			if note := useQcow2Nvram(h, dom); note != "" {
 				warnings = append(warnings, note)

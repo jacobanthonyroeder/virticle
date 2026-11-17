@@ -252,9 +252,16 @@ Good to know:
 | Replication | Keep a standby copy on another node ([Replication and failover](#replication-and-failover)). |
 | More | **Edit XML**, and **Delete VM** (shut the VM down first; its disks are deleted too unless you untick the box). |
 
-Sync guest clock is under **Power**. A guest whose hardware clock runs in local time (Windows) gets its clock synced by
-itself after every start (also a clone, a restore, a failover, or a start by the node at boot), once its guest agent
-answers.
+Sync guest clock is under **Power**. A Windows guest, and any guest whose hardware clock runs in local time, gets its
+clock synced by itself after every start (also a clone, a restore, a failover, or a start by the node at boot), once
+its guest agent answers.
+
+**UTC hardware clock** (Windows guests) is a box in **New VM**, on by default, and in **Edit Settings > Firmware and
+TPM**. On: Windows keeps its hardware clock in UTC (`RealTimeIsUniversal`), so every start and restart has the right
+time. A change, and the first switch of a new VM, is made at the next **Shutdown (graceful)** from Virticle while the
+guest agent runs; until then the box shows `● Pending`, and the shutdown task, or a **change clock** task after it, says when it is done (not after a force off). Off: the clock
+runs in local time and is synced after each start. A clone keeps the source's setting; a clone with guest setup of a
+sealed Windows template is on UTC from the start. VMs made by an older Virticle show the box off and keep their clock.
 
 **Guest setup on clone.** When you open **Guest setup** in the clone dialog, Virticle looks into the source's disk
 (a few seconds) and says how the settings reach the clone:

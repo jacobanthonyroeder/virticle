@@ -368,6 +368,21 @@ file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
 
+### From 0.6.1 to 0.6.2
+
+1. **Upgrade the controller** as above. The database schema (8) and the node command protocol (23) do not change.
+2. **Nodes with a bridge set up by hand: prepare them once more** (**Settings > Prepare this node**). The node
+   command of 0.6.2 no longer reads such a bridge as not editable while a VM runs on it.
+
+What changes by itself:
+
+| What | After the upgrade |
+| --- | --- |
+| New Windows VMs | **UTC hardware clock** is on: the VM changes over to a UTC hardware clock at its first **Shutdown (graceful)** from Virticle while the guest agent runs. Untick the box in New VM to keep local time. |
+| Windows VMs made before | Show **UTC hardware clock** off and keep their local-time clock. Tick it in **Edit Settings > Firmware and TPM** to change over at the next shutdown. |
+| Windows guests, after each start | One registry query through the guest agent; guests on a UTC clock get the clock sync too. |
+| Guest setup on a clone of a Windows VM made by Virticle | Offers the Windows answer file. Before, it offered cloud-init. |
+
 ### From 0.6.0 to 0.6.1
 
 1. **Upgrade the controller** as above. The database schema (8) and the node command protocol (23) do not change, so

@@ -250,6 +250,8 @@ func TestFreezeHint(t *testing.T) {
 		{agentErr("timeout when try to receive Frozen event from VSS provider: Windows error 0x80004005"), true, hintVSSSlow},
 		{agentErr("couldn't receive Frozen event from VSS provider: Windows error 0x6"), false, hintVSSSlow},
 		{agentErr("failed to load requester_freeze from qga-vss.dll"), true, hintVSSMissing},
+		// Windows 11 26H2 with the Volume Shadow Copy service disabled (lab run 2026-11-17)
+		{agentErr("failed to initialize for backup: Windows error 0x80042302: "), true, hintVSSService},
 		{&freezeLate{errors.New("the guest did not freeze within 2 minutes")}, true, hintVSSSlow},
 		{&freezeLate{errors.New("the guest did not freeze within 2 minutes")}, false, ""},
 		{&freezeNotTried{errors.New("the guest agent cannot freeze file systems")}, true, hintVSSMissing},
@@ -279,7 +281,7 @@ func TestFreezeHint(t *testing.T) {
 // When the Windows agent's thaw says VSS let writes go on after 10 seconds, the backup is not called frozen.
 func TestFreezeLapsedOnWindows(t *testing.T) {
 	thawPause = time.Millisecond
-	lapse := errors.New("internal error: unable to execute QEMU agent command 'guest-fsfreeze-thaw': couldn't hold writes: fsfreeze is limited up to 10 seconds: Windows error 0x8004231f")
+	lapse := errors.New("internal error: unable to execute QEMU agent command 'guest-fsfreeze-thaw': couldn't hold writes: fsfreeze is limited up to 10 seconds: Windows error 0x80042314: ") // the text on Windows 11 26H2
 	f := &fakeFreezer{thawErrs: []error{lapse, nil}}
 	out, err := withFrozenGuest(nil, true, f, func() error { return nil })
 	if err != nil || out.ThawErr != nil {
