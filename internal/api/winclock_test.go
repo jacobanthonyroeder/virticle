@@ -226,4 +226,8 @@ func TestSwitchWaitsNotes(t *testing.T) {
 	if got := c.finish(poweredOff, nil); got != "hardware clock change still waits: the VM was powered off" {
 		t.Fatal(got)
 	}
+	// started again between two looks: the guest is not touched (c.h is nil: any call into it would panic)
+	if got := c.finish(startedAgain, nil); got != "hardware clock change still waits: the VM was started again" {
+		t.Fatal(got)
+	}
 }

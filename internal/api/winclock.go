@@ -232,6 +232,7 @@ type shutdownSwitch struct {
 	h   *hostconn.Host
 	dom libvirt.Domain
 	sw  string // "utc" or "localtime": the offset the definition gets when the guest has shut down
+	id  int32  // the running domain's id: another id means it went off and was started again
 }
 
 // clockSettleWait is how long a plain Shut down is watched for the guest to go off before the value is taken back.
@@ -269,7 +270,11 @@ func clockBeforeShutdown(h *hostconn.Host, dom libvirt.Domain) (*shutdownSwitch,
 		log.Printf("clock of %s: %v", dom.Name, err)
 		return nil, switchFailNote(offset, sw, err)
 	}
-	return &shutdownSwitch{h: h, dom: dom, sw: sw}, ""
+	c := &shutdownSwitch{h: h, dom: dom, sw: sw, id: -1}
+	if cur, err := h.DomainLookupByUUID(dom.UUID); err == nil {
+		c.id = cur.ID
+	}
+	return c, ""
 }
 
 // shutoffHow says how a domain's shutdown ended.
@@ -279,14 +284,18 @@ const (
 	stillRunning shutoffHow = iota
 	wentOff                 // the guest shut down by itself: what it wrote is on its disk
 	poweredOff              // forced off, crashed or anything else: the value may not have reached the disk
+	startedAgain            // it went off and was started again between two looks: how it went off is not known
 )
 
-func shutoffState(h *hostconn.Host, dom libvirt.Domain) (shutoffHow, error) {
+func shutoffState(h *hostconn.Host, dom libvirt.Domain, id int32) (shutoffHow, error) {
 	state, reason, err := h.DomainGetState(dom, 0)
 	if err != nil {
 		return stillRunning, err
 	}
 	if libvirt.DomainState(state) != libvirt.DomainShutoff {
+		if cur, err := h.DomainLookupByUUID(dom.UUID); err == nil && id > 0 && cur.ID != id {
+			return startedAgain, nil
+		}
 		return stillRunning, nil
 	}
 	if libvirt.DomainShutoffReason(reason) == libvirt.DomainShutoffShutdown {
@@ -304,10 +313,10 @@ func shutoffState(h *hostconn.Host, dom libvirt.Domain) (shutoffHow, error) {
 //     switch keeps waiting.
 func (c *shutdownSwitch) settle(wait time.Duration) string {
 	deadline := time.Now().Add(wait)
-	how, err := shutoffState(c.h, c.dom)
+	how, err := shutoffState(c.h, c.dom, c.id)
 	for err == nil && how == stillRunning && time.Now().Before(deadline) {
 		time.Sleep(time.Second)
-		how, err = shutoffState(c.h, c.dom)
+		how, err = shutoffState(c.h, c.dom, c.id)
 	}
 	return c.finish(how, err)
 }
@@ -330,6 +339,9 @@ func (c *shutdownSwitch) finish(how shutoffHow, err error) string {
 		return switchNote(c.sw)
 	case poweredOff:
 		return switchWaitsNote("the VM was powered off")
+	case startedAgain:
+		// The running guest may have booted with the value already: it is not taken back.
+		return switchWaitsNote("the VM was started again")
 	}
 	if err := setGuestRTCUniversal(c.h, c.dom, c.sw != "utc"); err != nil {
 		log.Printf("clock of %s: putting %s back: %v", c.dom.Name, rtcValue, err)
