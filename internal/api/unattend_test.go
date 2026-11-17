@@ -42,8 +42,8 @@ func TestUnattendXML(t *testing.T) {
 
 func TestUnattendValidate(t *testing.T) {
 	bad := []unattendConfig{
-		{"", "a", "p"}, {"TOOLONGCOMPUTERNAME1", "a", "p"}, {"123", "a", "p"}, {"a_b", "a", "p"},
-		{"ok", "", "p"}, {"ok", "a/b", "p"}, {"ok", "a", ""}, {"ok", "<x>", "p"},
+		{"", "a", "p", false}, {"TOOLONGCOMPUTERNAME1", "a", "p", false}, {"123", "a", "p", false}, {"a_b", "a", "p", false},
+		{"ok", "", "p", false}, {"ok", "a/b", "p", false}, {"ok", "a", "", false}, {"ok", "<x>", "p", false},
 	}
 	for _, c := range bad {
 		if _, err := c.unattendXML(); err == nil {

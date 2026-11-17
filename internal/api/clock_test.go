@@ -100,21 +100,21 @@ func TestLocalTimeClockKeptByRestore(t *testing.T) {
 func TestClockClaims(t *testing.T) {
 	key := "n/test-clock-claims"
 	defer releaseClockSync(key)
-	if !claimClockSync(key, clockClaim{"system", "start", guestClockSkew}) {
+	if !claimClockSync(key, clockClaim{"system", "start", guestClockSkew, true}) {
 		t.Fatal("first claim refused")
 	}
-	if claimClockSync(key, clockClaim{"alice", "start", guestClockSkew}) {
+	if claimClockSync(key, clockClaim{"alice", "start", guestClockSkew, true}) {
 		t.Fatal("second claim for the same VM accepted")
 	}
 	if c := clockClaimOf(key); c.user != "alice" || c.why != "start" || c.minSkew != guestClockSkew {
 		t.Errorf("after the person's claim: %+v", c)
 	}
-	claimClockSync(key, clockClaim{"system", "resume", 0})
-	if c := clockClaimOf(key); c.user != "alice" || c.why != "resume" || c.minSkew != 0 {
+	claimClockSync(key, clockClaim{"system", "resume", 0, false})
+	if c := clockClaimOf(key); c.user != "alice" || c.why != "resume" || c.minSkew != 0 || !c.boot {
 		t.Errorf("after a resume: %+v", c)
 	}
 	releaseClockSync(key)
-	if !claimClockSync(key, clockClaim{"bob", "start", guestClockSkew}) {
+	if !claimClockSync(key, clockClaim{"bob", "start", guestClockSkew, true}) {
 		t.Error("a claim after the release is refused")
 	}
 }

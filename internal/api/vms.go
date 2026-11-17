@@ -457,11 +457,12 @@ func (s *Server) vmAction(w http.ResponseWriter, r *http.Request) {
 	if req.TimeoutSec > 0 && req.Action == "shutdown" {
 		var res shutdownOutcome
 		err := s.task(r, "shutdown", dom.Name, h.Name, func(progress func(float64)) (err error) {
+			clk := utcAtShutdown(h, dom)
 			res, err = shutdownWithTimeout(h, dom, time.Duration(req.TimeoutSec)*time.Second, req.Force, progress)
 			if err != nil {
 				return err
 			}
-			return taskDone("%s", shutdownNote(res))
+			return taskDone("%s", joinFacts(shutdownNote(res), clk))
 		})
 		if err != nil {
 			fail(w, err)
@@ -505,10 +506,14 @@ func (s *Server) vmAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.task(r, req.Action, dom.Name, h.Name, func(func(float64)) error {
+		clk := ""
+		if req.Action == "shutdown" {
+			clk = utcAtShutdown(h, dom) // a new Windows VM switches to a UTC clock (winclock.go)
+		}
 		if err := fn(); err != nil {
 			return err
 		}
-		return taskDone("%s", powerNote(req.Action))
+		return taskDone("%s", joinFacts(powerNote(req.Action), clk))
 	}); err != nil {
 		fail(w, err)
 		return

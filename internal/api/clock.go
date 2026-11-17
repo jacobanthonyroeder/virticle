@@ -132,7 +132,7 @@ func setClockSync(h *hostconn.Host, dom libvirt.Domain, on bool) error {
 // off, and never reports to the caller: a failure is logged and shows up as
 // a failed task of its own.
 func (s *Server) autoSyncClock(user, why string, h *hostconn.Host, dom libvirt.Domain) {
-	go s.syncClockWhenAgent(user, why, h, dom, 30*time.Second, time.Second, 0)
+	go s.syncClockWhenAgent(user, why, h, dom, 30*time.Second, time.Second, 0, false)
 }
 
 // How long a start waits for the agent of a guest with a local-time hardware
@@ -155,32 +155,43 @@ func (s *Server) syncClockAfterStart(user string, h *hostconn.Host, dom libvirt.
 	s.syncLocalTimeClock(user, "start", h, dom)
 }
 
-// syncLocalTimeClock is syncClockAfterStart with the reason the task note gives.
+// syncLocalTimeClock is syncClockAfterStart with the reason the task note gives. It also covers a Windows guest
+// with a UTC hardware clock: its RealTimeIsUniversal is checked first (winclock.go), and a guest without it is off
+// by its zone until the sync.
 func (s *Server) syncLocalTimeClock(user, why string, h *hostconn.Host, dom libvirt.Domain) {
 	raw, err := h.DomainGetXMLDesc(dom, 0)
-	if err != nil || !localTimeClock(raw) {
+	if err != nil || !startClockCheck(raw) {
 		return
 	}
-	go s.syncClockWhenAgent(user, why, h, dom, startAgentWait, startAgentPoll, guestClockSkew)
+	go s.syncClockWhenAgent(user, why, h, dom, startAgentWait, startAgentPoll, guestClockSkew, true)
 }
 
 // localTimeClock reports whether a definition keeps the guest's hardware clock in local time.
 func localTimeClock(domXML string) bool { return domxml.ClockOffset(domXML) == "localtime" }
 
+// startClockCheck reports whether a start can leave the guest's clock wrong: a local-time hardware clock, or a
+// Windows guest.
+func startClockCheck(domXML string) bool {
+	family, _, _ := guessOS(domXML)
+	return localTimeClock(domXML) || family == "windows"
+}
+
 // syncClockWhenAgent waits up to wait for the agent and syncs the guest's
-// clock when it is off by more than minSkew (0: always).
-func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libvirt.Domain, wait, poll, minSkew time.Duration) {
+// clock when it is off by more than minSkew (0: always). boot says the guest
+// has just booted: a Windows guest's RealTimeIsUniversal is made to match its
+// definition first.
+func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libvirt.Domain, wait, poll, minSkew time.Duration, boot bool) {
 	defer func() {
 		if p := recover(); p != nil {
 			log.Printf("clock sync after %s: %v", why, p)
 		}
 	}()
 	key := h.Name + "/" + cluster.FormatUUID(dom.UUID)
-	if !claimClockSync(key, clockClaim{user, why, minSkew}) {
+	if !claimClockSync(key, clockClaim{user, why, minSkew, boot}) {
 		return // one waits for this VM already and has taken this one's reason over
 	}
 	defer releaseClockSync(key)
-	if !clockSyncOn(h, dom) {
+	if !boot && !clockSyncOn(h, dom) {
 		return
 	}
 	deadline := time.Now().Add(wait)
@@ -192,6 +203,12 @@ func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libv
 	}
 	c := clockClaimOf(key)
 	user, why, minSkew = c.user, c.why, c.minSkew
+	if c.boot {
+		s.alignWindowsRTC(user, h, dom)
+	}
+	if !clockSyncOn(h, dom) {
+		return
+	}
 	if minSkew > 0 {
 		now := nodeClock(h)
 		g, err := guestTime(h, dom)
@@ -220,6 +237,7 @@ func (s *Server) syncClockWhenAgent(user, why string, h *hostconn.Host, dom libv
 type clockClaim struct {
 	user, why string
 	minSkew   time.Duration
+	boot      bool // the guest has just booted
 }
 
 var clockSyncs = struct {
@@ -249,6 +267,7 @@ func mergeClockClaim(p, c clockClaim) clockClaim {
 	if c.minSkew < p.minSkew {
 		p.minSkew, p.why = c.minSkew, c.why
 	}
+	p.boot = p.boot || c.boot
 	return p
 }
 
@@ -278,6 +297,8 @@ type clockInfo struct {
 	Guest       string `json:"guest,omitempty"`
 	SkewMs      *int64 `json:"skewMs,omitempty"`
 	GuestStatus string `json:"guestStatus,omitempty"`
+	// UTCPending: a new Windows VM whose saved offset becomes utc at its next shutdown by Virticle.
+	UTCPending bool `json:"utcPending,omitempty"`
 }
 
 func (s *Server) vmClock(w http.ResponseWriter, r *http.Request) {
@@ -286,7 +307,7 @@ func (s *Server) vmClock(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	out := clockInfo{Sync: clockSyncOn(h, dom)}
+	out := clockInfo{Sync: clockSyncOn(h, dom), UTCPending: utcPending(h, dom)}
 	if raw, err := h.DomainGetXMLDesc(dom, libvirt.DomainXMLInactive); err == nil {
 		out.Saved = domxml.ClockOffset(raw)
 	}
@@ -351,6 +372,10 @@ func (s *Server) hwClock(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Offset == "" {
 			return taskDone("%s", clockChangeNote("", req.Sync, res))
+		}
+		// An offset chosen by hand ends the wait of a new Windows VM for its UTC clock.
+		if err := setUTCPending(c.h, c.dom, false); err != nil {
+			return err
 		}
 		raw, err := c.h.DomainGetXMLDesc(c.dom, libvirt.DomainXMLInactive)
 		if err != nil {

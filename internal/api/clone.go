@@ -14,6 +14,7 @@ import (
 
 	"virticle/internal/cloudinit"
 	"virticle/internal/cluster"
+	"virticle/internal/domxml"
 	"virticle/internal/hostconn"
 )
 
@@ -40,6 +41,14 @@ type cloneCustomize struct {
 	// above override or extend; see mergeProfile.
 	Profile      int64 `json:"profile"`
 	passwordHash string
+	utcClock     bool // Windows: the answer file sets RealTimeIsUniversal (utcSetupClone)
+}
+
+// utcSetupClone says whether a clone gets a UTC hardware clock: a clone with Windows guest setup of a sealed
+// Windows template, where the answer file runs in the specialize pass and sets RealTimeIsUniversal before the
+// first logon. Every other clone keeps the source's clock.
+func utcSetupClone(guest string, mark templateMark) bool {
+	return guest == "windows" && mark.Sealed == "windows"
 }
 
 const (
@@ -89,7 +98,7 @@ func buildSeed(guest, cloneName string, c cloneCustomize) ([]byte, error) {
 		if len(c.SSHKeys) > 0 || len(c.Packages) > 0 {
 			return nil, badRequest("Windows unattended setup supports a computer name, an administrator account and its password only (no SSH keys or packages)")
 		}
-		img, err := unattendConfig{ComputerName: host, User: c.User, Password: c.Password}.image()
+		img, err := unattendConfig{ComputerName: host, User: c.User, Password: c.Password, UTCClock: c.utcClock}.image()
 		if err != nil {
 			return nil, badRequest(err.Error())
 		}
@@ -248,6 +257,7 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 				Packages: cfg.Packages, RawUserData: cfg.RawUserData, passwordHash: cfg.PasswordHash}
 		}
 		if diskReq == "" {
+			c.utcClock = utcSetupClone(guest, mark)
 			if seed, err = buildSeed(guest, q.Name, c); err != nil {
 				fail(w, err)
 				return
@@ -376,6 +386,11 @@ func (s *Server) vmClone(w http.ResponseWriter, r *http.Request) {
 		newXML, err := cloneDomainXML(raw, edit)
 		if err != nil {
 			return rollback(err)
+		}
+		if seed != nil && utcSetupClone(guest, mark) && domxml.ClockOffset(newXML) == "localtime" {
+			if newXML, err = domxml.SetClockOffset(newXML, "utc"); err != nil {
+				return rollback(err)
+			}
 		}
 		if n, ok := parseNvramEl(raw); ok && n.Format == "qcow2" {
 			// The source's qcow2 store names itself as template; the clone's

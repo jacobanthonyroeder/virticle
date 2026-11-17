@@ -27,7 +27,8 @@ type createVMRequest struct {
 	SecureBoot bool `json:"secureBoot"`
 	TPM        bool `json:"tpm"`
 	// OSType is a hint ("linux", the default, or "windows") that picks
-	// devices: Windows gets Hyper-V enlightenments, a local-time clock, and
+	// devices: Windows gets Hyper-V enlightenments, a local-time clock that
+	// becomes UTC at its first shutdown by Virticle with the agent connected, and
 	// SATA disk and e1000e NIC unless DiskBus / NICModel say otherwise
 	// (virtio needs the virtio-win driver during Windows setup).
 	OSType   string `json:"osType"`
@@ -378,6 +379,12 @@ func (s *Server) createVM(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		uuid = cluster.FormatUUID(dom.UUID)
+		if q.OSType == "windows" {
+			// Local time until the first shutdown by Virticle with the agent connected, then UTC (winclock.go).
+			if err := setUTCPending(h, dom, true); err != nil {
+				warnings = append(warnings, "The hardware clock stays in local time: "+err.Error())
+			}
+		}
 		if q.Firmware == "uefi" {
 			if note := useQcow2Nvram(h, dom); note != "" {
 				warnings = append(warnings, note)
