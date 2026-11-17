@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -87,6 +88,10 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 		fail(w, store.ErrNotFound)
 		return
 	}
+	if busy := s.nodeBusy(id); busy != "" {
+		conflict(w, busy)
+		return
+	}
 	s.dropReplicationTo(id) // the VMs that were copied to this node stop being copied: the copy is out of reach
 	s.dropPeerTrust(id)     // best effort: the node's key and host key on the other nodes
 	if err := s.Store.DeleteNode(id); err != nil {
@@ -96,6 +101,27 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 	s.Nodes.Remove(id)
 	s.Nodes.Publish(cluster.Event{Type: "node", Node: id, Detail: "removed"})
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// nodeBusy says why a node cannot be removed right now ("" when it can). Removing a node closes the controller's
+// connection to it, and work in flight would be cut where it stands: a backup could leave a guest frozen, a
+// migration could stop in its hand-over. The VMs themselves are not touched by a removal.
+func (s *Server) nodeBusy(id int64) string {
+	if runs, err := s.Store.MigRuns(); err == nil {
+		for _, r := range runs {
+			if r.Owner == workOwner && (r.Src == id || r.Dst == id) && (r.State == store.MigPrepare || r.State == store.MigSwitching) {
+				return fmt.Sprintf("the migration of %s between %s and %s is running; remove the node when it has ended", r.Name, r.SrcName, r.DstName)
+			}
+		}
+	}
+	st, ok := s.nodeStatus(id)
+	if !ok {
+		return ""
+	}
+	if kind, target := s.Store.RunningTaskOn(st.Hostname, st.Addr); kind != "" {
+		return fmt.Sprintf("the task %q on %s is running on this node; remove the node when it has ended", kind, target)
+	}
+	return ""
 }
 
 type nodeInfo struct {

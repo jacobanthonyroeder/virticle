@@ -368,6 +368,26 @@ file name (find it with `journalctl -u virticle`, look for `database schema`).
 The copy is a consistent single file, the newest 3 are kept, and no copy is
 made when the schema version does not change.
 
+### From 0.6.0 to 0.6.1
+
+1. **Upgrade the controller** as above. The database schema (8) and the node command protocol (23) do not change, so
+   no node is marked **Virticle update needed** and no database copy is made.
+2. **Nodes with VMs or pools on NFS: prepare them once more** (**Settings > Prepare this node** on the node, or
+   `virticle node prepare admin@host`). The node command of 0.6.1 removes a file on NFS in a safer way; a node that
+   keeps the 0.6.0 node command works as before.
+
+What changes by itself:
+
+| What | After the upgrade |
+| --- | --- |
+| A user's failed task | Its alert goes to the notification destinations. Alerts that are open at the upgrade may be sent once more. |
+| A backup of a Windows guest whose freeze Windows released after 10 seconds | Reads **not frozen**. Before, it read frozen. |
+| Guest clock | Synced after every start the node reports and when a node connects, for guests with a local-time hardware clock. |
+| Restore with **Replace** | Refused when linked clones depend on the old VM's disks; read-only and shareable disks of the old VM are not deleted. |
+| Controller backups in the folder | Thinning out counts only the copies made under this host name. |
+| Remove node | Refused while a task or a migration runs on the node. |
+| `virticle setup` and `node prepare` | A missing `/dev/kvm` on a capable CPU no longer stops them: the KVM module is loaded and kept in `/etc/modules-load.d/virticle.conf`. The boot loader is never changed; needed kernel arguments are named. |
+
 ### From 0.5.x to 0.6.0
 
 1. **Upgrade the controller** as above. Stop the old controller first; two controllers of different versions must never

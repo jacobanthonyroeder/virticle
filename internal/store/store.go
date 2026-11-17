@@ -198,6 +198,19 @@ func (t *Task) noteOfOK() {
 	}
 }
 
+// RunningTaskOn returns the kind and target of one task that is running on a node named by one of names ("" when none).
+func (s *Store) RunningTaskOn(names ...string) (kind, target string) {
+	for _, n := range names {
+		if n == "" {
+			continue
+		}
+		if s.db.QueryRow(`SELECT kind, target FROM tasks WHERE status='running' AND node=? LIMIT 1`, n).Scan(&kind, &target) == nil {
+			return kind, target
+		}
+	}
+	return "", ""
+}
+
 func (s *Store) Tasks(limit int) ([]Task, error) {
 	rows, err := s.db.Query(`SELECT id, kind, target, node, username, status, error, progress, started, finished, `+fmt.Sprintf(opCount, "tasks", "tasks")+` FROM tasks ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
