@@ -296,6 +296,12 @@ func (c *Ctx) nmRecognise(snap *netSnap, l *netLink) *foreignDef {
 		if p == bridge {
 			continue
 		}
+		// The profile NetworkManager makes in memory for a device something else set up: the tap of a running VM
+		// (libvirt puts it on the bridge) or a container's veth. It names the bridge as its controller, is not a card
+		// and is not saved, so it says nothing about how the bridge is defined.
+		if (p.Type == "tun" || p.Type == "veth") && strings.HasPrefix(p.File, "/run/") {
+			continue
+		}
 		if p.secs == nil {
 			if strings.HasSuffix(p.File, ".nmconnection") || p.Device == br || p.Type == "loopback" || p.File == "" {
 				continue

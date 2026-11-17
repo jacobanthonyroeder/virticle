@@ -175,6 +175,25 @@ func TestNMForeignRecognisedAndTakenOver(t *testing.T) {
 	}
 }
 
+// A running VM's tap on the bridge has a profile NetworkManager made in memory; the bridge stays editable.
+func TestNMForeignIgnoresVMTapProfile(t *testing.T) {
+	n := newNMForeign(t, nmBrKeyfile, nmPortKeyfile)
+	const key = "nmcli -t -f UUID,TYPE,ACTIVE,DEVICE,FILENAME,NAME connection show"
+	n.putAll("run/NetworkManager/system-connections/vnet7.nmconnection",
+		"[connection]\nid=vnet7\nuuid=dddddddd-0000-4000-8000-000000000007\ntype=tun\ncontroller="+nmBrUUID+"\ninterface-name=vnet7\nport-type=bridge\n\n[tun]\nmode=2\n\n[bridge-port]\n")
+	n.f.outputs[key] += "dddddddd-0000-4000-8000-000000000007:tun:yes:vnet7:/run/NetworkManager/system-connections/vnet7.nmconnection:vnet7\n"
+	if b := n.bridge("br0"); !b.Managed || b.NotEditable != "" {
+		t.Fatalf("br0 %+v", b)
+	}
+	// saved on disk it is someone's own port definition: not ignored
+	n.f.outputs[key] = strings.Replace(n.f.outputs[key], "/run/NetworkManager/system-connections/vnet7", "/etc/NetworkManager/system-connections/vnet7", 1)
+	n.putAll(nmKF+"vnet7.nmconnection",
+		"[connection]\nid=vnet7\nuuid=dddddddd-0000-4000-8000-000000000007\ntype=tun\ncontroller="+nmBrUUID+"\ninterface-name=vnet7\nport-type=bridge\n\n[tun]\nmode=2\n\n[bridge-port]\n")
+	if b := n.bridge("br0"); b.NotEditable != "Port profile vnet7 not supported" {
+		t.Fatalf("saved tap profile: %+v", b)
+	}
+}
+
 func TestNMForeignConfirmedIsManaged(t *testing.T) {
 	n := newNMForeign(t, nmBrKeyfile, nmPortKeyfile)
 	n.f.onRun = nil
